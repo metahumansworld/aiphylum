@@ -1,0 +1,36 @@
+{{template "top" "replay"}}
+
+<h1>replay <span class="sub">{{.View.TracePath}}</span></h1>
+
+<div class="controls">
+  <button id="play">▶</button>
+  <input id="scrub" type="range" min="0" max="0" value="0">
+  <span id="pos" class="mono"></span>
+  <select id="speed">
+    <option value="400">slow</option>
+    <option value="150" selected>walk</option>
+    <option value="40">run</option>
+  </select>
+  <span class="sub">←/→ step · space plays</span>
+</div>
+
+<div class="replay">
+  <aside class="state">
+    <div class="counters">
+      <div class="card"><span class="k">round</span><span class="v" id="st-round">—</span></div>
+      <div class="card"><span class="k">solved</span><span class="v" id="st-solved">0</span></div>
+      <div class="card"><span class="k">metered</span><span class="v" id="st-spent">0</span></div>
+    </div>
+    <h2>agents</h2>
+    <div id="st-agents"></div>
+    <h2>board</h2>
+    <div id="st-board"></div>
+    <p class="sub mono" id="st-conservation"></p>
+  </aside>
+  <section class="log" id="log"></section>
+</div>
+
+<script>window.EVENTS = {{.Events}};</script>
+<script src="/static/replay.js"></script>
+
+{{template "bottom"}}

@@ -1,0 +1,71 @@
+{{template "top" "board"}}
+
+<h1>AI Agent Dungeon</h1>
+<p class="sub">
+  episode of {{.Episode.Rounds}} rounds · {{len .Bounties}} bounties ·
+  {{.CallCount}} model calls metered at {{.CallSpend}} ·
+  trace <code>{{.TracePath}}</code>
+</p>
+
+<section>
+  <h2>efficiency ladder</h2>
+  <table>
+    <thead><tr>
+      <th>#</th><th>agent</th><th class="num">attempts</th><th class="num">successes</th>
+      <th class="num">tiers</th><th class="num">earned</th><th class="num">burned</th>
+      <th class="num">efficiency</th><th>fate</th>
+    </tr></thead>
+    <tbody>
+    {{$v := .}}
+    {{range $i, $row := .Ladder}}
+      {{$a := $v.Agent $row.Agent}}
+      <tr>
+        <td>{{if $row.Ranked}}{{add1 $i}}{{else}}—{{end}}</td>
+        <td><a href="/agent/{{$row.Agent}}">{{$row.Agent}}</a></td>
+        <td class="num">{{$row.Attempts}}</td>
+        <td class="num">{{$row.Successes}}</td>
+        <td class="num">{{$row.Tiers}}</td>
+        <td class="num">{{cr $row.Earned}}</td>
+        <td class="num">{{cr $row.Burned}}</td>
+        <td class="num">{{if $row.Ranked}}{{eff $row.Efficiency}}{{else}}unranked{{end}}</td>
+        <td>{{if $a}}{{if $a.Bankrupt}}<span class="badge dead">☠ bankrupt</span>{{else}}<span class="badge alive">alive · {{$a.Balance}}</span>{{end}}{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{range .Agents}}{{if not (laddered $ .ID)}}
+    <p class="sub">+ <a href="/agent/{{.ID}}">{{.ID}}</a> never reached the ladder
+      {{if .Bankrupt}}<span class="badge dead">☠ bankrupt</span>{{end}}</p>
+  {{end}}{{end}}
+</section>
+
+<section>
+  <h2>bounty board</h2>
+  <table>
+    <thead><tr>
+      <th>bounty</th><th>generator</th><th class="num">tier</th><th class="num">max payout</th>
+      <th>status</th><th>solved by</th><th class="num">payout</th><th class="num">failures</th>
+    </tr></thead>
+    <tbody>
+    {{range .Bounties}}
+      <tr>
+        <td><a href="/bounty/{{.ID}}">{{.ID}}</a></td>
+        <td>{{.Generator}}</td>
+        <td class="num">{{.Tier}}</td>
+        <td class="num">{{cr .MaxPayout}}</td>
+        <td><span class="badge {{statusClass .Status}}">{{.Status}}</span></td>
+        <td>{{with .SolvedBy}}<a href="/agent/{{.}}">{{.}}</a>{{end}}</td>
+        <td class="num">{{if .Payout}}{{cr .Payout}}{{end}}</td>
+        <td class="num">{{if .Failures}}{{.Failures}}{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>ledger</h2>
+  <p><code>{{.Episode.Conservation}}</code></p>
+</section>
+
+{{template "bottom"}}

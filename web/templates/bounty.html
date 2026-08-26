@@ -1,0 +1,64 @@
+{{template "top" .Bounty.ID}}
+
+<h1>{{.Bounty.ID}} <span class="badge {{statusClass .Bounty.Status}}">{{.Bounty.Status}}</span></h1>
+
+<section class="cards">
+  <div class="card"><span class="k">generator</span><span class="v">{{.Bounty.Generator}}</span></div>
+  <div class="card"><span class="k">seed</span><span class="v">{{.Bounty.Seed}}</span></div>
+  <div class="card"><span class="k">tier</span><span class="v">{{.Bounty.Tier}}</span></div>
+  <div class="card"><span class="k">max payout</span><span class="v">{{.Bounty.MaxPayout}}</span></div>
+  <div class="card"><span class="k">reserve</span><span class="v">{{.Bounty.Reserve}}</span></div>
+  {{if .Bounty.SolvedBy}}
+  <div class="card"><span class="k">solved by</span><span class="v"><a href="/agent/{{.Bounty.SolvedBy}}">{{.Bounty.SolvedBy}}</a> · {{.Bounty.Payout}}</span></div>
+  {{end}}
+</section>
+
+<section>
+  <h2>history</h2>
+  <ol class="history">
+  {{range .Bounty.History}}
+    <li>
+      <span class="seq">#{{.Seq}}</span>
+      <span class="sub">round {{.Round}}</span>
+      <span class="badge {{statusClass .Action}}">{{.Action}}</span>
+      {{.Detail}}
+      {{if .Book}}
+      <table class="book">
+        <thead><tr><th>bid</th><th class="num">asked</th></tr></thead>
+        <tbody>
+        {{range .Book}}
+          <tr><td><a href="/agent/{{.Agent}}">{{.Agent}}</a></td><td class="num">{{cr .Price}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{end}}
+    </li>
+  {{end}}
+  </ol>
+</section>
+
+<section>
+  <h2>metered calls</h2>
+  {{if .Bounty.Calls}}
+  <table>
+    <thead><tr>
+      <th>agent</th><th>model</th><th class="num">in</th><th class="num">out</th>
+      <th class="num">cost</th><th>outcome</th>
+    </tr></thead>
+    <tbody>
+    {{range .Bounty.Calls}}
+      <tr>
+        <td>{{with .Agent}}<a href="/agent/{{.}}">{{.}}</a>{{end}}</td>
+        <td>{{.Model}}</td>
+        <td class="num">{{.InToks}}</td>
+        <td class="num">{{.OutToks}}</td>
+        <td class="num">{{cr .Cost}}</td>
+        <td>{{.Outcome}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="sub">no model calls in its attempts</p>{{end}}
+</section>
+
+{{template "bottom"}}

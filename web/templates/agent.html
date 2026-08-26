@@ -1,0 +1,69 @@
+{{template "top" .Agent.ID}}
+
+<h1>{{.Agent.ID}}
+  {{if .Agent.Bankrupt}}<span class="badge dead">☠ bankrupt</span>
+  {{else}}<span class="badge alive">alive</span>{{end}}
+</h1>
+
+<section class="cards">
+  <div class="card"><span class="k">grant</span><span class="v">{{.Agent.Grant}}</span></div>
+  <div class="card"><span class="k">earned</span><span class="v">{{.Agent.Earned}}</span></div>
+  <div class="card"><span class="k">burned</span><span class="v">{{.Agent.Burned}}</span></div>
+  <div class="card"><span class="k">balance</span><span class="v">{{.Agent.Balance}}</span></div>
+  <div class="card"><span class="k">model calls</span><span class="v">{{.Agent.CallCount}} · {{.Agent.CallSpend}}</span></div>
+</section>
+
+{{with .Spark}}
+<section>
+  <h2>balance</h2>
+  {{.}}
+</section>
+{{end}}
+
+<section>
+  <h2>attempts</h2>
+  {{if .Agent.Attempts}}
+  <table>
+    <thead><tr>
+      <th class="num">round</th><th>bounty</th><th class="num">tier</th>
+      <th>outcome</th><th class="num">payout</th><th class="num">burned</th><th>reason</th>
+    </tr></thead>
+    <tbody>
+    {{range .Agent.Attempts}}
+      <tr>
+        <td class="num">{{.Round}}</td>
+        <td><a href="/bounty/{{.Bounty}}">{{.Bounty}}</a></td>
+        <td class="num">{{.Tier}}</td>
+        <td><span class="badge {{statusClass .Outcome}}">{{.Outcome}}</span></td>
+        <td class="num">{{if .Payout}}{{cr .Payout}}{{end}}</td>
+        <td class="num">{{cr .Burned}}</td>
+        <td class="sub">{{.Reason}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="sub">never won an auction</p>{{end}}
+</section>
+
+<section>
+  <h2>bids</h2>
+  {{if .Agent.Bids}}
+  <table>
+    <thead><tr>
+      <th class="num">round</th><th>bounty</th><th class="num">price</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Agent.Bids}}
+      <tr>
+        <td class="num">{{.Round}}</td>
+        <td><a href="/bounty/{{.Bounty}}">{{.Bounty}}</a></td>
+        <td class="num">{{cr .Price}}</td>
+        <td>{{if .Won}}<span class="badge ok">won</span>{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="sub">no bids</p>{{end}}
+</section>
+
+{{template "bottom"}}

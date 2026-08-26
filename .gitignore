@@ -1,0 +1,10 @@
+# build output
+/bin/
+
+# artefacts of `make demo` — deterministic, regenerated on demand
+demo-trace.jsonl
+demo-stderr.log
+
+# episode state
+*.db
+*.sqlite

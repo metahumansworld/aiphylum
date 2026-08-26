@@ -1,0 +1,25 @@
+{{define "top"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} · dungeon</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="/">⚔ dungeon</a>
+  <nav>
+    <a href="/">board</a>
+    <a href="/replay">replay</a>
+  </nav>
+</header>
+<main>
+{{end}}
+
+{{define "bottom"}}
+</main>
+<footer class="site">traces public, source private — every number on these pages is derived from the trace file alone</footer>
+</body>
+</html>
+{{end}}
