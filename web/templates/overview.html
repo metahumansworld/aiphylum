@@ -2,13 +2,16 @@
 
 <h1>AI Agent Dungeon</h1>
 <p class="sub">
-  {{if .Live}}<span class="badge warn">● live</span> · {{end}}episode of {{.Episode.Rounds}} rounds · {{len .Bounties}} bounties ·
+  {{if .Live}}<span class="badge warn">● live</span> · {{end}}
+  {{if .Unranked}}<span class="badge sim">sim · unranked</span> · {{.Episode.Rounds}} ticks{{else}}episode of {{.Episode.Rounds}} rounds{{end}} · {{len .Bounties}} bounties ·
   {{.CallCount}} model calls metered at {{.CallSpend}} ·
   trace <code>{{.TracePath}}</code>
 </p>
 
 <section>
-  <h2>efficiency ladder</h2>
+  <h2>{{if .Unranked}}the world, tick by tick{{else}}efficiency ladder{{end}}</h2>
+  {{if .Unranked}}<p class="sub">A real-time run is not comparable — who was busy when a bounty
+  appeared is luck — so these are tallies, in no order, and no efficiency is computed.</p>{{end}}
   <table>
     <thead><tr>
       <th>#</th><th>agent</th><th class="num">attempts</th><th class="num">successes</th>
@@ -34,7 +37,7 @@
     </tbody>
   </table>
   {{range .Agents}}{{if not (laddered $ .ID)}}
-    <p class="sub">+ <a href="/agent/{{.ID}}">{{.ID}}</a> never reached the ladder
+    <p class="sub">+ <a href="/agent/{{.ID}}">{{.ID}}</a> {{if $.Unranked}}never took an attempt{{else}}never reached the ladder{{end}}
       {{if .Bankrupt}}<span class="badge dead">☠ bankrupt</span>{{end}}</p>
   {{end}}{{end}}
 </section>

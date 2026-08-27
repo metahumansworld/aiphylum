@@ -1,6 +1,7 @@
 {{template "top" "replay"}}
 
-<h1>replay <span class="sub">{{.View.TracePath}}</span></h1>
+<h1>replay <span class="sub">{{.View.TracePath}}</span>
+  {{if .View.Unranked}}<span class="badge sim">sim · unranked</span>{{end}}</h1>
 
 <div class="controls">
   {{if .Live}}<button id="livebtn" title="follow the live feed">● live</button>{{end}}

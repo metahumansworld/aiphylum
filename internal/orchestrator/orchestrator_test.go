@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,7 +45,13 @@ type stepFunc func(req StepRequest, in StepInput) StepResult
 
 // fakeSteps satisfies StepRunner without Docker. Steps named in errOn fail as
 // the runner itself — the platform-fault path.
+//
+// The sim track runs several agents' steps at once, so the maps are guarded.
+// The lock covers the lookups only: the step function itself runs unlocked, or
+// one slow agent would block every other agent's turn — the exact thing the sim
+// exists to let happen naturally.
 type fakeSteps struct {
+	mu       sync.Mutex
 	fns      map[string]stepFunc
 	errOn    map[string]error
 	bidSteps map[string]int // agent → bid-phase invocations
@@ -55,21 +62,35 @@ func newFakeSteps() *fakeSteps {
 }
 
 func (f *fakeSteps) RunStep(_ context.Context, req StepRequest) (StepResult, error) {
-	if err, ok := f.errOn[req.Name]; ok {
+	f.mu.Lock()
+	err, failing := f.errOn[req.Name]
+	f.mu.Unlock()
+	if failing {
 		return StepResult{}, err
 	}
 	var in StepInput
 	if err := json.Unmarshal(req.Input, &in); err != nil {
 		return StepResult{}, fmt.Errorf("fake step: bad input: %w", err)
 	}
+
+	f.mu.Lock()
 	if in.Observation.Phase == PhaseBid {
 		f.bidSteps[req.AgentID]++
 	}
 	fn, ok := f.fns[req.AgentID]
+	f.mu.Unlock()
 	if !ok {
 		return StepResult{}, fmt.Errorf("fake step: no script for %s", req.AgentID)
 	}
 	return fn(req, in), nil
+}
+
+// bidStepsFor reads the bid-phase counter under the lock, for tests that assert
+// on it while the sim may still have a worker in flight.
+func (f *fakeSteps) bidStepsFor(agentID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bidSteps[agentID]
 }
 
 // out builds a well-formed step stdout: some agent logging, then the sentinel.
@@ -382,6 +403,41 @@ func TestSolveStandsDespitePlatformFault(t *testing.T) {
 	}
 }
 
+// A remembered fault outlives nothing. Attempt wallets are named per bounty
+// per round, so a tracker that kept them would grow forever in a daemon that
+// never restarts — and would be answering questions about wallets that no
+// longer exist.
+func TestFaultMemoryIsScopedToTheStep(t *testing.T) {
+	w := newWorld(t, &flakyProvider{failOn: 1}, nil, Config{})
+	w.add(t, "sturdy", 4000)
+
+	w.steps.fns["sturdy"] = script(bidAll(0.4), func(req StepRequest, in StepInput) StepResult {
+		callModel(t, w.base, req.Token, in.Observation.Task.Prompt, 64)
+		return out(Action{Type: ActionSubmit, Answer: answerFrom(in.Observation.Task.Prompt)})
+	})
+
+	ep := orchestratorEpisode(post(7, 1), post(8, 1), post(9, 2))
+	if err := w.orch.RunEpisode(w.ctx, ep); err != nil {
+		t.Fatal(err)
+	}
+
+	w.orch.faults.mu.Lock()
+	left := len(w.orch.faults.faulted)
+	w.orch.faults.mu.Unlock()
+	if left != 0 {
+		t.Errorf("fault tracker still remembers %d wallets after the episode, want 0", left)
+	}
+}
+
+// orchestratorEpisode puts each posting in its own round.
+func orchestratorEpisode(ps ...Posting) Episode {
+	ep := Episode{}
+	for _, p := range ps {
+		ep.Rounds = append(ep.Rounds, []Posting{p})
+	}
+	return ep
+}
+
 // A step-runner failure (docker itself broke) is likewise refunded and voided.
 func TestRunnerErrorVoids(t *testing.T) {
 	w := newWorld(t, &proxy.StubProvider{}, nil, Config{})
@@ -449,7 +505,7 @@ func TestBankruptcyIsPermanent(t *testing.T) {
 		t.Fatal("re-registering a retired agent succeeded; permadeath is not permanent")
 	}
 	// And the dead take no further steps: round 2 never invoked it.
-	if got := w.steps.bidSteps["gambler"]; got != 1 {
+	if got := w.steps.bidStepsFor("gambler"); got != 1 {
 		t.Fatalf("bid steps = %d, want 1 (round 2 must skip the retired)", got)
 	}
 }

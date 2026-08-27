@@ -82,6 +82,7 @@ tbody tr:hover { background: var(--panel); }
 .badge.alive { color: var(--green); border-color: var(--green); }
 .badge.dead  { color: var(--red); border-color: var(--red); }
 .badge.open  { color: var(--amber); border-color: var(--amber); }
+.badge.sim   { color: var(--violet); border-color: var(--violet); }
 
 /* stat cards */
 .cards { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }

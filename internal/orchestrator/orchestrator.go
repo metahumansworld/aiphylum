@@ -104,6 +104,9 @@ type Orchestrator struct {
 	tw     *trace.Writer
 	faults *faultTracker
 	agents []*Agent // registration order: the deterministic iteration order
+	// watch, if set, sees every settled attempt alongside the ladder. The sim
+	// track uses it to keep its own tallies without becoming a ranking.
+	watch func(rating.Attempt)
 }
 
 // New assembles the world. The proxy is built here so its recorder can be the
@@ -142,10 +145,11 @@ func New(l *ledger.Ledger, board *bounty.Board, table *proxy.PriceTable, provide
 // whether a platform fault occurred — the proxy's half of failure attribution,
 // surfaced to the orchestrator's half.
 //
-// TODO(daemon): only attempt wallets are ever reset; fault entries for bid
-// wallets accumulate for the life of the process. Harmless per episode, a slow
-// leak in a long-running daemon — clear the map (or reset bid wallets too)
-// between episodes.
+// A remembered fault is scoped to one step: every step clears its wallet on the
+// way in and on the way out, so the map holds only steps currently running. It
+// has to be, as much as for the memory — attempt wallets are named per bounty
+// per round, so a fault kept past its step would be a fact about a wallet that
+// no longer exists, in a daemon that never restarts.
 type faultTracker struct {
 	next proxy.Recorder
 
@@ -365,9 +369,14 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 		return nil
 	}
 
+	// A bid step spends from the bankroll directly, so its faults are recorded
+	// against the agent's own wallet. Clear it both ways: an agent runs one
+	// step at a time, and last round's fault is not this round's.
 	token := fmt.Sprintf("tok-%s-r%d-bid", ag.ID, round)
 	o.Proxy.Authorize(token, ag.ID)
+	o.faults.reset(ag.ID)
 	defer o.Proxy.Revoke(token)
+	defer o.faults.reset(ag.ID)
 
 	res, err := o.Steps.RunStep(ctx, StepRequest{
 		AgentID: ag.ID,
@@ -444,6 +453,10 @@ func (o *Orchestrator) attempt(ctx context.Context, round int, b *bounty.Bounty)
 func (o *Orchestrator) record(a rating.Attempt) {
 	if o.Ladder != nil {
 		o.Ladder.Record(a)
+	}
+	// The unranked tracks still want the tallies the ladder would have kept.
+	if o.watch != nil {
+		o.watch(a)
 	}
 }
 

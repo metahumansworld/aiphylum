@@ -148,6 +148,10 @@ func (o *Orchestrator) settleAttempt(ctx context.Context, ag *Agent, b *bounty.B
 	//   timeout, crash, bad output, no
 	//   submission, wrong answer             → agent fault; charged and failed
 	platformFault := out.runErr != nil || o.faults.sawFault(attWallet)
+	// The attempt wallet is retired; its fault flag goes with it. Attempt
+	// wallets are unique per bounty per round, so keeping them would grow the
+	// map for the life of the process.
+	o.faults.reset(attWallet)
 	switch {
 	case solved:
 		if _, err := o.Board.Resolve(b.ID, out.submitted, true); err != nil {

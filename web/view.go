@@ -41,8 +41,19 @@ type View struct {
 	bountyByID map[string]*BountyView
 }
 
+// The two tracks a trace can come from. They share one currency and one money
+// path; only the clock and the ranking differ.
+const (
+	TrackBenchmark = "benchmark"
+	TrackSim       = "sim"
+)
+
 // EpisodeInfo summarises the episode lifecycle events.
 type EpisodeInfo struct {
+	// Track is "benchmark" or "sim". A sim trace has no round count to
+	// announce up front and, more importantly, no ranking: the viewer reads
+	// this to make sure it never presents one.
+	Track        string
 	Rounds       int
 	Conservation string
 	Start        time.Time
@@ -219,9 +230,18 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 		case trace.EventEpisode:
 			switch str("action") {
 			case "start":
+				v.Episode.Track = str("track")
+				if v.Episode.Track == "" {
+					v.Episode.Track = TrackBenchmark
+				}
 				v.Episode.Rounds = int(num("rounds"))
 			case "round":
 				round = int(num("round"))
+				// A real-time world does not know its length in advance, so
+				// its round count is whatever the clock has reached.
+				if round > v.Episode.Rounds {
+					v.Episode.Rounds = round
+				}
 			case "end":
 				v.Episode.Conservation = str("conservation")
 			}
@@ -391,5 +411,17 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 	}
 
 	v.Ladder = ladder.Board(v.Episode.End.Add(time.Second))
+	if v.Episode.Track == TrackSim {
+		// The sim's numbers are a chronicle, not a score. The rows survive —
+		// they are what happened — but nothing here is ranked, because who was
+		// idle when a bounty appeared is luck, and luck does not sort.
+		for i := range v.Ladder {
+			v.Ladder[i].Ranked = false
+			v.Ladder[i].Efficiency = 0
+		}
+	}
 	return v, nil
 }
+
+// Unranked reports whether this view's track forbids a ranking.
+func (v *View) Unranked() bool { return v.Episode.Track == TrackSim }
