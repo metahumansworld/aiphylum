@@ -106,23 +106,28 @@ const PARKG = ["#7cc04f", "#72b647"];
 const STONE = "#cfc7b6", STONE_DK = "#a89e8b";
 const WOOD = "#8b5a33", WOOD_DK = "#6d4526";
 const GOLD = "#f2c245";
+// Six roofs, and no two towns' worth of hue between them. Blue and violet are
+// not available to this palette, so the two slots they held are now a bone
+// tile and a slate one — which pays for itself twice, because a town roofed
+// partly in the same whites as the page reads as one design rather than as a
+// picture pasted onto it.
 const ROOFPAL = [
-  ["#d1503f", "#a83a2c"], ["#3f77b5", "#2d5789"], ["#4fa07c", "#397a5d"],
-  ["#c9803a", "#a05f26"], ["#8a6bb5", "#65488c"], ["#c94f7c", "#9e3a5e"],
+  ["#d1503f", "#a83a2c"], ["#e6dcc4", "#c2b394"], ["#4fa07c", "#397a5d"],
+  ["#c9803a", "#a05f26"], ["#7d6f63", "#584e44"], ["#c94f7c", "#9e3a5e"],
 ];
 const WALLPAL = ["#f0e0c1", "#e9d4b1", "#f4e6ca", "#e4d3b7"];
-const STRIPES = [["#e05a4e", "#fbf1dc"], ["#3f9e91", "#fbf1dc"], ["#e6a02e", "#fbf1dc"], ["#4f86c6", "#fbf1dc"]];
-const FLOWERS = ["#ff5d8f", "#ffd23f", "#ff8b5e", "#c9a7ff", "#fff6e8"];
+const STRIPES = [["#e05a4e", "#fbf1dc"], ["#3f9e7a", "#fbf1dc"], ["#e6a02e", "#fbf1dc"], ["#c9527a", "#fbf1dc"]];
+const FLOWERS = ["#ff5d8f", "#ffd23f", "#ff8b5e", "#f7cfe0", "#fff6e8"];
 
 // LOOKS are the costumes, handed out by roster order. Hat, prop and build all
 // vary together, because a hat alone stops working the moment two residents
 // are small on the far side of the square — the outline has to differ too.
 const LOOKS = [
   { skin: "#ffd2ab", hair: "#7a4a25", tunic: "#e8637c", trim: "#fdf3e3", hat: "chef", prop: "loaf", build: "apron" },
-  { skin: "#e8b98c", hair: "#9aa3ad", tunic: "#4a6fae", trim: "#2f4570", hat: "scholar", prop: "book", build: "robe" },
+  { skin: "#e8b98c", hair: "#a8a49a", tunic: "#54493c", trim: "#e8dcc4", hat: "scholar", prop: "book", build: "robe" },
   { skin: "#c98d5e", hair: "#2f2117", tunic: "#3fa08a", trim: "#f2c245", hat: "scarf", prop: "satchel", build: "wrap" },
   { skin: "#f0c39a", hair: "#8a5a2a", tunic: "#a4632f", trim: "#f5e3c0", hat: "beard", prop: "tankard", build: "stout" },
-  { skin: "#ffd2ab", hair: "#3b2a1d", tunic: "#8a6bb5", trim: "#d9cbe8", hat: "hood", prop: "", build: "robe" },
+  { skin: "#ffd2ab", hair: "#3b2a1d", tunic: "#7d3346", trim: "#e8d3d8", hat: "hood", prop: "", build: "robe" },
   { skin: "#e0a878", hair: "#c9a227", tunic: "#6f9e3f", trim: "#f4ead0", hat: "straw", prop: "basket", build: "apron" },
 ];
 
@@ -240,8 +245,8 @@ function fountain(p) {
   const dm = (r, h) => P([[cx, cy - r * HH - h], [cx + r * HW, cy - h], [cx, cy + r * HH - h], [cx - r * HW, cy - h]]);
   return `<g><polygon class="ol" points="${dm(1.25, 0)}" fill="${STONE_DK}"/>` +
     `<polygon class="ol" points="${dm(1.25, 8)}" fill="${STONE}"/>` +
-    `<polygon points="${dm(0.92, 8)}" fill="#3fa8dd"/>` +
-    `<polygon points="${dm(0.6, 8)}" fill="#6ecdf2"/>` +
+    `<polygon points="${dm(0.92, 8)}" fill="#cfe3d5"/>` +
+    `<polygon points="${dm(0.6, 8)}" fill="#eef7f0"/>` +
     `<rect class="ol" x="${cx - 5}" y="${cy - 30}" width="10" height="22" rx="3" fill="${STONE}"/>` +
     `<polygon class="ol" points="${P([[cx - 9, cy - 30], [cx + 9, cy - 30], [cx, cy - 38]])}" fill="${GOLD}"/>` +
     `<circle class="spray" cx="${cx - 10}" cy="${cy - 20}" r="2.6"/>` +
@@ -312,8 +317,8 @@ function building(p, hue, roofPal, side) {
   const south = { t: `translate(${bD[0]} ${bD[1]}) skewY(${SKEW})`, s: "", lit: "" };
   const east = { t: `translate(${bB[0]} ${bB[1]}) skewY(-${SKEW})`, s: "", lit: "" };
   const win = (o, lx, top, h2) => {
-    o.s += `<rect class="ol" x="${lx - 9}" y="${-top}" width="18" height="${h2}" rx="2" fill="#3d4a63"/>` +
-      `<rect x="${lx - 9}" y="${-top}" width="18" height="${h2 / 2}" rx="2" fill="#4d5c78"/>` +
+    o.s += `<rect class="ol" x="${lx - 9}" y="${-top}" width="18" height="${h2}" rx="2" fill="#4a3d2e"/>` +
+      `<rect x="${lx - 9}" y="${-top}" width="18" height="${h2 / 2}" rx="2" fill="#5e4f3c"/>` +
       `<rect class="ol" x="${lx - 13}" y="${-top - 1}" width="4.5" height="${h2 + 2}" rx="1.5" fill="${WOOD_DK}"/>` +
       `<rect class="ol" x="${lx + 8.5}" y="${-top - 1}" width="4.5" height="${h2 + 2}" rx="1.5" fill="${WOOD_DK}"/>`;
     o.lit += `<rect class="winlit" x="${lx - 9}" y="${-top}" width="18" height="${h2}" rx="2"/>`;
@@ -450,8 +455,8 @@ function person(r, look) {
       break;
     case "scholar":
       hat = `<path class="ol" d="M-7,-30 a7,7 0 0 1 14,0 z" fill="${look.hair}"/>` +
-        `<rect class="ol" x="-9" y="-37" width="18" height="4.5" rx="2" fill="#2f4570"/>` +
-        `<rect class="ol" x="-6" y="-40" width="12" height="4" rx="1.5" fill="#3a5488"/>` +
+        `<rect class="ol" x="-9" y="-37" width="18" height="4.5" rx="2" fill="#4a4136"/>` +
+        `<rect class="ol" x="-6" y="-40" width="12" height="4" rx="1.5" fill="#5c5245"/>` +
         `<circle cx="-2.7" cy="-28.6" r="3" fill="none" stroke="#e9e2cf" stroke-width="1.1"/>` +
         `<circle cx="2.7" cy="-28.6" r="3" fill="none" stroke="#e9e2cf" stroke-width="1.1"/>`;
       break;
@@ -804,28 +809,43 @@ function render(s) {
   mapEl.classList.toggle("night", night);
   mapEl.classList.toggle("dusk", dusk);
 
+  // Name over place, both hung off the one swatch that identifies the walker on
+  // the map. Two lines rather than one long one: the name is what you scan the
+  // list for, and the place is what you check once you have found it.
   roster.innerHTML = [...s.residents].map(([id, r]) => {
-    const where = r.place ? placeNames.get(r.place) || r.place : "on the street";
+    const where = r.place ? placeNames.get(r.place) || r.place : "out on the street";
     return `<div class="townres"><span class="dot" style="background:${colorOf.get(id)}"></span>` +
       `<span class="townres-name">${esc(r.name)}</span>` +
-      `<span class="sub">${esc(where)}${r.activity ? " — " + esc(r.activity) : ""}</span></div>`;
+      `<span class="where">${esc(where)}${r.activity ? ", " + esc(r.activity) : ""}</span></div>`;
   }).join("");
 
+  // The clock sits in its own quiet column so the eye reads straight down the
+  // sentences and only glances left for the time.
   feed.innerHTML = s.feed.map((f) => {
     const place = placeNames.get(f.place) || f.place;
     const line = f.kind === "met"
       ? `<b>${esc(names.get(f.who[0]))}</b> ran into <b>${esc(names.get(f.who[1]))}</b> at ${esc(place)}`
-      : `${esc(names.get(f.who[0]))} arrived at ${esc(place)}` +
+      : `<b>${esc(names.get(f.who[0]))}</b> arrived at ${esc(place)}` +
         (f.activity ? ` — ${esc(f.activity)}` : "");
-    return `<div class="feedline ${f.kind}"><span class="mono sub">${esc(f.clock)}</span> ${line}</div>`;
+    return `<div class="feedline ${f.kind}"><span class="when mono">${esc(f.clock)}</span>` +
+      `<span>${line}</span></div>`;
   }).reverse().join("");
 }
 
 // ---- controls: the replay page's wiring, unchanged in spirit ----
 
+// The played half of the track is a gradient stop rather than a UA-painted
+// progress bar, because WebKit gives no way to style the two halves apart.
+// Anything that moves the thumb, or moves the far end, has to repaint it.
+function paintScrub() {
+  const max = Number(scrub.max) || 0;
+  scrub.style.setProperty("--p", `${max ? (cur / max) * 100 : 0}%`);
+}
+
 function setPos(i) {
   cur = Math.max(0, Math.min(EVENTS.length - 1, i));
   scrub.value = cur;
+  paintScrub();
   pos.textContent = EVENTS.length ? `${cur + 1}/${EVENTS.length}` : "—";
   render(reduce(cur));
 }
@@ -847,11 +867,14 @@ function setPlaying(on) {
     }, Number(speed.value));
   }
   play.textContent = on ? "⏸" : "▶";
+  // The glyph is the whole label, so the accessible name has to move with it.
+  play.setAttribute("aria-label", on ? "pause" : "play");
 }
 
 function setFollow(on) {
   follow = LIVE && on;
   if (livebtn) livebtn.classList.toggle("off", !follow);
+  if (livebtn) livebtn.setAttribute("aria-pressed", String(follow));
   if (follow) {
     setPlaying(false);
     setPos(EVENTS.length - 1);
@@ -862,6 +885,10 @@ play.addEventListener("click", () => setPlaying(!timer));
 speed.addEventListener("change", () => { if (timer) setPlaying(true); });
 scrub.addEventListener("input", () => { setPlaying(false); setFollow(false); setPos(Number(scrub.value)); });
 document.addEventListener("keydown", (e) => {
+  // With the scrubber focused the arrows are already its own: the range steps
+  // itself and its input event does the rest. Stepping again here would move
+  // two ticks per press.
+  if (e.target === scrub && (e.key === "ArrowRight" || e.key === "ArrowLeft")) return;
   if (e.key === "ArrowRight") { setPlaying(false); setFollow(false); setPos(cur + 1); }
   else if (e.key === "ArrowLeft") { setPlaying(false); setFollow(false); setPos(cur - 1); }
   else if (e.key === " " && e.target === document.body) { e.preventDefault(); setPlaying(!timer); }
@@ -880,7 +907,7 @@ if (LIVE) {
     EVENTS.push(JSON.parse(m.data));
     scrub.max = EVENTS.length - 1;
     if (follow) setPos(EVENTS.length - 1);
-    else pos.textContent = `${cur + 1}/${EVENTS.length}`;
+    else { paintScrub(); pos.textContent = `${cur + 1}/${EVENTS.length}`; } // the end of the track moved
   };
   // The file was truncated under us: a new run took the path. Start over.
   es.addEventListener("reset", () => location.reload());

@@ -1,8 +1,14 @@
 {{template "top" .Bounty.ID}}
 
-<h1>{{.Bounty.ID}} <span class="badge {{statusClass .Bounty.Status}}">{{.Bounty.Status}}</span>
-  {{if .Bounty.Judged}}<span class="badge judged">judged</span>{{end}}
-  {{if .Bounty.Suite}}<span class="badge imported">imported</span>{{end}}</h1>
+<header class="masthead">
+  <h1>{{.Bounty.ID}}</h1>
+  <p class="meta">
+    <span class="badge {{statusClass .Bounty.Status}}">{{.Bounty.Status}}</span>
+    {{if .Bounty.Judged}}<span class="badge judged">judged</span>{{end}}
+    {{if .Bounty.Suite}}<span class="badge imported">imported</span>{{end}}
+    <span>{{.Bounty.Generator}} · seed {{.Bounty.Seed}}</span>
+  </p>
+</header>
 
 {{if .Bounty.Suite}}
 <p class="sub">Drawn from the imported suite <strong>{{.Bounty.Suite}}</strong> rather than
@@ -17,14 +23,12 @@ history below. That is a weaker kind of truth than verification, so nothing here
 any ranking — on either track.</p>
 {{end}}
 
-<section class="cards">
-  <div class="card"><span class="k">generator</span><span class="v">{{.Bounty.Generator}}</span></div>
-  <div class="card"><span class="k">seed</span><span class="v">{{.Bounty.Seed}}</span></div>
-  <div class="card"><span class="k">tier</span><span class="v">{{.Bounty.Tier}}</span></div>
-  <div class="card"><span class="k">max payout</span><span class="v">{{.Bounty.MaxPayout}}</span></div>
-  <div class="card"><span class="k">reserve</span><span class="v">{{.Bounty.Reserve}}</span></div>
+<section class="stats">
+  <div class="stat"><span class="k">tier</span><span class="v">{{.Bounty.Tier}}</span></div>
+  <div class="stat"><span class="k">max payout</span><span class="v">{{cr .Bounty.MaxPayout}}</span><span class="u">{{printf "$%.4f" .Bounty.MaxPayout.USD}}</span></div>
+  <div class="stat"><span class="k">reserve</span><span class="v">{{cr .Bounty.Reserve}}</span><span class="u">{{printf "$%.4f" .Bounty.Reserve.USD}}</span></div>
   {{if .Bounty.SolvedBy}}
-  <div class="card"><span class="k">solved by</span><span class="v"><a href="/agent/{{.Bounty.SolvedBy}}">{{.Bounty.SolvedBy}}</a> · {{.Bounty.Payout}}</span></div>
+  <div class="stat"><span class="k">paid to</span><span class="v"><a href="/agent/{{.Bounty.SolvedBy}}">{{.Bounty.SolvedBy}}</a></span><span class="u">{{cr .Bounty.Payout}} cr</span></div>
   {{end}}
 </section>
 
@@ -33,13 +37,15 @@ any ranking — on either track.</p>
   <ol class="history">
   {{range .Bounty.History}}
     <li>
-      <span class="seq">#{{.Seq}}</span>
-      <span class="sub">round {{.Round}}</span>
-      <span class="badge {{statusClass .Action}}">{{.Action}}</span>
-      {{.Detail}}
+      <span class="seq">{{.Seq}}</span>
+      <span class="line">
+        <span class="badge {{statusClass .Action}}">{{.Action}}</span>
+        <span>{{.Detail}}</span>
+        <span class="when">round {{.Round}}</span>
+      </span>
       {{if .Book}}
       <table class="book">
-        <thead><tr><th>bid</th><th class="num">asked</th></tr></thead>
+        <thead><tr><th>sealed bids</th><th class="num">asked</th></tr></thead>
         <tbody>
         {{range .Book}}
           <tr><td><a href="/agent/{{.Agent}}">{{.Agent}}</a></td><td class="num">{{cr .Price}}</td></tr>

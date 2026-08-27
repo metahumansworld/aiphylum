@@ -355,8 +355,19 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				if book, ok := p["book"].([]any); ok {
 					for _, e := range book {
 						if m, ok := e.(map[string]any); ok {
+							// The book is written by marshalling a Go struct with
+							// no field tags, so its keys are capitalised. Accept
+							// either spelling: the trace bytes are pinned, and a
+							// reader that only knew one of them rendered every
+							// revealed bid as a blank name at price zero.
 							ag, _ := m["agent"].(string)
-							pr, _ := m["price"].(float64)
+							if ag == "" {
+								ag, _ = m["Agent"].(string)
+							}
+							pr, ok := m["price"].(float64)
+							if !ok {
+								pr, _ = m["Price"].(float64)
+							}
 							ev.Book = append(ev.Book, BookEntry{ag, ledger.Credits(pr)})
 						}
 					}

@@ -3,18 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>{{.}} · dungeon</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<a class="skip" href="#main">skip to content</a>
 <header class="site">
-  <a class="brand" href="/">⚔ dungeon</a>
-  <nav>
-    <a href="/">board</a>
-    <a href="/replay">replay</a>
+  <!-- The mark is drawn in CSS, not typed: an emoji here would be a different
+       glyph on every platform, and this one is meant to be the same shape. -->
+  <a class="brand" href="/">dungeon</a>
+  <nav aria-label="sections">
+    <!-- The town is served at the root, so it lights the same lamp the board
+         does. On the agent and bounty pages the page name is a trace-supplied
+         id, which matches neither — correctly, since neither is where you are. -->
+    <a href="/"{{if or (eq . "board") (eq . "town")}} aria-current="page"{{end}}>board</a>
+    <a href="/replay"{{if eq . "replay"}} aria-current="page"{{end}}>replay</a>
   </nav>
 </header>
-<main>
+<main id="main">
 {{end}}
 
 {{define "bottom"}}

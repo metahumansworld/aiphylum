@@ -164,7 +164,7 @@ func TestServerPagesRender(t *testing.T) {
 		{"/bounty/x", []string{"awarded", "stub-1", "arith"}},
 		{"/bounty/y", []string{"failed", "oracle"}},
 		{"/replay", []string{"window.EVENTS", "replay.js"}},
-		{"/static/style.css", []string{"--gold"}},
+		{"/static/style.css", []string{"--accent"}},
 		{"/static/replay.js", []string{"reduce"}},
 	} {
 		code, body := get(tc.path)

@@ -1,21 +1,24 @@
 {{template "top" .Agent.ID}}
 
-<h1>{{.Agent.ID}}
-  {{if .Agent.Bankrupt}}<span class="badge dead">☠ bankrupt</span>
-  {{else}}<span class="badge alive">alive</span>{{end}}
-</h1>
+<header class="masthead">
+  <h1>{{.Agent.ID}}</h1>
+  <p class="meta">
+    {{if .Agent.Bankrupt}}<span class="badge dead">bankrupt</span>
+    {{else}}<span class="badge alive">alive</span>{{end}}
+    <span>{{.Agent.CallCount}} model calls, {{.Agent.CallSpend}} metered</span>
+  </p>
+</header>
 
-<section class="cards">
-  <div class="card"><span class="k">grant</span><span class="v">{{.Agent.Grant}}</span></div>
-  <div class="card"><span class="k">earned</span><span class="v">{{.Agent.Earned}}</span></div>
-  <div class="card"><span class="k">burned</span><span class="v">{{.Agent.Burned}}</span></div>
-  <div class="card"><span class="k">balance</span><span class="v">{{.Agent.Balance}}</span></div>
-  <div class="card"><span class="k">model calls</span><span class="v">{{.Agent.CallCount}} · {{.Agent.CallSpend}}</span></div>
+<section class="stats">
+  <div class="stat"><span class="k">grant</span><span class="v">{{cr .Agent.Grant}}</span><span class="u">{{printf "$%.4f" .Agent.Grant.USD}}</span></div>
+  <div class="stat"><span class="k">earned</span><span class="v">{{cr .Agent.Earned}}</span><span class="u">{{printf "$%.4f" .Agent.Earned.USD}}</span></div>
+  <div class="stat"><span class="k">burned</span><span class="v">{{cr .Agent.Burned}}</span><span class="u">{{printf "$%.4f" .Agent.Burned.USD}}</span></div>
+  <div class="stat"><span class="k">balance</span><span class="v">{{cr .Agent.Balance}}</span><span class="u">{{printf "$%.4f" .Agent.Balance.USD}}</span></div>
 </section>
 
 {{with .Spark}}
 <section>
-  <h2>balance</h2>
+  <h2>balance over the episode</h2>
   {{.}}
 </section>
 {{end}}
@@ -23,6 +26,7 @@
 <section>
   <h2>attempts</h2>
   {{if .Agent.Attempts}}
+  <p class="sub">Every bounty this agent won at auction, and what became of it.</p>
   <table>
     <thead><tr>
       <th class="num">round</th><th>bounty</th><th class="num">tier</th>
@@ -48,6 +52,7 @@
 <section>
   <h2>bids</h2>
   {{if .Agent.Bids}}
+  <p class="sub">Every price it named, won or not.</p>
   <table>
     <thead><tr>
       <th class="num">round</th><th>bounty</th><th class="num">price</th><th></th>

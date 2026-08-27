@@ -87,10 +87,87 @@ function esc(t) {
   return d.innerHTML;
 }
 
+// describe words one event as a sentence. The trace carries a pre-worded
+// label, but that label is a key=value dump — `action="solved" agent="gambler"
+// burned=107 id="b0001" payout=36` — which is data, not information: the
+// interesting number is buried in the middle of it and every row looks like
+// every other row. Every field of the payload is already on the event object,
+// so the log can say what happened instead of listing what was recorded.
+//
+// This is presentation only. The trace itself is untouched, and anything this
+// function does not recognise falls back to the label it came with, so a new
+// event kind degrades to the old behaviour rather than vanishing.
+const who = (s) => `<span class="who">${esc(s)}</span>`;   // an actor: agent, bounty, suite
+const fig = (n) => `<b>${esc(n)}</b>`;                      // the one number the row is about
+
+// A metered call is booked to a wallet named att:<bounty>:r<round>. That is the
+// right key for the ledger and the wrong thing to read, so unpack it.
+function fromWallet(w) {
+  const m = /^att:([^:]+):r(\d+)$/.exec(String(w || ""));
+  return m ? `${who(m[1])} round ${esc(m[2])}` : esc(w || "—");
+}
+
+function describe(e) {
+  switch (e.type + "/" + (e.action || "")) {
+    case "agent/spawned":
+      return `${who(e.agent)} enters with ${fig(e.grant)} credits`;
+    case "agent/bankrupt":
+      return `${who(e.agent)} is out of credits and retires`;
+
+    case "episode/start":
+      return `episode opens — ${fig(e.rounds)} rounds`;
+    case "episode/round":
+      return `round ${fig(e.round)}` + (e.postings ? ` — ${esc(e.postings)} bounties posted` : "");
+    case "episode/end":
+      return `episode closes — ${esc(e.conservation || "")}`;
+
+    case "suite/registered":
+      return `imported suite ${who(e.suite)} registered from ${esc(e.source || "an external source")}`;
+
+    case "bounty/posted":
+      return `${who(e.id)} posted at tier ${esc(e.tier)}, worth up to ${fig(e.max_payout)}` +
+        (e.suite ? `, drawn from ${esc(e.suite)}` : ` — ${esc(e.generator)}`) +
+        (e.failures ? ` (back on the board, ${esc(e.failures)}× failed)` : "");
+    case "bounty/awarded":
+      return `${who(e.winner)} wins ${who(e.id)} at ${fig(e.price)}` +
+        (e.book && e.book.length > 1 ? `, ${esc(e.book.length)} sealed bids` : "");
+    case "bounty/no_bids":
+      return `${who(e.id)} drew no bids`;
+    case "bounty/solved":
+      return `${who(e.agent)} solved ${who(e.id)} — paid ${fig(e.payout)}, ${esc(e.burned)} burned getting there`;
+    case "bounty/failed":
+      return `${who(e.agent)} failed ${who(e.id)} — ${esc(e.reason || "no reason given")}, ` +
+        `${fig(e.burned)} burned for nothing`;
+    case "bounty/judged":
+      return `${who(e.agent)} graded ${e.pass ? "pass" : "fail"} on ${who(e.id)} by ` +
+        `${esc(e.grader || "a model")} — ${esc(e.reason || "no reason given")}`;
+    case "bounty/voided":
+      return `${who(e.id)} voided, stake refunded — ${esc(e.reason || "no reason given")}`;
+
+    case "credit/payout":
+      return `${fig(e.amount)} paid to ${who(e.agent)} for ${esc(e.bounty)}`;
+    case "credit/dust_burn":
+      return `${fig(e.amount)} of dust burned from ${who(e.agent)} on retirement`;
+  }
+  if (e.type === "bid") {
+    return `${who(e.agent)} asks ${fig(e.price)} for ${esc(e.bounty)}`;
+  }
+  if (e.type === "model_call") {
+    const u = e.usage || {};
+    return `${esc(e.model)} on ${fromWallet(e.wallet)} — ` +
+      `${esc(u.input_tokens || 0)}→${esc(u.output_tokens || 0)} tokens, ${fig(e.cost)} metered` +
+      (e.outcome && e.outcome !== "ok" ? `, ${esc(e.outcome)}` : "");
+  }
+  return esc(e.label || "");
+}
+
 function rowHTML(e, i) {
-  return `<div class="ev t-${esc(e.type)}" data-i="${i}">` +
-    `<span class="seq">#${e.seq}</span><span class="etype">${esc(e.type)}</span>` +
-    `<span class="elabel">${esc(e.label)}</span></div>`;
+  // A round boundary is the only structural event in the stream, so it is the
+  // only row that draws a rule above itself.
+  const divide = e.type === "episode" && e.action === "round" ? " divide" : "";
+  return `<div class="ev t-${esc(e.type)}${divide}" data-i="${i}">` +
+    `<span class="seq">${e.seq}</span><span class="etype">${esc(e.type)}</span>` +
+    `<span class="etext">${describe(e)}</span></div>`;
 }
 
 function buildLog() {
@@ -112,7 +189,9 @@ function renderState(s) {
   $("st-agents").innerHTML = [...s.agents].map(([id, a]) => {
     const pct = Math.max(0, Math.min(100, (a.balance / maxBal) * 100));
     return `<div class="ag ${a.dead ? "dead" : ""}">` +
-      `<span class="ag-name">${a.dead ? "☠ " : ""}${esc(id)}</span>` +
+      // Retirement is said in a word, not a dingbat: a skull is a different
+      // glyph on every platform, and colour alone would carry the meaning.
+      `<span class="ag-name">${esc(id)}${a.dead ? ` <span class="fate">retired</span>` : ""}</span>` +
       `<span class="ag-bal mono">${a.balance}</span>` +
       `<div class="bar"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }).join("");
@@ -125,9 +204,18 @@ function renderState(s) {
   ).join("") : `<p class="sub">empty</p>`;
 }
 
+// WebKit has no way to style the played half of a range separately, so the
+// track is a gradient and this is where its stop lives. Anything that moves
+// the thumb — or changes what the far end means — has to repaint it.
+function paintScrub() {
+  const max = Number(scrub.max) || 0;
+  scrub.style.setProperty("--p", `${max ? (cur / max) * 100 : 0}%`);
+}
+
 function setPos(i, scroll = true) {
   cur = Math.max(0, Math.min(EVENTS.length - 1, i));
   scrub.value = cur;
+  paintScrub();
   pos.textContent = EVENTS.length ? `${cur + 1}/${EVENTS.length}` : "—";
   const prev = log.querySelector(".ev.current");
   if (prev) prev.classList.remove("current");
@@ -153,11 +241,14 @@ function setPlaying(on) {
     }, Number(speed.value));
   }
   play.textContent = on ? "⏸" : "▶";
+  // The glyph is the whole label, so the accessible name has to move with it.
+  play.setAttribute("aria-label", on ? "pause" : "play");
 }
 
 function setFollow(on) {
   follow = LIVE && on;
   if (livebtn) livebtn.classList.toggle("off", !follow);
+  if (livebtn) livebtn.setAttribute("aria-pressed", String(follow));
   if (follow) {
     setPlaying(false);
     setPos(EVENTS.length - 1);
@@ -168,6 +259,10 @@ play.addEventListener("click", () => setPlaying(!timer));
 speed.addEventListener("change", () => { if (timer) setPlaying(true); });
 scrub.addEventListener("input", () => { setPlaying(false); setFollow(false); setPos(Number(scrub.value)); });
 document.addEventListener("keydown", (e) => {
+  // With the scrubber focused the arrows are already its own: the range steps
+  // itself and its input event does the rest. Stepping again here would move
+  // two events per press.
+  if (e.target === scrub && (e.key === "ArrowRight" || e.key === "ArrowLeft")) return;
   if (e.key === "ArrowRight") { setPlaying(false); setFollow(false); setPos(cur + 1); }
   else if (e.key === "ArrowLeft") { setPlaying(false); setFollow(false); setPos(cur - 1); }
   else if (e.key === " " && e.target === document.body) { e.preventDefault(); setPlaying(!timer); }
@@ -190,6 +285,7 @@ if (LIVE) {
     scrub.max = EVENTS.length - 1;
     if (follow) setPos(EVENTS.length - 1);
     else {
+      paintScrub(); // the thumb held still, but the end of the track moved
       pos.textContent = `${cur + 1}/${EVENTS.length}`;
       log.lastElementChild.classList.add("future");
     }

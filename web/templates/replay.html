@@ -1,32 +1,49 @@
 {{template "top" "replay"}}
 
-<h1>replay <span class="sub">{{.View.TracePath}}</span>
-  {{if .View.Unranked}}<span class="badge sim">sim · unranked</span>{{end}}</h1>
+<header class="masthead">
+  <h1>replay</h1>
+  <p class="meta">
+    {{if .Live}}<span class="badge live">live</span>{{end}}
+    {{if .View.Unranked}}<span class="badge sim">sim · unranked</span>{{end}}
+    <span><code>{{.View.TracePath}}</code></span>
+  </p>
+</header>
+
+<noscript>
+  <p class="notice error"><strong>This page needs JavaScript.</strong>
+     The replay is stepped through in the browser from the trace embedded
+     below. With scripting off there is nothing to step. The trace itself is
+     <code>{{.View.TracePath}}</code>, and it reads in order.</p>
+</noscript>
 
 <div class="controls">
-  {{if .Live}}<button id="livebtn" title="follow the live feed">● live</button>{{end}}
-  <button id="play">▶</button>
-  <input id="scrub" type="range" min="0" max="0" value="0">
+  {{if .Live}}<button id="livebtn" title="follow the live feed" aria-pressed="true">● live</button>{{end}}
+  <button id="play" aria-label="play">▶</button>
+  <input id="scrub" type="range" min="0" max="0" value="0" aria-label="event">
   <span id="pos" class="mono"></span>
-  <select id="speed">
+  <select id="speed" aria-label="playback speed">
     <option value="400">slow</option>
     <option value="150" selected>walk</option>
     <option value="40">run</option>
   </select>
-  <span class="sub">←/→ step · space plays</span>
+  <span class="hint">←/→ step · space plays</span>
 </div>
 
 <div class="replay">
   <aside class="state">
-    <div class="counters">
-      <div class="card"><span class="k">round</span><span class="v" id="st-round">—</span></div>
-      <div class="card"><span class="k">solved</span><span class="v" id="st-solved">0</span></div>
-      <div class="card"><span class="k">metered</span><span class="v" id="st-spent">0</span></div>
+    <div class="stats">
+      <div class="stat"><span class="k">round</span><span class="v" id="st-round">—</span></div>
+      <div class="stat"><span class="k">solved</span><span class="v" id="st-solved">0</span></div>
+      <div class="stat"><span class="k">metered</span><span class="v" id="st-spent">0</span></div>
     </div>
-    <h2>agents</h2>
-    <div id="st-agents"></div>
-    <h2>board</h2>
-    <div id="st-board"></div>
+    <section>
+      <h2>agents</h2>
+      <div id="st-agents"></div>
+    </section>
+    <section>
+      <h2>open board</h2>
+      <div id="st-board"></div>
+    </section>
     <p class="sub mono" id="st-conservation"></p>
   </aside>
   <section class="log" id="log"></section>

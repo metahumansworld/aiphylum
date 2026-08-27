@@ -1,201 +1,764 @@
-/* The dungeon's one stylesheet. Dark by conviction, not by media query:
-   this is a spectator surface for an arena, not a document. */
+/* The dungeon's one stylesheet.
+ *
+ * The point of view, stated once so nothing below has to guess: every page
+ * here is a rendering of a JSONL trace. Not a dashboard — a record. So it is
+ * set like a record: hairline rules, alignment, figures in tabular monospace
+ * so columns of numbers line up down the page. Structure comes from rules and
+ * alignment, not from boxes. Nothing is put in a container unless the
+ * container means something.
+ *
+ * The material is frosted paper. White is the ground and four slightly darker
+ * whites are the whole depth system — there are no dark fills anywhere on the
+ * site. Anything that floats over moving content is a pane of glass instead of
+ * a panel: translucent white, blurred, with a lit top edge and a shadow soft
+ * enough to be light rather than weight. Emphasis is therefore made by tier
+ * and by edge, never by a black bar: the heaviest thing on any page is a 2px
+ * rule in warm grey, and the one filled control on the site is filled gold.
+ *
+ * Colour is spent, not scattered. Ink and warm grey carry the whole interface;
+ * the gold is the mark, the current row and the primary control; the four
+ * status hues appear only on the status word itself. Saturated colour lives in
+ * exactly one place — the town artwork, which is the only thing on the site
+ * that is a picture.
+ *
+ * The system:
+ *
+ *   Type    16px root, a seven-step rem ramp (--text-*). Never px: a reader
+ *           who enlarges their browser font enlarges this whole page.
+ *   Space   4px unit, --space-1..8. Tight inside a block, generous between
+ *           blocks — that is where density comes from.
+ *   Colour  Semantic roles only. Raw hex appears in this block and in the
+ *           town's art, nowhere else.
+ *   Depth   Five whites and one glass recipe. Glass goes on the four things
+ *           the page actually moves underneath — the header, the control bar
+ *           and the two sticky side panels. On anything fixed it would be a
+ *           lie, so it is not used there.
+ *   States  Every control answers hover, focus-visible, active, disabled,
+ *           busy.
+ *
+ * Contrast is checked, not asserted: every ink and accent clears 4.5:1 on all
+ * five whites it can land on, and control edges clear 3:1. Ink is a warm dark
+ * grey rather than black — softer than print, and still 13:1 on the page.
+ */
 
 :root {
-  --bg: #0e1014;
-  --panel: #161a22;
-  --panel-2: #1c2130;
-  --line: #262c3a;
-  --text: #d7dae2;
-  --muted: #8891a5;
-  --gold: #d9a94e;
-  --green: #79b96e;
-  --red: #e0687a;
-  --blue: #7aa2f7;
-  --violet: #b08fe0;
-  --amber: #dcae67;
+  /* Tell the UA which way round we are, so it draws form controls, scrollbars
+     and the default caret in light — otherwise a dark-mode browser supplies
+     its own chrome, and its own chrome is blue. */
+  color-scheme: light;
+
+  /* --- surfaces: white, then four slightly darker whites. This ramp is the
+         entire depth system — there is no dark surface anywhere below. Each
+         step is small on purpose: the tiers should be felt as paper stacked,
+         not seen as boxes drawn. --- */
+  --surface-page:   #ffffff;  /* the paper */
+  --surface-raised: #fbfaf7;  /* a pane that cannot be glass */
+  --surface-sunken: #f4f2ec;  /* wells: code, track grooves */
+  --surface-deep:   #eceae2;  /* the darkest white — table heads, firm ground */
+  --surface-hover:  #f7f5ef;  /* the one step a row moves under a pointer */
+  --surface-solid:  #ffffff;
+
+  /* --- ink. Warm dark grey, not black: the brief is white and shades of
+         white, so even the type stops short of the bottom of the range. --- */
+  --ink:           #35302a;  /* 13.1:1 on white — body and headings */
+  --ink-secondary: #5b544a;  /*  7.5:1 — supporting copy */
+  --ink-muted:     #6a655a;  /*  5.8:1 — labels, captions, column heads */
+  --ink-disabled:  #948c7e;  /*  3.3:1 — disabled only, which is exempt */
+
+  /* --- edges --- */
+  --line:      #e7e3da;  /* hairlines: row rules, dividers */
+  --line-firm: #cdc7ba;  /* a divider that has to be seen */
+  --line-heavy:#b8b1a1;  /* the heaviest mark on the site, at 2px */
+  --edge:      #948c7e;  /* 3.3:1 — control boundaries, per WCAG 1.4.11 */
+
+  /* --- accents. Every hue sits between 0° and 170°, or is neutral.
+         Nothing in this file is permitted into 200°–300°. --- */
+  --accent:        #7a5d10;  /* gold, the mark — 5.6:1 on white */
+  --accent-bright: #cf9a24;  /* the same gold for fills and strokes, not text */
+  --accent-wash:   #fbf3de;  /* gold at a whisper: selection, current row */
+  --positive:      #276b44;  /* 5.9:1 */
+  --danger:        #b3261e;  /* 6.0:1 */
+  --attention:     #94500a;  /* 6.1:1 */
+  --rose:          #a4325f;  /* 6.1:1 — hue 336°, rose, well clear of violet */
+
+  /* --- glass. One recipe, four uses: the header, the control bar and the two
+         sticky side panels — every element the page's own content slides
+         behind. Three parts make it read as glass rather than as a pale box:
+         a translucent white, a real blur with a little saturation so what is
+         behind keeps its colour, and a lit top edge. The shadow is deliberately
+         weaker than the highlight, so the pane reads as light on light. --- */
+  --glass:        rgba(255, 255, 255, .68);
+  --glass-blur:   saturate(1.7) blur(18px);
+  --glass-edge:   inset 0 1px 0 rgba(255, 255, 255, .9);
+  --glass-shadow: 0 1px 2px rgba(53, 48, 42, .05), 0 8px 24px rgba(53, 48, 42, .045);
+
+  /* --- type: 16px root, ramp named for the job, not the size --- */
+  --text-caption:  0.75rem;    /* 12 — sequence numbers, clock, meta */
+  --text-footnote: 0.8125rem;  /* 13 — feed lines, column heads, footer */
+  --text-label:    0.875rem;   /* 14 — table cells, controls, nav */
+  --text-body:     0.9375rem;  /* 15 — body copy */
+  --text-lead:     1.0625rem;  /* 17 — stat values */
+  --text-title:    1.125rem;   /* 18 — section headings */
+  --text-display:  2rem;       /* 32 — the one h1 per page */
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold:   600;
+  --weight-heavy:  700;
+
+  /* --- space: 4px unit --- */
+  --space-1: 0.25rem;  /*  4 */
+  --space-2: 0.5rem;   /*  8 */
+  --space-3: 0.75rem;  /* 12 */
+  --space-4: 1rem;     /* 16 */
+  --space-5: 1.5rem;   /* 24 */
+  --space-6: 2rem;     /* 32 */
+  --space-7: 3rem;     /* 48 */
+  --space-8: 4rem;     /* 64 */
+
+  /* --- radii: small. A rounded rectangle is a container; almost nothing here
+         is a container, and the few that are should not announce it. --- */
+  --radius-sm:   3px;
+  --radius-md:   5px;
+  --radius-lg:   8px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(22, 19, 15, .06);
+
+  /* --- motion: one duration, one curve, honoured or dropped wholesale --- */
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --fast: 120ms;
+  --slow: 320ms;
+
+  --header-h: 3rem;
+  --measure: 68rem;       /* a reading width for pages made of words */
+  --measure-wide: 106rem; /* a watching width for the page made of world */
 }
 
 * { box-sizing: border-box; }
 
+html { -webkit-text-size-adjust: 100%; }
+
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--surface-page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: var(--text-body);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-.mono, code, .seq, .num, td.num, .v {
+/* The browser's own accents are blue by default — selection, the caret, and
+   any control drawn from accent-color. Overriding them is not decoration;
+   it is the difference between a palette and an intention. */
+::selection { background: var(--accent-wash); color: var(--ink); }
+:root { accent-color: var(--accent-bright); caret-color: var(--accent); }
+
+/* Every figure on the site is tabular, so columns of numbers line up whether
+   they sit in a table, a readout or a sentence. */
+.mono, code, .seq, .num, td.num, .v, .clockface, .stat .v, .ev .etext b {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-variant-numeric: tabular-nums;
 }
 
-header.site {
-  display: flex;
-  align-items: baseline;
-  gap: 1.5rem;
-  padding: .8rem 1.5rem;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
+/* --- focus: one ring, everywhere, never removed ---
+   :focus-visible rather than :focus, so a mouse user does not get a ring they
+   did not ask for and a keyboard user always does. The UA ring is blue, so
+   this rule is doing colour work as well as design work. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
-.brand { color: var(--gold); font-weight: 700; text-decoration: none; }
-header.site nav { display: flex; gap: 1rem; }
-header.site nav a { color: var(--muted); text-decoration: none; }
-header.site nav a:hover { color: var(--text); }
 
-main { max-width: 70rem; margin: 0 auto; padding: 1.2rem 1.5rem 3rem; }
+/* --- skip link: the first thing in the tab order, invisible until focused ---
+   The town page is one enormous SVG; a keyboard user should not have to walk
+   past the whole header to reach it. */
+.skip {
+  position: absolute;
+  left: var(--space-3);
+  top: calc(-1 * var(--space-8));
+  z-index: 20;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-solid);
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  transition: top var(--fast) var(--ease);
+}
+.skip:focus { top: var(--space-3); }
+
+/* --- header: a thin rule of a bar. Glass, because the page scrolls under it. */
+header.site {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-5);
+  min-height: var(--header-h);
+  border-bottom: 1px solid var(--line);
+}
+
+/* One recipe, four panes, written once so they cannot drift apart: the header,
+   the control bar and the two sticky rails — every element the page's own
+   content slides behind while you read. Nothing else on the site is glass,
+   because nothing else has anything moving behind it to refract. */
+header.site,
+.controls,
+.state,
+.townside {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
+}
+/* Wherever the blur cannot be drawn, the surface goes opaque rather than
+   translucent. Text over a half-transparent panel with no blur is the one
+   outcome a material must never produce. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  header.site, .controls, .state, .townside { background: var(--surface-raised); }
+}
+
+/* The mark: a small gold lozenge and the word, set tight. It is the one piece
+   of pure ornament on the site, which is why it gets to be the only one. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .55em;
+  color: var(--ink);
+  font-weight: var(--weight-heavy);
+  font-size: var(--text-label);
+  letter-spacing: -.02em;
+  text-decoration: none;
+}
+.brand::before {
+  content: "";
+  width: .5rem; height: .5rem;
+  background: var(--accent-bright);
+  border-radius: 1px;
+  transform: rotate(45deg);
+  flex: none;
+}
+.brand:hover { text-decoration: none; }
+.brand:hover::before { background: var(--accent); }
+
+header.site nav { display: flex; gap: var(--space-4); }
+header.site nav a {
+  color: var(--ink-muted);
+  text-decoration: none;
+  font-size: var(--text-label);
+  line-height: var(--header-h);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+header.site nav a:hover { color: var(--ink); text-decoration: none; }
+header.site nav a:active { color: var(--accent); }
+/* Where you are is marked by weight and a rule, not by colour alone. */
+header.site nav a[aria-current="page"] {
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+  border-bottom-color: var(--ink);
+}
+
+main { max-width: var(--measure); margin: 0 auto; padding: var(--space-6) var(--space-5) var(--space-8); }
 footer.site {
-  max-width: 70rem;
+  max-width: var(--measure);
   margin: 0 auto;
-  padding: 1rem 1.5rem 2rem;
-  color: var(--muted);
-  font-size: .82rem;
+  padding: var(--space-4) var(--space-5) var(--space-6);
+  color: var(--ink-muted);
+  font-size: var(--text-footnote);
   border-top: 1px solid var(--line);
 }
 
-h1 { font-size: 1.5rem; margin: .8rem 0 .2rem; }
-h2 { font-size: .95rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 1.6rem 0 .5rem; }
-a { color: var(--blue); text-decoration: none; }
-a:hover { text-decoration: underline; }
-.sub { color: var(--muted); font-size: .88rem; }
-code { background: var(--panel-2); padding: .1em .35em; border-radius: 4px; font-size: .85em; }
-
-/* tables */
-table { border-collapse: collapse; width: 100%; font-size: .92rem; }
-th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 500; font-size: .8rem; }
-th.num, td.num { text-align: right; }
-tbody tr:hover { background: var(--panel); }
-
-/* badges */
-.badge {
+/* --- the masthead: title left, the run's particulars right, closed by a firm
+       rule. One per page, and it is what tells you at a glance which page you
+       are on and which trace you are looking at. --- */
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid var(--line-heavy);
+  margin-bottom: var(--space-6);
+}
+.masthead h1 { margin: 0; }
+.masthead .meta {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-footnote);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+}
+/* The separators are drawn, not typed, so no template has to carry a "·". */
+.masthead .meta > * + *::before {
+  content: "";
   display: inline-block;
-  padding: .05em .5em;
-  border-radius: 99px;
-  font-size: .78rem;
-  border: 1px solid var(--line);
-  color: var(--muted);
+  width: 1px; height: .8em;
+  margin-right: var(--space-3);
+  background: var(--line-firm);
+  vertical-align: -.05em;
+}
+.masthead .lede {
+  flex-basis: 100%;
+  max-width: 44rem;
+  margin: var(--space-2) 0 0;
+  color: var(--ink-secondary);
+}
+
+/* --- headings: the ramp, applied. Section headings are words in ink at a
+       larger size — not letterspaced capitals, which is a label, not a title. */
+h1 {
+  font-size: var(--text-display);
+  line-height: 1.08;
+  letter-spacing: -.025em;
+  font-weight: var(--weight-heavy);
+  margin: 0 0 var(--space-2);
+}
+h1 .sub { font-size: var(--text-label); font-weight: var(--weight-normal); }
+h2 {
+  font-size: var(--text-title);
+  line-height: 1.3;
+  letter-spacing: -.012em;
+  font-weight: var(--weight-bold);
+  color: var(--ink);
+  margin: 0 0 var(--space-3);
+}
+section + section { margin-top: var(--space-7); }
+
+a { color: var(--accent); text-decoration: none; }
+/* A visited link is purple by UA default. Not here. */
+a:visited { color: var(--accent); }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+a:active { color: var(--attention); }
+
+.sub { color: var(--ink-muted); font-size: var(--text-label); }
+p.sub { max-width: 44rem; }
+code {
+  background: var(--surface-sunken);
+  padding: .1em .35em;
+  border-radius: var(--radius-sm);
+  font-size: .875em;
+}
+
+/* --- tables. A firm rule under the column heads, hairlines between rows, and
+       nothing else: the alignment does the work a border would do badly. --- */
+table { border-collapse: collapse; width: 100%; font-size: var(--text-label); }
+th, td { text-align: left; padding: var(--space-2) var(--space-4) var(--space-2) 0; }
+th:last-child, td:last-child { padding-right: 0; }
+td { border-bottom: 1px solid var(--line); }
+th {
+  color: var(--ink-muted);
+  font-weight: var(--weight-normal);
+  font-size: var(--text-footnote);
+  padding-bottom: var(--space-2);
+  border-bottom: 1.5px solid var(--line-heavy);
   white-space: nowrap;
 }
-.badge.ok    { color: var(--green); border-color: var(--green); }
-.badge.warn  { color: var(--red); border-color: var(--red); }
-.badge.alive { color: var(--green); border-color: var(--green); }
-.badge.dead  { color: var(--red); border-color: var(--red); }
-.badge.open  { color: var(--amber); border-color: var(--amber); }
-.badge.sim   { color: var(--violet); border-color: var(--violet); }
-.badge.judged { color: var(--violet); border-color: var(--violet); }
-.badge.imported { color: var(--amber); border-color: var(--amber); }
-/* The imported asterisk: loud enough to notice beside a name, quiet enough
-   not to read as an error. It links down to the provenance note. */
-.ast { color: var(--amber); text-decoration: none; font-weight: 700; }
+th.num, td.num { text-align: right; }
+tbody tr { transition: background var(--fast) var(--ease); }
+/* A wide row is hard to track across nine columns; the wash is a guide rail,
+   not decoration. */
+tbody tr:hover { background: var(--surface-hover); }
+tbody tr:hover td { border-bottom-color: var(--line-firm); }
+/* The rank column: the number is the point, so it is set like one. */
+td.rank { font-weight: var(--weight-bold); color: var(--ink); }
 
-/* stat cards */
-.cards { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
-.card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: .5rem .9rem;
-  display: flex;
-  flex-direction: column;
-  min-width: 6.5rem;
+/* --- status. Not a pill: a coloured dot and the word. The word is always the
+       message — the colour only agrees with it — so a reader who cannot see
+       the hue loses nothing. --- */
+.badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .45em;
+  font-size: inherit;
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  white-space: nowrap;
 }
-.card .k { color: var(--muted); font-size: .75rem; }
-.card .v { font-size: 1.05rem; }
+.badge::before {
+  content: "";
+  width: .4em; height: .4em;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  transform: translateY(-.15em);
+  flex: none;
+}
+.badge.ok, .badge.alive { color: var(--positive); }
+.badge.warn, .badge.dead { color: var(--danger); }
+.badge.open, .badge.imported { color: var(--attention); }
+/* "sim · unranked" and "judged" are the absence of a score, not a state worth
+   announcing. They get no dot at all. */
+.badge.sim, .badge.judged { color: var(--ink-muted); font-weight: var(--weight-normal); }
+.badge.sim::before, .badge.judged::before { display: none; }
+/* Live is the one status that is still happening, so its dot is the one thing
+   on the site that moves for its own sake. */
+.badge.live { color: var(--danger); }
+.badge.live::before { animation: pulse 2s var(--ease) infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
 
-/* sparkline */
-.spark { width: 100%; max-width: 40rem; height: auto; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-.spark-line { fill: none; stroke: var(--gold); stroke-width: 2; }
-.spark-zero { stroke: var(--line); stroke-width: 1; }
-.spark-dot { fill: var(--gold); }
+.ast { color: var(--attention); text-decoration: none; font-weight: var(--weight-heavy); }
+.ast:hover { text-decoration: underline; }
 
-/* bounty history */
+/* --- the readout: a row of figures between two rules. It replaces a row of
+       cards — cards would give five equal boxes five equal emphases, which is
+       exactly the hierarchy these numbers do not have. --- */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-6);
+  border-top: 1.5px solid var(--line-heavy);
+  border-bottom: 1px solid var(--line);
+}
+.stat {
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-5);
+  border-left: 1px solid var(--line);
+}
+.stat:first-child { padding-left: 0; border-left: 0; }
+.stat .k {
+  display: block;
+  color: var(--ink-muted);
+  font-size: var(--text-footnote);
+  line-height: 1.4;
+}
+.stat .v {
+  display: block;
+  font-size: var(--text-lead);
+  font-weight: var(--weight-medium);
+  letter-spacing: -.01em;
+}
+/* Credits are the unit the platform runs on; dollars are what they cost. The
+   figure leads and the money follows it, quietly — the old card ran the two
+   together in one string and neither could be read at a glance. */
+.stat .u {
+  display: block;
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+/* --- sparkline: a line and a baseline. A chart of one series does not need a
+       frame around it. --- */
+.spark { width: 100%; max-width: 44rem; height: auto; display: block; margin-bottom: var(--space-2); }
+.spark-line { fill: none; stroke: var(--accent-bright); stroke-width: 2; stroke-linejoin: round; }
+.spark-zero { stroke: var(--line-firm); stroke-width: 1; }
+.spark-dot  { fill: var(--accent); }
+
+/* --- bounty history: a numbered record with the sequence in a left gutter, so
+       the entries hang off one spine. --- */
 ol.history { list-style: none; padding: 0; margin: 0; }
-ol.history li { padding: .45rem 0; border-bottom: 1px solid var(--line); }
-ol.history .seq { color: var(--muted); font-size: .8rem; margin-right: .5rem; }
-table.book { width: auto; min-width: 16rem; margin: .4rem 0 .2rem 1.5rem; }
+ol.history li {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 0 var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-label);
+}
+ol.history .seq { color: var(--ink-muted); font-size: var(--text-caption); text-align: right; }
+ol.history .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
+ol.history .when { color: var(--ink-muted); font-size: var(--text-footnote); }
+table.book { width: auto; min-width: 14rem; grid-column: 2; margin: var(--space-2) 0 var(--space-1); }
+table.book th, table.book td { padding: var(--space-1) var(--space-4) var(--space-1) 0; font-size: var(--text-footnote); }
+table.book td { border-bottom: 0; }
+table.book tbody tr:hover { background: none; }
 
-/* replay */
+/* --- the control bar: glass, and sticky under the header, so the thing you
+       steer stays where you left it however far the page scrolls --- */
 .controls {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 5;
   display: flex;
   align-items: center;
-  gap: .8rem;
-  margin: 1rem 0;
-  padding: .6rem .9rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  /* The bar bleeds a little past the measure so the glass reads as a sheet the
+     column passes under, not as a card sitting inside the column. */
+  padding: var(--space-2) var(--space-4);
+  margin-left: calc(var(--space-4) * -1);
+  margin-right: calc(var(--space-4) * -1);
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
-.controls input[type=range] { flex: 1; accent-color: var(--gold); }
+
+/* --- buttons and selects: all six states, because a control that only has a
+       default state has not told you it is a control --- */
 .controls button, .controls select {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: .25rem .7rem;
-  font-size: .95rem;
+  background: var(--surface-solid);
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  min-height: 1.75rem;
+  font: inherit;
+  font-size: var(--text-label);
   cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+              color var(--fast) var(--ease), transform var(--fast) var(--ease);
 }
+.controls button:hover, .controls select:hover {
+  background: var(--surface-hover);
+  border-color: var(--ink-muted);
+}
+.controls button:active {
+  background: var(--surface-sunken);
+  /* A press should feel like a press: the button goes down, not just darker. */
+  transform: translateY(1px);
+}
+.controls button:disabled, .controls select:disabled {
+  color: var(--ink-disabled);
+  background: var(--surface-sunken);
+  border-color: var(--line-firm);
+  cursor: not-allowed;
+  transform: none;
+}
+/* Loading: the control stays in place and in size, so nothing reflows around
+   a spinner. It is busy, so it is also inert. */
+.controls button[aria-busy="true"] {
+  color: transparent;
+  pointer-events: none;
+  position: relative;
+}
+.controls button[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: .875rem; height: .875rem;
+  border: 2px solid var(--line-firm);
+  border-top-color: var(--accent);
+  border-radius: var(--radius-pill);
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-#livebtn { color: var(--red); border-color: var(--red); }
-#livebtn.off { color: var(--muted); border-color: var(--line); }
+/* Play is the one thing on these pages you are meant to press, so it is the
+   one filled control on the site. Everything beside it is an outline. With no
+   dark fills available the fill is gold — the mark's own colour, which makes
+   the primary action the only saturated thing in the chrome. Ink on it reads
+   5.2:1, so the glyph is legible rather than merely visible. */
+#play {
+  min-width: 2.5rem;
+  background: var(--accent-bright);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--ink);
+  font-size: var(--text-body);
+  box-shadow: var(--glass-edge);
+}
+#play:hover { background: #dba930; border-color: var(--accent); }
+#play:active { background: #c08d1c; border-color: var(--accent); }
+#play:disabled { background: var(--surface-sunken); border-color: var(--line-firm); color: var(--ink-disabled); box-shadow: none; }
+#play[aria-busy="true"]::after { border-color: color-mix(in srgb, var(--ink) 25%, transparent); border-top-color: var(--ink); }
 
-.replay { display: grid; grid-template-columns: 19rem 1fr; gap: 1rem; align-items: start; }
-@media (max-width: 50rem) { .replay { grid-template-columns: 1fr; } }
+/* --- the scrubber.
+   accent-color alone gets the fill right and the rest wrong: Chromium picks
+   the *unfilled* half of the track itself, and against a gold accent it picks
+   near-black — a hard dark bar across the one control the eye lands on. So
+   the track is drawn here rather than delegated. Played is gold, unplayed is
+   the deepest white, and the thumb is a white disc with a gold ring so it
+   stays findable over either half. --p is the played fraction, written by
+   replay.js on every move, because WebKit has no ::-moz-range-progress. --- */
+.controls input[type=range] {
+  flex: 1;
+  min-width: 8rem;
+  height: 1.5rem;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.controls input[type=range]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right,
+    var(--accent-bright) 0 var(--p, 0%), var(--surface-deep) var(--p, 0%) 100%);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.controls input[type=range]::-moz-range-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-deep);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.controls input[type=range]::-moz-range-progress {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-bright);
+}
+.controls input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--surface-solid);
+  border: 2px solid var(--accent);
+  margin-top: -5px; /* centres the 16px thumb on the 6px track */
+  box-shadow: var(--shadow-sm);
+}
+.controls input[type=range]::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--surface-solid);
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.controls input[type=range]:hover::-webkit-slider-thumb { background: var(--accent-wash); }
+.controls input[type=range]:hover::-moz-range-thumb { background: var(--accent-wash); }
+.controls input[type=range]:active::-webkit-slider-thumb { background: var(--accent-bright); }
+.controls input[type=range]:active::-moz-range-thumb { background: var(--accent-bright); }
+.controls input[type=range]:disabled { cursor: not-allowed; }
+.controls input[type=range]:disabled::-webkit-slider-runnable-track { background: var(--surface-sunken); }
+.controls input[type=range]:disabled::-moz-range-track { background: var(--surface-sunken); }
+.controls input[type=range]:disabled::-webkit-slider-thumb { border-color: var(--line-firm); }
+.controls input[type=range]:disabled::-moz-range-thumb { border-color: var(--line-firm); }
 
-.state { position: sticky; top: 1rem; }
-.state .counters { display: flex; gap: .6rem; }
-.state .counters .card { min-width: 4.5rem; }
+#livebtn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+#livebtn:hover { background: color-mix(in srgb, var(--danger) 7%, var(--surface-solid)); border-color: var(--danger); }
+#livebtn.off { color: var(--ink-muted); border-color: var(--edge); }
+#livebtn.off:hover { color: var(--ink); background: var(--surface-hover); }
 
-.ag { padding: .35rem 0; }
-.ag-name { font-weight: 600; }
-.ag.dead .ag-name { color: var(--red); }
-.ag-bal { float: right; color: var(--muted); }
-.bar { height: 4px; background: var(--panel-2); border-radius: 2px; margin-top: .25rem; }
-.bar .fill { height: 100%; background: var(--gold); border-radius: 2px; transition: width .15s; }
-.ag.dead .bar .fill { background: var(--red); }
+#pos { color: var(--ink-muted); font-size: var(--text-caption); }
+.controls .hint { color: var(--ink-muted); font-size: var(--text-caption); margin-left: auto; }
 
-.bo { padding: .25rem 0; font-size: .88rem; }
-.bo .tier { color: var(--violet); margin: 0 .3rem; }
+/* --- replay ---
+   18rem of readout beside the log at desktop; one column below 50rem, where
+   two would leave neither of them readable. */
+.replay { display: grid; grid-template-columns: 18rem 1fr; gap: var(--space-6); align-items: start; }
+
+.state {
+  position: sticky;
+  top: calc(var(--header-h) + var(--space-4));
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+/* In the rail the readout turns on its side: label left, figure right, one per
+   line — an instrument panel rather than a row of tiles. */
+/* The page readout is closed top and bottom by rules because it floats in the
+   column. In the rail the pane's own edge already does that, so both rules go
+   — otherwise the heavy one lands a hairsbreadth inside the border and reads
+   as a mistake rather than a mark. */
+.state .stats { display: block; border-top: 0; border-bottom: 0; margin-bottom: var(--space-6); }
+.state .stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-left: 0;
+  border-bottom: 1px solid var(--line);
+}
+.state .stat .k { font-size: var(--text-label); }
+.state .stat .v { font-size: var(--text-label); font-weight: var(--weight-bold); }
+.state h2 { font-size: var(--text-label); margin-bottom: var(--space-1); }
+.state h2 + * { margin-top: 0; }
+.state section + section { margin-top: var(--space-5); }
+
+.ag { padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font-size: var(--text-label); }
+.ag-name { font-weight: var(--weight-medium); }
+.ag.dead .ag-name { color: var(--ink-muted); }
+/* Retirement is a word, so it survives colour-blindness and forced colours;
+   the ink is dropped rather than reddened, because a retired agent is over,
+   not alarming. */
+.ag-name .fate {
+  font-weight: var(--weight-normal);
+  font-size: var(--text-caption);
+  letter-spacing: 0;
+  color: var(--danger);
+}
+.ag-bal { float: right; color: var(--ink-secondary); }
+.bar {
+  height: 3px;
+  /* The groove needs the deepest white: on a glass panel over white paper the
+     sunken tier all but disappears, and an empty bar has to be visible as an
+     empty bar. */
+  background: var(--surface-deep);
+  margin-top: var(--space-1);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+}
+.bar .fill { height: 100%; background: var(--accent-bright); transition: width var(--slow) var(--ease); }
+.ag.dead .bar .fill { background: var(--danger); }
+
+.bo { padding: var(--space-1) 0; font-size: var(--text-footnote); }
+.bo .tier { color: var(--rose); margin-left: var(--space-2); font-weight: var(--weight-medium); }
+.bo .sub { display: block; font-size: var(--text-caption); }
 
 .log {
   position: relative; /* row offsetTop measures against the pane, for its scroll math */
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  max-height: 75vh;
+  border-top: 1.5px solid var(--line-heavy);
+  max-height: 78vh;
   overflow-y: auto;
-  font-size: .85rem;
+  font-size: var(--text-footnote);
 }
+/* Three columns: the sequence in a right-aligned gutter, the kind of thing
+   that happened, and then the sentence. Lines wrap rather than truncate —
+   the log's whole job is to be read. */
 .ev {
-  display: flex;
-  gap: .6rem;
-  padding: .2rem .7rem;
+  display: grid;
+  grid-template-columns: 3rem 5.5rem 1fr;
+  gap: 0 var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transition: background var(--fast) var(--ease);
 }
-.ev:hover { background: var(--panel-2); }
-.ev .seq { color: var(--muted); min-width: 3.2rem; }
-.ev .etype { min-width: 6.5rem; }
-.ev .elabel { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-.ev.current { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--gold); }
-.ev.future { opacity: .35; }
+.ev:hover { background: var(--surface-hover); }
+.ev:active { background: var(--surface-sunken); }
+.ev .seq { color: var(--ink-muted); font-size: var(--text-caption); text-align: right; }
+.ev .etype { font-size: var(--text-caption); letter-spacing: .01em; }
+.ev .etext { color: var(--ink-secondary); overflow-wrap: anywhere; }
+/* The operative figure in each line — what was paid, burned, bid, granted. */
+.ev .etext b { color: var(--ink); font-weight: var(--weight-bold); }
+.ev .etext .who { color: var(--ink); font-weight: var(--weight-medium); }
+/* The current row is marked three ways — wash, rule and weight — so it survives
+   both a colour-blind reader and a monochrome screen. */
+.ev.current { background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent-bright); }
+.ev.current .etext { color: var(--ink); }
+.ev.future { opacity: .38; }
 
-/* town */
-/* The town is a world being watched, not a document being read: it gets the
-   whole window, because at 70rem the residents are three pixels tall. The
+/* --- event kinds. Five hues, none of them blue or violet, and each one always
+       accompanied by the kind in words. --- */
+.t-bounty .etype     { color: var(--accent); }
+.t-bid .etype        { color: var(--positive); }
+.t-credit .etype     { color: var(--attention); }
+.t-model_call .etype { color: var(--rose); }
+.t-agent .etype      { color: var(--danger); }
+.t-episode .etype    { color: var(--ink); font-weight: var(--weight-bold); }
+.t-suite .etype, .t-note .etype { color: var(--ink-muted); }
+/* A round boundary is the one structural event in the stream, so it draws the
+   only heavy rule in the log. */
+.ev.divide { border-top: 1.5px solid var(--line-heavy); }
+
+/* ============================== town ==============================
+   The town is a world being watched, not a document being read: it gets the
+   whole window, because at 68rem the residents are three pixels tall. The
    page announces itself by what it contains, so the shared layout does not
    have to grow a page-name class — on the agent and bounty pages that name
    is a trace-supplied id, which has no business steering CSS. */
-body:has(.townpage) main { max-width: 106rem; }
-.townpage { display: grid; grid-template-columns: 1fr 18rem; gap: 1rem; align-items: start; }
-@media (max-width: 56rem) { .townpage { grid-template-columns: 1fr; } }
+body:has(.townpage) main { max-width: var(--measure-wide); }
+.townpage { display: grid; grid-template-columns: 1fr 19rem; gap: var(--space-6); align-items: start; }
 
-.townmap { border-radius: 14px; overflow: hidden;
-           background: radial-gradient(130% 100% at 50% 24%, #2f5a6d, #14222c); }
+/* No frame. The town is the page here, not a picture hung on it; a border and
+   a drop shadow would put a box around the one thing that should be looked
+   straight at. */
+.townmap { position: relative; }
 .townmap svg { width: 100%; height: auto; display: block; }
 
 /* The outline. Every solid thing in the town is drawn with the same warm dark
@@ -204,7 +767,7 @@ body:has(.townpage) main { max-width: 106rem; }
 .townmap .ol2 { stroke: #3b2a1d; stroke-width: 2.6; stroke-linejoin: round; }
 
 /* the ground, and the earth it sits on */
-.townmap .plinth-shadow { fill: rgba(6, 14, 20, .5); }
+.townmap .plinth-shadow { fill: rgba(74, 54, 34, .22); }
 .townmap .plinth        { fill: #8a5f3a; stroke: #3b2a1d; stroke-width: 2.6; stroke-linejoin: round; }
 .townmap .plinth-top    { fill: #5d8f3c; }
 .townmap .tuft   { stroke: #3f7a2c; stroke-width: 1.6; fill: none; stroke-linecap: round; }
@@ -222,7 +785,7 @@ body:has(.townpage) main { max-width: 106rem; }
 .townmap .shell.open { opacity: .28; }
 .townmap .plank { stroke: #8a5f3a; stroke-width: 1.4; }
 
-.townmap .spray { fill: #cdeeff; opacity: .85; }
+.townmap .spray { fill: #eef6f0; opacity: .9; }
 .townmap .sign text { fill: #fff3d6; font-size: 11px; font-weight: 800; letter-spacing: .08em;
                       text-anchor: middle; }
 .townmap .arealabel { fill: #fdf8ec; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-anchor: middle;
@@ -235,10 +798,12 @@ body:has(.townpage) main { max-width: 106rem; }
 
 /* the sky: render() reads the clock and flips these classes; everything
    below dims through dusk into night, except the lights layer, which is
-   exactly what comes on instead. */
+   exactly what comes on instead. Night is warm here — a lamplit brown-black
+   rather than the navy it used to be, which keeps the one forbidden family
+   out of the picture and reads truer against a paper-white page anyway. */
 .townmap .veil { pointer-events: none; transition: opacity 1.2s; opacity: 0; }
 .townmap .veil-warm { fill: #ff7b3c; }
-.townmap .veil-cool { fill: #101540; }
+.townmap .veil-cool { fill: #241a12; }
 .townmap.dusk  .veil-warm { opacity: .16; }
 .townmap.dusk  .veil-cool { opacity: .16; }
 .townmap.night .veil-cool { opacity: .46; }
@@ -250,22 +815,233 @@ body:has(.townpage) main { max-width: 106rem; }
 .townmap .lamp-core { fill: #ffe9ad; }
 .townmap .flame     { fill: #ffb43c; animation: flick 1.6s ease-in-out infinite; }
 @keyframes flick { 50% { opacity: .72; } }
-@media (prefers-reduced-motion: reduce) { .townmap .flame { animation: none; } }
 
-.clockface { margin-left: auto; color: var(--gold); }
+/* The clock is the town's one big number. It is set like one. */
+.clockface {
+  margin-left: auto;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+  font-size: var(--text-lead);
+  letter-spacing: -.02em;
+}
 
-.townres { padding: .35rem 0; border-bottom: 1px solid var(--line); }
-.townres .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 99px; margin-right: .4rem; }
-.townres-name { font-weight: 600; margin-right: .4rem; }
+/* --- the side rail: a column, divided from the map by one line. Not a panel:
+       a panel floating beside a picture is two boxes where one page will do. */
+.townside {
+  position: sticky;
+  top: calc(var(--header-h) + var(--space-4));
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.townside h2 { font-size: var(--text-label); margin-bottom: var(--space-1); }
+.townside section + section { margin-top: var(--space-6); }
 
-.feed { max-height: 40vh; overflow-y: auto; font-size: .85rem; }
-.feedline { padding: .25rem 0; border-bottom: 1px solid var(--line); }
-.feedline.met b { color: var(--gold); font-weight: 600; }
+/* A resident is a name and a place, on two lines, hung off one swatch. */
+.townres {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-label);
+}
+.townres:last-child { border-bottom: 0; }
+/* The swatch is a persona colour handed over from the animator, so it is the
+   one place a raw value is set inline. A ring keeps a pale costume from
+   disappearing into a white page. */
+.townres .dot {
+  grid-row: 1 / span 2;
+  width: .5rem; height: .5rem;
+  margin-top: .45em;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 0 0 1px rgba(59, 42, 29, .35);
+}
+.townres-name { font-weight: var(--weight-medium); }
+.townres .where { color: var(--ink-muted); font-size: var(--text-footnote); line-height: 1.4; }
 
-.t-bounty .etype     { color: var(--blue); }
-.t-bid .etype        { color: var(--green); }
-.t-credit .etype     { color: var(--amber); }
-.t-model_call .etype { color: var(--violet); }
-.t-agent .etype      { color: var(--red); }
-.t-episode .etype    { color: var(--gold); }
-.t-note .etype       { color: var(--muted); }
+/* The feed: the time in a quiet left column, the sentence beside it, so the
+   eye reads down the events and only glances left for when. */
+.feed { max-height: 46vh; overflow-y: auto; }
+.feedline {
+  display: grid;
+  grid-template-columns: 2.75rem 1fr;
+  gap: 0 var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-footnote);
+  color: var(--ink-secondary);
+}
+.feedline:last-child { border-bottom: 0; }
+.feedline .when { color: var(--ink-muted); font-size: var(--text-caption); line-height: 1.7; }
+.feedline b { color: var(--ink); font-weight: var(--weight-medium); }
+.feedline.met b { color: var(--accent); font-weight: var(--weight-bold); }
+
+/* ===================== empty, loading and error =====================
+   Designed with the success state rather than after it. The loading and empty
+   cases need no JavaScript at all: a container that has not been filled yet is
+   :empty, and what it should say when empty is a property of the container. */
+
+/* Loading. The map is the only region that is never legitimately empty once
+   the animator has run, so an unfilled map is a map still arriving. */
+#map:empty {
+  display: block;
+  min-height: 28rem;
+  background: linear-gradient(100deg, var(--surface-sunken) 30%, var(--surface-solid) 50%, var(--surface-sunken) 70%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { background-position: -220% 0; } }
+
+/* Empty. A roster, feed or log with nothing in it is a real state of the
+   world, not a failure — so it says what is true and what to do next. */
+#roster:empty::after, #feed:empty::after, #log:empty::after, .empty {
+  display: block;
+  padding: var(--space-4) 0;
+  color: var(--ink-muted);
+  font-size: var(--text-footnote);
+  text-wrap: balance;
+}
+#roster:empty::after { content: "no residents in this trace"; }
+#feed:empty::after   { content: "nothing has happened yet — press play"; }
+#log:empty::after    { content: "no events in this trace"; }
+
+/* Error. The only failure these pages can actually suffer is the one that
+   stops them being pages at all, and until now it said nothing. */
+.notice {
+  display: block;
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 2px solid var(--ink-muted);
+  background: var(--surface-raised);
+  font-size: var(--text-label);
+  color: var(--ink-secondary);
+}
+.notice.error { border-left-color: var(--danger); }
+.notice strong { color: var(--ink); }
+
+/* ========================= responsive =========================
+   Four widths, and a reason for each.
+
+   ≥76rem   the design width. Town: map + a 19rem rail beside it. Replay:
+            readout + log side by side.
+   56–76rem the rail is still worth having but not worth 19rem, so it narrows
+            rather than wrapping — a rail that wraps costs the map its height.
+   <56rem   one column. The rail drops below the map, loses its dividing line
+            for a top rule, and stops being sticky: a sticky panel on a short
+            screen is a panel that covers the thing it describes.
+   <40rem   phone. The control bar becomes two rows with the scrubber given a
+            full row of its own, since a 6rem scrubber cannot be aimed. */
+@media (max-width: 76rem) {
+  .townpage { grid-template-columns: 1fr 16rem; gap: var(--space-5); }
+}
+@media (max-width: 56rem) {
+  .townpage { grid-template-columns: 1fr; }
+  /* Stacked under the map the rail has nothing sliding behind it any more, so
+     it stops pretending to be glass and becomes a plain pane. */
+  .townside {
+    position: static;
+    background: var(--surface-raised);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .feed { max-height: 22rem; }
+}
+@media (max-width: 50rem) {
+  .replay { grid-template-columns: 1fr; gap: var(--space-5); }
+  .state {
+    position: static;
+    background: var(--surface-raised);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .log { max-height: 60vh; }
+}
+@media (max-width: 40rem) {
+  main { padding: var(--space-5) var(--space-4) var(--space-7); }
+  header.site { padding: 0 var(--space-4); gap: var(--space-4); }
+  footer.site { padding: var(--space-4) var(--space-4) var(--space-5); }
+  h1 { font-size: 1.5rem; }
+  .masthead { margin-bottom: var(--space-5); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; }
+  .stat { padding: var(--space-2) var(--space-3); border-left: 0; }
+  .stat:nth-child(odd) { padding-left: 0; }
+  .controls input[type=range] { order: 1; flex-basis: 100%; min-width: 0; }
+  .controls .hint { display: none; }
+  .clockface { margin-left: 0; }
+  table { font-size: var(--text-footnote); }
+  th, td { padding-right: var(--space-3); }
+  .ev { grid-template-columns: 2.5rem 1fr; padding-left: var(--space-2); }
+  .ev .etype { grid-column: 2; }
+  .ev .etext { grid-column: 2; }
+}
+
+/* Touch. 44px is the smallest thing a finger can reliably hit; a pointer can
+   do the job at 28. Only coarse pointers pay for the extra height. */
+@media (pointer: coarse) {
+  .controls button, .controls select { min-height: 2.75rem; padding: var(--space-2) var(--space-4); }
+  .controls input[type=range] { height: 2.75rem; }
+  .ev { padding-top: var(--space-3); padding-bottom: var(--space-3); }
+}
+
+/* ===================== user preferences =====================
+   Four system settings, honoured properly rather than gestured at. */
+
+/* Motion. Everything animated here is ornament — a shimmer, a flicker, a
+   pulsing live dot, a button that dips — so under Reduce Motion it all stops. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .townmap .flame { animation: none; }
+  .badge.live::before { animation: none; }
+  #map:empty { animation: none; background: var(--surface-sunken); }
+  .controls button:active { transform: none; }
+}
+
+/* Transparency. This is the setting glass exists to answer: when a reader has
+   asked for less of it, both bars become opaque surfaces. Blur is a nicety;
+   legibility is not. */
+@media (prefers-reduced-transparency: reduce) {
+  header.site, .controls, .state, .townside {
+    background: var(--surface-raised);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Contrast. Ink darkens, edges firm up, and the hairlines become visible
+   rules. */
+@media (prefers-contrast: more) {
+  :root {
+    --ink-muted: #46403a;
+    --ink-secondary: #2c2823;
+    --ink: #221f1a;
+    --line: #c4beb0;
+    --line-firm: #9a9284;
+    --line-heavy: #6b6459;
+    --edge: #6b6459;
+    --glass: rgba(255, 255, 255, .96);
+  }
+  .ev.future { opacity: .6; }
+  a:hover { text-decoration-thickness: 2px; }
+}
+
+/* Forced colours (Windows high contrast). Stop painting; let the OS paint,
+   and keep the focus ring and the current row visible in whatever palette it
+   chose. */
+@media (forced-colors: active) {
+  .controls, .townside, .log, .stats { border-color: CanvasText; }
+  #play { border: 1px solid CanvasText; }
+  /* The hand-drawn track exists to avoid one dark fill; under a palette the OS
+     chose there is no such fill to avoid, so give the slider back to the UA. */
+  .controls input[type=range] { -webkit-appearance: auto; appearance: auto; }
+  :focus-visible { outline: 2px solid Highlight; }
+  .ev.current { box-shadow: inset 3px 0 0 Highlight; }
+  .badge::before { forced-color-adjust: none; }
+}

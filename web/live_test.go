@@ -78,8 +78,11 @@ func TestLiveServerFollowsTheFile(t *testing.T) {
 		return resp.StatusCode, sb.String()
 	}
 
-	if code, body := get("/"); code != 200 || !strings.Contains(body, "● live") {
-		t.Fatalf("empty live overview: code=%d live badge present=%v", code, strings.Contains(body, "● live"))
+	// The badge's dot is drawn by the stylesheet rather than typed into the
+	// markup, so the class is what the page actually asserts about itself.
+	const liveBadge = `class="badge live"`
+	if code, body := get("/"); code != 200 || !strings.Contains(body, liveBadge) {
+		t.Fatalf("empty live overview: code=%d live badge present=%v", code, strings.Contains(body, liveBadge))
 	}
 	if _, body := get("/replay"); !strings.Contains(body, "window.LIVE = true") {
 		t.Fatal("live replay page did not mark itself live")
