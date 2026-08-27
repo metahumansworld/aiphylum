@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // The live server polls the trace file rather than watching it: the writer

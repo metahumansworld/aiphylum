@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // Config paces the town. Simulated time advances TickMinutes per tick and one

@@ -19,7 +19,7 @@ import (
 
 // Marker opens every grading prompt. A grader — real model or stub — that
 // sees this line first knows it is being asked for a verdict, not for prose.
-const Marker = "dungeon-judge/1"
+const Marker = "phylum-judge/1"
 
 // Section labels, in the order Prompt emits them.
 const (

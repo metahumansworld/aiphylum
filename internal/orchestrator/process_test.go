@@ -71,7 +71,7 @@ func TestProcessStepsAttribution(t *testing.T) {
 
 	t.Run("env and stdin reach the process", func(t *testing.T) {
 		ps.Register("echoer", ProcessAgent{
-			Cmd: []string{"/bin/sh", "-c", `cat; echo "url=$DUNGEON_PROXY_URL tok=$DUNGEON_TOKEN x=$DEMO_EXTRA"`},
+			Cmd: []string{"/bin/sh", "-c", `cat; echo "url=$PHYLUM_PROXY_URL tok=$PHYLUM_TOKEN x=$DEMO_EXTRA"`},
 			Env: map[string]string{"DEMO_EXTRA": "42"},
 		})
 		res, err := ps.RunStep(ctx, StepRequest{

@@ -9,13 +9,13 @@ for the whole oracle seam (SDK bytes == generator simulation == StubProvider).
 
 import sys
 
-import dungeon
+import aiphylum
 import demolib
 
 
 def main() -> None:
     _, spec = demolib.parse_spec(sys.stdin.read())
-    print(demolib.consult_oracle(dungeon.Model(), spec))
+    print(demolib.consult_oracle(aiphylum.Model(), spec))
 
 
 if __name__ == "__main__":

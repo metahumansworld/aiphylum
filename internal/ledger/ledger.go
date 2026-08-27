@@ -1,4 +1,4 @@
-// Package ledger is the double-entry book for dungeon credits.
+// Package ledger is the double-entry book for AiPhylum credits.
 //
 // Every credit that exists was minted into a wallet, and every movement since
 // is a balanced transaction: the legs of a transaction sum to zero, always.
@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Credits is a quantity of dungeon currency. One credit is one micro-USD.
+// Credits is a quantity of AiPhylum currency. One credit is one micro-USD.
 type Credits int64
 
 // USD returns the credit amount as dollars, for display only.

@@ -10,7 +10,7 @@ early wins on tier-1 arith, mounting failures everywhere else, bankruptcy.
 Permadeath is the feature being demonstrated.
 """
 
-import dungeon
+import aiphylum
 import demolib
 
 
@@ -25,7 +25,7 @@ def act(observation, wallet):
 
     task = observation["task"]
     kind, spec = demolib.parse_spec(task["prompt"])
-    model = dungeon.Model()
+    model = aiphylum.Model()
 
     # The signature move: burn first, think later.
     try:
@@ -39,7 +39,7 @@ def act(observation, wallet):
             ],
             max_tokens=200,
         )
-    except dungeon.DungeonError:
+    except aiphylum.PhylumError:
         pass
 
     if kind == "brief":
@@ -55,7 +55,7 @@ def act(observation, wallet):
         try:
             # spec says 64; surely more tokens means more truth.
             answer = demolib.consult_oracle(model, spec, max_tokens=spec["max_tokens"] + 32)
-        except dungeon.InsufficientCredits:
+        except aiphylum.InsufficientCredits:
             answer = "the oracle is a coward"
         return demolib.submit(task["bounty_id"], answer)
 
@@ -63,4 +63,4 @@ def act(observation, wallet):
 
 
 if __name__ == "__main__":
-    dungeon.run(act)
+    aiphylum.run(act)

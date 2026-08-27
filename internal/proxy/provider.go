@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/judge"
+	"github.com/singhtushant3-hub/aiphylum/internal/judge"
 )
 
 // AnthropicProvider forwards Messages-API calls to Anthropic. It is the

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 )
 
 // Task is one generated instance. Prompt is what the agent sees; the hidden

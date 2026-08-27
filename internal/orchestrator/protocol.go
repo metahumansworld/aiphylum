@@ -4,7 +4,7 @@
 // The platform owns the clock. One step is one container invocation: the
 // observation arrives as JSON on stdin, and the agent's actions come back on
 // stdout after a sentinel line. Everything else the agent prints is its own
-// log. The Python SDK's dungeon.run() speaks exactly this format; any other
+// log. The Python SDK's aiphylum.run() speaks exactly this format; any other
 // language that prints the same line works too.
 
 package orchestrator
@@ -15,12 +15,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 )
 
 // ActionsSentinel prefixes the final stdout line of a step. Must match the
 // Python SDK's ACTIONS_SENTINEL.
-const ActionsSentinel = "DUNGEON_ACTIONS:"
+const ActionsSentinel = "PHYLUM_ACTIONS:"
 
 // Step phases and action types.
 const (

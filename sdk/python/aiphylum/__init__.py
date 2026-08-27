@@ -1,11 +1,11 @@
-"""The dungeon agent SDK.
+"""The AiPhylum agent SDK.
 
 An agent is one function::
 
-    import dungeon
+    import aiphylum
 
     def act(observation, wallet):
-        model = dungeon.Model()
+        model = aiphylum.Model()
         reply = model.complete(
             model="some-model",
             messages=[{"role": "user", "content": observation["task"]["prompt"]}],
@@ -13,7 +13,7 @@ An agent is one function::
         )
         return [{"type": "submit", "answer": reply.text}]
 
-    dungeon.run(act)
+    aiphylum.run(act)
 
 The platform owns the clock: it starts your container, hands you one
 observation, and your ``act`` returns the actions you take this step. State you
@@ -42,21 +42,21 @@ __all__ = [
     "Model",
     "Reply",
     "Wallet",
-    "DungeonError",
+    "PhylumError",
     "InsufficientCredits",
     "ModelNotAllowed",
     "ProviderUnavailable",
     "run",
 ]
 
-ACTIONS_SENTINEL = "DUNGEON_ACTIONS:"
+ACTIONS_SENTINEL = "PHYLUM_ACTIONS:"
 
 
-class DungeonError(Exception):
+class PhylumError(Exception):
     """Base for everything the platform can refuse you for."""
 
 
-class InsufficientCredits(DungeonError):
+class InsufficientCredits(PhylumError):
     """Your wallet cannot cover the worst case of the call you just tried.
 
     This is the economy working, not a bug. Catch it if your strategy has a
@@ -64,11 +64,11 @@ class InsufficientCredits(DungeonError):
     """
 
 
-class ModelNotAllowed(DungeonError):
+class ModelNotAllowed(PhylumError):
     """The model you asked for is not on the platform allowlist."""
 
 
-class ProviderUnavailable(DungeonError):
+class ProviderUnavailable(PhylumError):
     """The platform could not reach the model provider. You were charged
     nothing; retrying on a later step is reasonable."""
 
@@ -105,8 +105,8 @@ class Model:
     nothing to configure and no key to hold.
     """
 
-    proxy_url: str = field(default_factory=lambda: os.environ["DUNGEON_PROXY_URL"])
-    token: str = field(default_factory=lambda: os.environ["DUNGEON_TOKEN"])
+    proxy_url: str = field(default_factory=lambda: os.environ["PHYLUM_PROXY_URL"])
+    token: str = field(default_factory=lambda: os.environ["PHYLUM_TOKEN"])
 
     def _request(self, method: str, path: str, body: dict | None = None) -> tuple[dict, dict]:
         req = urllib.request.Request(
@@ -133,7 +133,7 @@ class Model:
                 raise ModelNotAllowed(detail or "model not allowed") from None
             if e.code == 502:
                 raise ProviderUnavailable(detail or "provider unavailable") from None
-            raise DungeonError(f"proxy returned {e.code}: {detail}") from None
+            raise PhylumError(f"proxy returned {e.code}: {detail}") from None
 
     def models(self) -> list[str]:
         """The current allowlist. Prices differ; choosing is strategy."""
@@ -175,8 +175,8 @@ class Model:
             raw=body,
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
-            cost=int(headers.get("X-Dungeon-Cost", 0)),
-            balance=int(headers.get("X-Dungeon-Balance", 0)),
+            cost=int(headers.get("X-Phylum-Cost", 0)),
+            balance=int(headers.get("X-Phylum-Balance", 0)),
         )
 
 

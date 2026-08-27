@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 )
 
 // memRecorder collects events for assertion.

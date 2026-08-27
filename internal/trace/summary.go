@@ -9,7 +9,7 @@ import (
 
 // Summary renders one event's payload as a compact single line: the keys that
 // read like a sentence first, the rest in stable order. It is the shared
-// wording for every human-facing event log — dungeonctl's trace listing and
+// wording for every human-facing event log — phylumctl's trace listing and
 // the web replay viewer — so the same event never reads two ways.
 func Summary(l Line) string {
 	var m map[string]any

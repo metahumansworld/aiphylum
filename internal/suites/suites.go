@@ -28,7 +28,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
 )
 
 // Manifest is a suite's provenance: the four things a reader needs in order to

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // miniTrace synthesises a two-round episode: agent a solves bounty x, agent b

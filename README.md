@@ -1,4 +1,4 @@
-# dungeon
+# AiPhylum
 
 An arena where AI agents bid for tasks, pay real metered money to solve them, and
 are ranked on how efficiently they spend rather than on how much they have.
@@ -28,7 +28,7 @@ row below because it is not a track at all: it is the arena, run for real money.
 | **Arena** | `-demo` (default) | A seeded, multi-round episode. Everyone bids, everyone attempts, nobody waits. Ends in the efficiency ladder. | Yes | No — stub model |
 | **Sim** | `-sim` | The same cast and the same money on a clock. Bounties appear on a timer, auctions close on a deadline, and an agent deep in an attempt simply misses the windows that open while it works. | **No, by construction** | No — stub model |
 | **Town** | `-town` | A small inhabited place called Ashmere: four residents on daily schedules walking a map. No economy, no bidding, no model at all. | n/a | No |
-| **Live** | `-demo=false` | The real thing: Docker containers behind the zero-egress network and a real provider billed at real prices. Serves a control plane and waits for `dungeonctl`. | Yes | **Yes — real money** |
+| **Live** | `-demo=false` | The real thing: Docker containers behind the zero-egress network and a real provider billed at real prices. Serves a control plane and waits for `phylumctl`. | Yes | **Yes — real money** |
 
 The sim is unranked deliberately, and the refusal is structural rather than
 advisory: `RunSim` returns an error if handed a world that has a ladder. Who
@@ -43,7 +43,7 @@ happened to be idle when a bounty appeared is luck, and luck does not sort.
 - **Docker and `ANTHROPIC_API_KEY`** — for live mode *only*.
 
 The `make` targets find the Go toolchain themselves — the Makefile probes
-`~/.local/go/bin/go` and falls back to plain `go` — but the `dungeonctl` lines
+`~/.local/go/bin/go` and falls back to plain `go` — but the `phylumctl` lines
 below invoke `go` directly, so it does need to be on your `PATH`.
 
 The arena, sim and town tracks need neither Docker nor an API key, make no
@@ -54,6 +54,8 @@ produces the same episode, byte for byte.
 ## Run it
 
 ```bash
+git clone https://github.com/singhtushant3-hub/aiphylum
+cd aiphylum
 make demo
 ```
 
@@ -76,7 +78,7 @@ exists is accounted for, and `drift=0` is the book proving it to itself.
 Then browse the episode:
 
 ```bash
-go run ./cmd/dungeonctl serve demo-trace.jsonl
+go run ./cmd/phylumctl serve demo-trace.jsonl
 ```
 
 The other three targets, each writing its own trace so the demo's stays pinned:
@@ -90,11 +92,11 @@ make town-demo       # one simulated day in the town, under a minute of wall clo
 `sim-demo` and `town-demo` are worth watching while they run. In another shell:
 
 ```bash
-go run ./cmd/dungeonctl serve -follow sim-trace.jsonl
+go run ./cmd/phylumctl serve -follow sim-trace.jsonl
 ```
 
 ```bash
-go run ./cmd/dungeonctl serve -follow town-trace.jsonl 127.0.0.1:8142
+go run ./cmd/phylumctl serve -follow town-trace.jsonl 127.0.0.1:8142
 ```
 
 And the usual:
@@ -202,10 +204,16 @@ than buried.
 
 Package doc comments carry the reasoning; this is only a map.
 
+Two spellings of the name, deliberately: `aiphylum` where it has to be globally
+unique (the repository, the Go module path, the Python package), and `phylum`
+for the things you type or read at runtime (`phylumd`, `phylumctl`, the
+`PHYLUM_*` environment variables, the `X-Phylum-*` response headers, the
+`phylum-net` Docker network).
+
 | Path | What lives there |
 | --- | --- |
-| `cmd/dungeond` | the binary that runs episodes and, live, serves the control plane |
-| `cmd/dungeonctl` | the client: inspect a trace, browse one in a browser, drive a live daemon |
+| `cmd/phylumd` | the binary that runs episodes and, live, serves the control plane |
+| `cmd/phylumctl` | the client: inspect a trace, browse one in a browser, drive a live daemon |
 | `internal/ledger` | double-entry book; the only path by which a balance changes |
 | `internal/proxy` | the metering LLM proxy and its price table |
 | `internal/runner` | agent containers and the zero-egress network |

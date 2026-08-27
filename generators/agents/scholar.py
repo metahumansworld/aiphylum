@@ -10,7 +10,7 @@ exactly the line the standard describes. Expected ladder shape: the biggest earn
 real but proportionate burn, high success rate.
 """
 
-import dungeon
+import aiphylum
 import demolib
 
 
@@ -32,7 +32,7 @@ def act(observation, wallet):
 
     task = observation["task"]
     kind, spec = demolib.parse_spec(task["prompt"])
-    model = dungeon.Model()
+    model = aiphylum.Model()
 
     if kind == "oracle":
         answer = demolib.consult_oracle(model, spec)
@@ -57,7 +57,7 @@ def act(observation, wallet):
                 ],
                 max_tokens=16,
             )
-        except dungeon.DungeonError:
+        except aiphylum.PhylumError:
             pass
         return demolib.submit(task["bounty_id"], answer)
 
@@ -65,4 +65,4 @@ def act(observation, wallet):
 
 
 if __name__ == "__main__":
-    dungeon.run(act)
+    aiphylum.run(act)

@@ -1,6 +1,6 @@
-// Package daemon is dungeond's control plane: the HTTP API through which
+// Package daemon is phylumd's control plane: the HTTP API through which
 // agents enter the arena and episodes are started, watched, and read back.
-// dungeonctl is its client.
+// phylumctl is its client.
 //
 // The API is deliberately small and local — it binds to loopback and trusts
 // its caller the way any local daemon socket does. Multi-machine operation,
@@ -35,9 +35,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/orchestrator"
-	"github.com/metahunmei/dungeon/internal/runner"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
+	"github.com/singhtushant3-hub/aiphylum/internal/runner"
 )
 
 // Config wires a Server. Orch, Bind, and TracePath are required.

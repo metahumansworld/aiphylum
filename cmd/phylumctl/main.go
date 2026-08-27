@@ -1,24 +1,24 @@
-// dungeonctl drives the platform from the outside — either a trace file it
-// already produced, or a dungeond running live.
+// phylumctl drives the platform from the outside — either a trace file it
+// already produced, or a phylumd running live.
 //
 // Over a trace file:
 //
-//	dungeonctl trace <file>          every event, one line each
-//	dungeonctl calls <file>          just the metered model calls, with a total
-//	dungeonctl serve [-follow] <file> [addr]
+//	phylumctl trace <file>          every event, one line each
+//	phylumctl calls <file>          just the metered model calls, with a total
+//	phylumctl serve [-follow] <file> [addr]
 //	                                 browse the episode: leaderboard, agent and
 //	                                 bounty pages, replay viewer. -follow tails
 //	                                 a trace still being written and streams it
 //	                                 to the browser live.
 //
-// Against a running dungeond (-addr, default http://127.0.0.1:8141):
+// Against a running phylumd (-addr, default http://127.0.0.1:8141):
 //
-//	dungeonctl submit -id X -image Y [-grant N] [-cmd ...] [-mount h:c]
+//	phylumctl submit -id X -image Y [-grant N] [-cmd ...] [-mount h:c]
 //	                                 put an agent in the world with a wallet
-//	dungeonctl run [-seed N] [-rounds N]
+//	phylumctl run [-seed N] [-rounds N]
 //	                                 ask for an episode and wait for it
-//	dungeonctl tail                  watch the live trace as it is written
-//	dungeonctl status                world state, episodes, and the roster
+//	phylumctl tail                  watch the live trace as it is written
+//	phylumctl status                world state, episodes, and the roster
 package main
 
 import (
@@ -27,8 +27,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/metahunmei/dungeon/internal/trace"
-	"github.com/metahunmei/dungeon/web"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/web"
 )
 
 func main() {
@@ -68,19 +68,19 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  dungeonctl trace|calls <trace-file>")
-	fmt.Fprintln(os.Stderr, "  dungeonctl serve [-follow] <trace-file> [addr]")
-	fmt.Fprintln(os.Stderr, "  dungeonctl submit -id <id> -image <image> [-grant n] [-cmd ...] [-mount host:container]")
-	fmt.Fprintln(os.Stderr, "  dungeonctl run [-seed n] [-rounds n] [-detach]")
-	fmt.Fprintln(os.Stderr, "  dungeonctl tail")
-	fmt.Fprintln(os.Stderr, "  dungeonctl status")
-	fmt.Fprintln(os.Stderr, "\nthe last four take -addr (default "+defaultAddr+") and talk to a running dungeond")
+	fmt.Fprintln(os.Stderr, "  phylumctl trace|calls <trace-file>")
+	fmt.Fprintln(os.Stderr, "  phylumctl serve [-follow] <trace-file> [addr]")
+	fmt.Fprintln(os.Stderr, "  phylumctl submit -id <id> -image <image> [-grant n] [-cmd ...] [-mount host:container]")
+	fmt.Fprintln(os.Stderr, "  phylumctl run [-seed n] [-rounds n] [-detach]")
+	fmt.Fprintln(os.Stderr, "  phylumctl tail")
+	fmt.Fprintln(os.Stderr, "  phylumctl status")
+	fmt.Fprintln(os.Stderr, "\nthe last four take -addr (default "+defaultAddr+") and talk to a running phylumd")
 }
 
 func readTrace(path string) []trace.Line {
 	lines, err := trace.Read(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 		os.Exit(1)
 	}
 	return lines
@@ -108,7 +108,7 @@ func serve(args []string) {
 		srv, err = web.NewServer(path, readTrace(path))
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 		os.Exit(1)
 	}
 	mode := ""
@@ -117,7 +117,7 @@ func serve(args []string) {
 	}
 	fmt.Printf("serving %s%s on http://%s\n", path, mode, addr)
 	if err := http.ListenAndServe(addr, srv); err != nil {
-		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -125,7 +125,7 @@ func serve(args []string) {
 func printCalls(lines []trace.Line) {
 	calls, err := trace.ModelCalls(lines)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("%-4s %-24s %-10s %6s %6s %8s  %s\n",

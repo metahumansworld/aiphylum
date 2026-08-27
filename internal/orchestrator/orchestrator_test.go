@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/proxy"
-	"github.com/metahunmei/dungeon/internal/rating"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/rating"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // sayGen is the test task: "say exactly: <word>", where the word is a pure
@@ -127,7 +127,7 @@ func bidAll(frac float64) stepFunc {
 	}
 }
 
-// world is one fully wired in-process dungeon: real ledger, real proxy over
+// world is one fully wired in-process world: real ledger, real proxy over
 // HTTP, real board and ladder — only the container runner and the model are
 // fakes.
 type world struct {

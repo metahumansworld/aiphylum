@@ -19,3 +19,6 @@ live-trace.jsonl
 
 # macOS Finder
 .DS_Store
+# SQLite writes these next to any open database; they are process state, not data.
+*.db-shm
+*.db-wal

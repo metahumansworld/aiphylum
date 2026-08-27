@@ -65,8 +65,8 @@ func (p *ProcessSteps) RunStep(ctx context.Context, req StepRequest) (StepResult
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	cmd.Env = append(cmd.Env,
-		"DUNGEON_PROXY_URL="+p.ProxyURL,
-		"DUNGEON_TOKEN="+req.Token,
+		"PHYLUM_PROXY_URL="+p.ProxyURL,
+		"PHYLUM_TOKEN="+req.Token,
 	)
 
 	err := cmd.Run()

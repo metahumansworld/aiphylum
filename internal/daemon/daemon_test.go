@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/orchestrator"
-	"github.com/metahunmei/dungeon/internal/proxy"
-	"github.com/metahunmei/dungeon/internal/rating"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/rating"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // mathGen is the test supply: keyed, solvable from the prompt.
@@ -400,7 +400,7 @@ func TestFailedBountiesCarryAcrossEpisodes(t *testing.T) {
 //
 // These two tests pin why a live boot now refuses a used ledger: this is the
 // failure on the other side of that guard. They construct servers directly
-// rather than going through cmd/dungeond, so the guard does not reach them, and
+// rather than going through cmd/phylumd, so the guard does not reach them, and
 // that is deliberate — the refusal is only worth keeping while the thing it
 // refuses is still demonstrably broken. If a later change makes restart work,
 // these fail, and the guard should go with them.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 )
 
 // echoGen is a deterministic test generator: the task is to repeat a string

@@ -1,4 +1,4 @@
-// dungeond runs episodes.
+// phylumd runs episodes.
 //
 // Demo mode (-demo, the default; what `make demo` invokes) is the plan's
 // verification #10: a seeded multi-round episode on the deterministic stub
@@ -18,7 +18,7 @@
 // and refuses to start without them.
 //
 // Live mode is also the only one that does not run an episode of its own. It
-// serves a control plane on -listen and waits: dungeonctl submits agents and
+// serves a control plane on -listen and waits: phylumctl submits agents and
 // asks for episodes, and the world persists between them in a ledger on disk.
 // One episode runs at a time, and a failed one stops the daemon taking work —
 // when the money may be wrong, the answer is a human, not another round.
@@ -42,17 +42,17 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/daemon"
-	"github.com/metahunmei/dungeon/internal/generators"
-	"github.com/metahunmei/dungeon/internal/judge"
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/orchestrator"
-	"github.com/metahunmei/dungeon/internal/proxy"
-	"github.com/metahunmei/dungeon/internal/rating"
-	"github.com/metahunmei/dungeon/internal/runner"
-	"github.com/metahunmei/dungeon/internal/suites"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/daemon"
+	"github.com/singhtushant3-hub/aiphylum/internal/generators"
+	"github.com/singhtushant3-hub/aiphylum/internal/judge"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/rating"
+	"github.com/singhtushant3-hub/aiphylum/internal/runner"
+	"github.com/singhtushant3-hub/aiphylum/internal/suites"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 func main() {
@@ -65,7 +65,7 @@ func main() {
 	seed := flag.Int64("seed", 1, "episode seed; same seed, same episode")
 	tracePath := flag.String("trace", "demo-trace.jsonl", "trace output path")
 	dbPath := flag.String("db", "", "ledger database path (default: temp file offline, "+liveDB+" live)")
-	listen := flag.String("listen", defaultListen, "live: control-plane address for dungeonctl")
+	listen := flag.String("listen", defaultListen, "live: control-plane address for phylumctl")
 	genDir := flag.String("generators", "generators", "path to the generators directory")
 	imported := flag.Bool("imported", false, "also draw bounties from the imported suites in <generators>/suites — ranked, with an asterisk")
 	latency := flag.Duration("latency", 0, "per-call stub latency, for believable pacing")
@@ -110,7 +110,7 @@ func main() {
 		days: *days, tick: *tick,
 	}
 	if err := run(ctx, log, opts); err != nil {
-		log.Error("dungeond failed", "err", err)
+		log.Error("phylumd failed", "err", err)
 		os.Exit(1)
 	}
 }
@@ -144,7 +144,7 @@ const (
 	// The control plane binds to loopback and carries no authentication: it is
 	// an operator's console on the machine running the arena, not a public API.
 	defaultListen = "127.0.0.1:8141"
-	liveDB        = "dungeon-live.db"
+	liveDB        = "phylum-live.db"
 )
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
@@ -169,7 +169,7 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		if !opt.demo && !opt.sim {
 			dbPath = liveDB
 		} else {
-			dir, err := os.MkdirTemp("", "dungeon-*")
+			dir, err := os.MkdirTemp("", "phylum-*")
 			if err != nil {
 				return err
 			}
@@ -414,7 +414,7 @@ func runDemo(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}
 
 	printLadder(w.orch, ladder, l)
-	fmt.Printf("\ntrace: %s (replayable; inspect with dungeonctl)\n", tw.Path())
+	fmt.Printf("\ntrace: %s (replayable; inspect with phylumctl)\n", tw.Path())
 	return nil
 }
 
@@ -456,7 +456,7 @@ func runSim(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *boun
 	}
 
 	printChronicle(rep)
-	fmt.Printf("\ntrace: %s (replayable; inspect with dungeonctl)\n", tw.Path())
+	fmt.Printf("\ntrace: %s (replayable; inspect with phylumctl)\n", tw.Path())
 	return nil
 }
 
@@ -653,7 +653,7 @@ func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}()
 	log.Info("live mode up", "listen", listen, "proxy", rn.ProxyURL(), "host_port", hostPort,
 		"trace", tw.Path(), "ledger", dbPath)
-	fmt.Printf("dungeond listening on %s — submit agents with `dungeonctl submit`, run with `dungeonctl run`\n", listen)
+	fmt.Printf("phylumd listening on %s — submit agents with `phylumctl submit`, run with `phylumctl run`\n", listen)
 
 	select {
 	case err := <-errs:

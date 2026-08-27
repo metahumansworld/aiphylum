@@ -29,7 +29,7 @@ func testRunner(t *testing.T) *Runner {
 	}
 	r := New(slog.Default())
 	// A dedicated network name so the test cannot fight a running daemon.
-	r.Network = "dungeon-test-net"
+	r.Network = "phylum-test-net"
 	r.Subnet = "172.29.0.0/16"
 	r.RelayIP = "172.29.0.2"
 	if err := r.EnsureNetwork(context.Background()); err != nil {

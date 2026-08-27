@@ -26,11 +26,11 @@ import (
 
 // Defaults for the demo world. All overridable on the Runner.
 const (
-	DefaultNetwork = "dungeon-net"
+	DefaultNetwork = "phylum-net"
 	DefaultSubnet  = "172.28.0.0/16"
 	DefaultRelayIP = "172.28.0.2"
 	DefaultImage   = "python:3.12-slim"
-	relayName      = "dungeon-relay"
+	relayName      = "phylum-relay"
 	relayPort      = 8080
 	relayImage     = "alpine/socat"
 )
@@ -152,7 +152,7 @@ type AgentSpec struct {
 	Name    string            // container name; also used to kill on timeout
 	Image   string            // defaults to Runner.Image
 	Cmd     []string          // command to run inside
-	Env     map[string]string // DUNGEON_PROXY_URL and DUNGEON_TOKEN go here
+	Env     map[string]string // PHYLUM_PROXY_URL and PHYLUM_TOKEN go here
 	Mounts  []Mount           // agent source, SDK — read-only
 	Stdin   []byte            // the step input, fed once at launch
 	Timeout time.Duration     // wall-clock ceiling, fixed at bid time

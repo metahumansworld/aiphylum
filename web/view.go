@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/proxy"
-	"github.com/metahunmei/dungeon/internal/rating"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/rating"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // View is the whole episode, reshaped for pages. A published trace is
@@ -192,7 +192,7 @@ type BookEntry struct {
 }
 
 // CallView is one metered model call, bodies elided: the pages show the
-// money, the full bytes stay in the trace file for replay and dungeonctl.
+// money, the full bytes stay in the trace file for replay and phylumctl.
 type CallView struct {
 	Seq     int64
 	Wallet  string

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metahunmei/dungeon/internal/runner"
+	"github.com/singhtushant3-hub/aiphylum/internal/runner"
 )
 
 // ContainerAgent describes how to run one registered agent's image.
@@ -48,12 +48,12 @@ func (d *DockerSteps) RunStep(ctx context.Context, req StepRequest) (StepResult,
 		return StepResult{}, fmt.Errorf("orchestrator: no container registered for agent %s", req.AgentID)
 	}
 	res, err := d.Runner.Run(ctx, runner.AgentSpec{
-		Name:  "dungeon-" + sanitize(req.Name),
+		Name:  "phylum-" + sanitize(req.Name),
 		Image: spec.Image,
 		Cmd:   spec.Cmd,
 		Env: map[string]string{
-			"DUNGEON_PROXY_URL": d.Runner.ProxyURL(),
-			"DUNGEON_TOKEN":     req.Token,
+			"PHYLUM_PROXY_URL": d.Runner.ProxyURL(),
+			"PHYLUM_TOKEN":     req.Token,
 		},
 		Mounts:  spec.Mounts,
 		Stdin:   req.Input,

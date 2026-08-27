@@ -8,8 +8,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/metahunmei/dungeon/internal/town"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/town"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 func runTown(ctx context.Context, tw *trace.Writer, opt options) error {
@@ -25,7 +25,7 @@ func runTown(ctx context.Context, tw *trace.Writer, opt options) error {
 	for _, p := range people {
 		fmt.Printf("  + %-8s %s\n", p.Name, p.Blurb)
 	}
-	fmt.Printf("\nwatch it live: dungeonctl serve -follow %s 127.0.0.1:8142\n", tw.Path())
+	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8142\n", tw.Path())
 	fmt.Printf("the day starts at 07:00 — %d day(s), ten minutes per tick, %s of wall clock each\n\n",
 		opt.days, opt.tick)
 
@@ -42,6 +42,6 @@ func runTown(ctx context.Context, tw *trace.Writer, opt options) error {
 	fmt.Printf("── %s, after %d ticks (%s) ──────────────────────────────────\n",
 		m.Name, rep.Ticks, rep.Reason)
 	fmt.Printf("%d meetings recorded — the hooks a memory stream will hang on\n", rep.Meetings)
-	fmt.Printf("\ntrace: %s (replayable; inspect with dungeonctl)\n", tw.Path())
+	fmt.Printf("\ntrace: %s (replayable; inspect with phylumctl)\n", tw.Path())
 	return nil
 }

@@ -21,10 +21,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/judge"
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/judge"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // JudgeWallet is the platform's grading purse. It is an experiment wallet: it

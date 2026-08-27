@@ -1,4 +1,4 @@
-module github.com/metahunmei/dungeon
+module github.com/singhtushant3-hub/aiphylum
 
 go 1.27
 

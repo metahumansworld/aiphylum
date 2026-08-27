@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 )
 
 var t0 = time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)

@@ -21,12 +21,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/auction"
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/proxy"
-	"github.com/metahunmei/dungeon/internal/rating"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/auction"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/rating"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // StepRequest asks a StepRunner to run one agent step.

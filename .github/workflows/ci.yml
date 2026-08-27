@@ -11,7 +11,7 @@
 #   - Any live path. No API key is present and none should ever be added: live
 #     mode spends real money. This is safe by construction rather than by
 #     policy — AnthropicProvider is constructed in exactly one place in the tree
-#     (cmd/dungeond/main.go, inside runLive) and appears in zero test files, so
+#     (cmd/phylumd/main.go, inside runLive) and appears in zero test files, so
 #     `go test ./...` cannot reach a provider even if a key were somehow set.
 #
 # python3 is present on ubuntu-latest, so the generator tests do run.

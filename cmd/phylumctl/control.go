@@ -1,4 +1,4 @@
-// Talking to a running dungeond. These four verbs are the whole operator
+// Talking to a running phylumd. These four verbs are the whole operator
 // surface: put an agent in the world, ask for an episode, watch it happen,
 // see where the money ended up. The daemon is on loopback and unauthenticated,
 // so there is nothing here but HTTP and JSON.
@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/daemon"
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/daemon"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 const defaultAddr = "http://127.0.0.1:8141"
@@ -41,7 +41,7 @@ func call(method, addr, path string, body, out any) error {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: %w (is dungeond running?)", addr, err)
+		return fmt.Errorf("%s: %w (is phylumd running?)", addr, err)
 	}
 	defer resp.Body.Close()
 
@@ -77,7 +77,7 @@ func (m *mountList) Set(v string) error {
 
 func submit(args []string) {
 	fs := flag.NewFlagSet("submit", flag.ExitOnError)
-	addr := fs.String("addr", defaultAddr, "dungeond control address")
+	addr := fs.String("addr", defaultAddr, "phylumd control address")
 	id := fs.String("id", "", "agent id; permanent, and never reused after bankruptcy")
 	image := fs.String("image", "", "container image, which must already be present locally")
 	grant := fs.Int64("grant", 2500, "opening balance in credits")
@@ -104,7 +104,7 @@ func submit(args []string) {
 
 func runEpisode(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	addr := fs.String("addr", defaultAddr, "dungeond control address")
+	addr := fs.String("addr", defaultAddr, "phylumd control address")
 	seed := fs.Int64("seed", 1, "episode seed; same seed, same postings")
 	rounds := fs.Int("rounds", 4, "rounds in the episode")
 	wall := fs.Int("wall", 60, "per-attempt wall-clock ceiling in seconds")
@@ -125,7 +125,7 @@ func runEpisode(args []string) {
 	}
 
 	// Wait it out. The daemon runs one episode at a time, so polling its
-	// record is the whole story; `dungeonctl tail` is for watching the events.
+	// record is the whole story; `phylumctl tail` is for watching the events.
 	for {
 		time.Sleep(500 * time.Millisecond)
 		var cur daemon.EpisodeView
@@ -148,7 +148,7 @@ func runEpisode(args []string) {
 
 func status(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	addr := fs.String("addr", defaultAddr, "dungeond control address")
+	addr := fs.String("addr", defaultAddr, "phylumd control address")
 	fs.Parse(args)
 
 	var st daemon.StatusView
@@ -197,15 +197,15 @@ func printRoster(addr string) {
 }
 
 // tail streams the live trace, printing the same one-line summaries as
-// `dungeonctl trace` — the difference is that this one never reaches the end.
+// `phylumctl trace` — the difference is that this one never reaches the end.
 func tail(args []string) {
 	fs := flag.NewFlagSet("tail", flag.ExitOnError)
-	addr := fs.String("addr", defaultAddr, "dungeond control address")
+	addr := fs.String("addr", defaultAddr, "phylumd control address")
 	fs.Parse(args)
 
 	resp, err := http.Get(strings.TrimSuffix(*addr, "/") + "/v1/trace?follow=1")
 	if err != nil {
-		fail(fmt.Errorf("%s: %w (is dungeond running?)", *addr, err))
+		fail(fmt.Errorf("%s: %w (is phylumd running?)", *addr, err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -229,6 +229,6 @@ func tail(args []string) {
 }
 
 func fail(err error) {
-	fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+	fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 	os.Exit(1)
 }

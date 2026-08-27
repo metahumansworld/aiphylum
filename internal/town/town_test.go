@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/trace"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
 // fast is a test pacing: real events, no real waiting.

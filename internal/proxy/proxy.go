@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 )
 
 var (
@@ -290,8 +290,8 @@ func (p *Proxy) handleMessages(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Dungeon-Cost", fmt.Sprint(int64(cost)))
-	w.Header().Set("X-Dungeon-Balance", fmt.Sprint(int64(bal)))
+	w.Header().Set("X-Phylum-Cost", fmt.Sprint(int64(cost)))
+	w.Header().Set("X-Phylum-Balance", fmt.Sprint(int64(bal)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
 }

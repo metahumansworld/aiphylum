@@ -11,7 +11,7 @@ Python 3.9 compatible (agents run on the host interpreter in the demo).
 import json
 import re
 
-import dungeon
+import aiphylum
 
 
 def parse_spec(prompt):
@@ -115,5 +115,5 @@ def ping(model):
             messages=[{"role": "user", "content": "ack"}],
             max_tokens=1,
         )
-    except dungeon.DungeonError:
+    except aiphylum.PhylumError:
         pass  # a failed ping must never cost the attempt

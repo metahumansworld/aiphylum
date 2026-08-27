@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
-	"github.com/metahunmei/dungeon/internal/ledger"
-	"github.com/metahunmei/dungeon/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
 )
 
 var repoRoot = filepath.Join("..", "..")
@@ -117,8 +117,8 @@ func TestOracleAnswerMatchesSDK(t *testing.T) {
 	cmd.Stdin = strings.NewReader(b.Prompt)
 	cmd.Env = append(os.Environ(),
 		"PYTHONPATH="+filepath.Join(repoRoot, "sdk", "python")+":"+filepath.Join(genDir(), "agents"),
-		"DUNGEON_PROXY_URL="+srv.URL,
-		"DUNGEON_TOKEN=tok-att",
+		"PHYLUM_PROXY_URL="+srv.URL,
+		"PHYLUM_TOKEN=tok-att",
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

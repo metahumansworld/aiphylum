@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/metahunmei/dungeon/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
 )
 
 // Script is one Python generator file exposed as a bounty.Generator.
