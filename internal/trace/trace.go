@@ -32,6 +32,7 @@ const (
 	EventAgent     EventType = "agent"      // spawned, retired, bankrupt
 	EventSuite     EventType = "suite"      // an imported benchmark suite and its provenance
 	EventNote      EventType = "note"       // free-form orchestrator annotation
+	EventTown      EventType = "town"       // founded, tick, arrive, depart, met — the town track
 )
 
 // Line is one entry in a trace file.

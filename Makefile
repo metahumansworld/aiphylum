@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -27,6 +27,13 @@ demo-imported:
 sim-demo:
 	$(GO) run ./cmd/dungeond -sim -seed 1 -deck 14 -post 1200ms -window 2000ms -latency 250ms -trace sim-trace.jsonl
 
+## town-demo: the living-world track, milestone one — four residents on daily
+## schedules walking a small map, no economy and no model. One simulated day in
+## under a minute of wall clock. Watch the map live in another shell:
+##   go run ./cmd/dungeonctl serve -follow town-trace.jsonl 127.0.0.1:8142
+town-demo:
+	$(GO) run ./cmd/dungeond -town -days 1 -tick 700ms -trace town-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -37,4 +44,4 @@ build:
 	$(GO) build ./...
 
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl

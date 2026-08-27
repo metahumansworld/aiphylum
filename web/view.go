@@ -49,15 +49,34 @@ type View struct {
 	CallCount int
 	CallSpend ledger.Credits
 
+	// Town is non-nil when the trace is a town run rather than an arena
+	// episode. The map itself lives in the event stream — the page's reducer
+	// reads it from the founding event — so this holds only what the server
+	// needs to route and headline the page.
+	Town *TownInfo
+
 	agentByID  map[string]*AgentView
 	bountyByID map[string]*BountyView
 }
 
-// The two tracks a trace can come from. They share one currency and one money
-// path; only the clock and the ranking differ.
+// TownInfo is the server-side summary of a town trace.
+type TownInfo struct {
+	Name      string
+	Places    int
+	Residents int
+	Day       int
+	Clock     string
+	Meetings  int
+}
+
+// The tracks a trace can come from. Benchmark and sim share one currency and
+// one money path; only the clock and the ranking differ. A town trace has no
+// money at all — the viewer detects it and swaps the whole surface for the
+// map.
 const (
 	TrackBenchmark = "benchmark"
 	TrackSim       = "sim"
+	TrackTown      = "town"
 )
 
 // EpisodeInfo summarises the episode lifecycle events.
@@ -460,6 +479,33 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					a.Balance -= credits("amount")
 					a.Timeline = append(a.Timeline, BalancePoint{l.Seq, a.Balance, "dust burned"})
 				}
+			}
+
+		case trace.EventTown:
+			if v.Town == nil {
+				v.Town = &TownInfo{}
+				v.Episode.Track = TrackTown
+			}
+			switch str("action") {
+			case "founded":
+				v.Town.Name = str("town")
+				if ps, ok := p["places"].([]any); ok {
+					// Streets are scenery; the header counts destinations.
+					for _, pl := range ps {
+						if m, ok := pl.(map[string]any); ok && m["kind"] == "street" {
+							continue
+						}
+						v.Town.Places++
+					}
+				}
+				if rs, ok := p["residents"].([]any); ok {
+					v.Town.Residents = len(rs)
+				}
+			case "tick":
+				v.Town.Day = int(num("day"))
+				v.Town.Clock = str("clock")
+			case "met":
+				v.Town.Meetings++
 			}
 
 		case trace.EventModelCall:

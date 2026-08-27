@@ -52,6 +52,9 @@ import (
 func main() {
 	demo := flag.Bool("demo", true, "run the offline demo episode (stub model, subprocess agents)")
 	sim := flag.Bool("sim", false, "run the real-time sim track instead of the ranked round loop")
+	townMode := flag.Bool("town", false, "run the town: residents on daily schedules, no economy, no model")
+	days := flag.Int("days", 1, "town: how many simulated days to run")
+	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
 	seed := flag.Int64("seed", 1, "episode seed; same seed, same episode")
 	tracePath := flag.String("trace", "demo-trace.jsonl", "trace output path")
@@ -66,16 +69,32 @@ func main() {
 	deck := flag.Int("deck", 16, "sim: how many bounties the world has to give")
 	flag.Parse()
 
+	// The trace path's default names the arena. A town run that was not given
+	// one gets its own file, so `-town` never truncates a demo trace by
+	// omission.
+	if *townMode {
+		traceSet := false
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "trace" {
+				traceSet = true
+			}
+		})
+		if !traceSet {
+			*tracePath = "town-trace.jsonl"
+		}
+	}
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	opts := options{
-		demo: *demo, sim: *sim, rounds: *rounds, seed: *seed,
+		demo: *demo, sim: *sim, town: *townMode, rounds: *rounds, seed: *seed,
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
+		days: *days, tick: *tick,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("dungeond failed", "err", err)
@@ -86,9 +105,9 @@ func main() {
 // options is the parsed command line, kept in one place so the three modes do
 // not each grow their own argument list.
 type options struct {
-	demo, sim bool
-	rounds    int
-	seed      int64
+	demo, sim, town bool
+	rounds          int
+	seed            int64
 	tracePath string
 	dbPath    string
 	genDir    string
@@ -103,6 +122,9 @@ type options struct {
 
 	post, window, runFor time.Duration
 	deck                 int
+
+	days int
+	tick time.Duration
 }
 
 const (
@@ -113,6 +135,18 @@ const (
 )
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
+	// The town is a different genre, not a fourth arena mode: no ledger, no
+	// board, no agents, no money. It shares only the trace and the viewer, so
+	// it branches off before any of the economy is built.
+	if opt.town {
+		tw, err := trace.NewWriter(opt.tracePath)
+		if err != nil {
+			return fmt.Errorf("open trace: %w", err)
+		}
+		defer tw.Close()
+		return runTown(ctx, tw, opt)
+	}
+
 	dbPath := opt.dbPath
 	if dbPath == "" {
 		// The offline modes run one episode and print it; their ledger is

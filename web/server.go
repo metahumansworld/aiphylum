@@ -135,12 +135,26 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 }
 
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
-	v, _, err := s.current()
+	v, replay, err := s.current()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// A town trace has no board, no ladder and no money: the map is its whole
+	// surface, so it is what every route shows.
+	if v.Town != nil {
+		s.renderTown(w, v, replay)
+		return
+	}
 	s.render(w, "overview.html", v)
+}
+
+func (s *Server) renderTown(w http.ResponseWriter, v *View, replay template.JS) {
+	s.render(w, "town.html", struct {
+		View   *View
+		Events template.JS
+		Live   bool
+	}{v, replay, s.live})
 }
 
 func (s *Server) agent(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +196,10 @@ func (s *Server) replayPage(w http.ResponseWriter, r *http.Request) {
 	v, replay, err := s.current()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if v.Town != nil {
+		s.renderTown(w, v, replay)
 		return
 	}
 	s.render(w, "replay.html", struct {

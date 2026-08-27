@@ -184,6 +184,84 @@ table.book { width: auto; min-width: 16rem; margin: .4rem 0 .2rem 1.5rem; }
 .ev.current { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--gold); }
 .ev.future { opacity: .35; }
 
+/* town */
+/* The town is a world being watched, not a document being read: it gets the
+   whole window, because at 70rem the residents are three pixels tall. The
+   page announces itself by what it contains, so the shared layout does not
+   have to grow a page-name class — on the agent and bounty pages that name
+   is a trace-supplied id, which has no business steering CSS. */
+body:has(.townpage) main { max-width: 106rem; }
+.townpage { display: grid; grid-template-columns: 1fr 18rem; gap: 1rem; align-items: start; }
+@media (max-width: 56rem) { .townpage { grid-template-columns: 1fr; } }
+
+.townmap { border-radius: 14px; overflow: hidden;
+           background: radial-gradient(130% 100% at 50% 24%, #2f5a6d, #14222c); }
+.townmap svg { width: 100%; height: auto; display: block; }
+
+/* The outline. Every solid thing in the town is drawn with the same warm dark
+   edge — that single stroke is most of what makes the style read as one. */
+.townmap .ol  { stroke: #3b2a1d; stroke-width: 1.6; stroke-linejoin: round; }
+.townmap .ol2 { stroke: #3b2a1d; stroke-width: 2.6; stroke-linejoin: round; }
+
+/* the ground, and the earth it sits on */
+.townmap .plinth-shadow { fill: rgba(6, 14, 20, .5); }
+.townmap .plinth        { fill: #8a5f3a; stroke: #3b2a1d; stroke-width: 2.6; stroke-linejoin: round; }
+.townmap .plinth-top    { fill: #5d8f3c; }
+.townmap .tuft   { stroke: #3f7a2c; stroke-width: 1.6; fill: none; stroke-linecap: round; }
+.townmap .curb   { stroke: #a8916a; stroke-width: 2; stroke-linecap: round; }
+.townmap .shadow { fill: rgba(20, 12, 6, .22); }
+
+/* roofs */
+.townmap .tileshade { stroke: rgba(59, 42, 29, .42); stroke-width: 1.8; }
+.townmap .tilelip   { stroke: rgba(255, 244, 224, .3); stroke-width: 1.1; }
+.townmap .ridge     { stroke: #3b2a1d; stroke-width: 4; stroke-linecap: round; }
+
+/* A building whose resident is home turns to glass, so you can watch them in
+   it. Everything below the eaves — the footing and the floor — stays solid. */
+.townmap .shell { transition: opacity .45s; }
+.townmap .shell.open { opacity: .28; }
+.townmap .plank { stroke: #8a5f3a; stroke-width: 1.4; }
+
+.townmap .spray { fill: #cdeeff; opacity: .85; }
+.townmap .sign text { fill: #fff3d6; font-size: 11px; font-weight: 800; letter-spacing: .08em;
+                      text-anchor: middle; }
+.townmap .arealabel { fill: #fdf8ec; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-anchor: middle;
+                      paint-order: stroke; stroke: rgba(24, 16, 8, .6); stroke-width: 3.5px; }
+
+/* the people: legs, arms and facing are set as attributes by the animator, so
+   nothing here has to know which way anybody is walking */
+.townmap .res .tag rect { fill: rgba(28, 20, 12, .72); }
+.townmap .res .tag text { fill: #fff4dd; font-size: 10px; font-weight: 700; text-anchor: middle; }
+
+/* the sky: render() reads the clock and flips these classes; everything
+   below dims through dusk into night, except the lights layer, which is
+   exactly what comes on instead. */
+.townmap .veil { pointer-events: none; transition: opacity 1.2s; opacity: 0; }
+.townmap .veil-warm { fill: #ff7b3c; }
+.townmap .veil-cool { fill: #101540; }
+.townmap.dusk  .veil-warm { opacity: .16; }
+.townmap.dusk  .veil-cool { opacity: .16; }
+.townmap.night .veil-cool { opacity: .46; }
+.townmap .lights { opacity: 0; transition: opacity 1.2s; pointer-events: none; }
+.townmap.dusk  .lights { opacity: .65; }
+.townmap.night .lights { opacity: 1; }
+.townmap .winlit    { fill: #ffd76a; }
+.townmap .lamp-glow { fill: #ffca5e; opacity: .28; }
+.townmap .lamp-core { fill: #ffe9ad; }
+.townmap .flame     { fill: #ffb43c; animation: flick 1.6s ease-in-out infinite; }
+@keyframes flick { 50% { opacity: .72; } }
+@media (prefers-reduced-motion: reduce) { .townmap .flame { animation: none; } }
+
+.clockface { margin-left: auto; color: var(--gold); }
+
+.townres { padding: .35rem 0; border-bottom: 1px solid var(--line); }
+.townres .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 99px; margin-right: .4rem; }
+.townres-name { font-weight: 600; margin-right: .4rem; }
+
+.feed { max-height: 40vh; overflow-y: auto; font-size: .85rem; }
+.feedline { padding: .25rem 0; border-bottom: 1px solid var(--line); }
+.feedline.met b { color: var(--gold); font-weight: 600; }
+
 .t-bounty .etype     { color: var(--blue); }
 .t-bid .etype        { color: var(--green); }
 .t-credit .etype     { color: var(--amber); }

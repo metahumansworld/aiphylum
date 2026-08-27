@@ -1,0 +1,42 @@
+{{template "top" "town"}}
+
+<h1>{{.View.Town.Name}} <span class="sub">{{.View.TracePath}}</span>
+  <span class="badge sim">town · unranked</span>
+  {{if .Live}}<span class="badge warn">live</span>{{end}}</h1>
+<p class="sub">{{.View.Town.Residents}} residents, {{.View.Town.Places}} places —
+  a day on a clock, reconstructed from the trace alone</p>
+
+<div class="controls">
+  {{if .Live}}<button id="livebtn" title="follow the live feed">● live</button>{{end}}
+  <button id="play">▶</button>
+  <input id="scrub" type="range" min="0" max="0" value="0">
+  <span id="pos" class="mono"></span>
+  <!-- The first option is the one the walk was drawn for. A resident covers
+       four cells a tick, and at a human pace those four take 2.5s; give the
+       tick 2.8s and they arrive with a moment to spare, so they walk and then
+       stand rather than gliding without pause. Every option below outruns a
+       walk, and the animator hurries them to keep up with the clock. -->
+  <select id="speed">
+    <option value="2800" selected>amble</option>
+    <option value="1400">stroll</option>
+    <option value="700">walk</option>
+    <option value="250">hurry</option>
+    <option value="60">race</option>
+  </select>
+  <span class="clockface mono" id="clock">—</span>
+</div>
+
+<div class="townpage">
+  <section class="townmap" id="map"></section>
+  <aside class="townside">
+    <h2>residents</h2>
+    <div id="roster"></div>
+    <h2>happenings</h2>
+    <div class="feed" id="feed"></div>
+  </aside>
+</div>
+
+<script>window.EVENTS = {{.Events}}; window.LIVE = {{if .Live}}true{{else}}false{{end}};</script>
+<script src="/static/town.js"></script>
+
+{{template "bottom"}}

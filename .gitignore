@@ -5,6 +5,7 @@
 demo-trace.jsonl
 imported-trace.jsonl
 sim-trace.jsonl
+town-trace.jsonl
 demo-stderr.log
 
 # episode state
