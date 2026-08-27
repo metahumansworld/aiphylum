@@ -43,5 +43,9 @@ vet:
 build:
 	$(GO) build ./...
 
+# Every trace named here can be regenerated from a seed, so removing one costs
+# nothing. live-trace.jsonl is deliberately absent and must not be added: it is
+# the only record of a run that cannot be run again, which is the same reason
+# live mode refuses to truncate it.
 clean:
 	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl

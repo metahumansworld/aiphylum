@@ -396,9 +396,14 @@ func TestFailedBountiesCarryAcrossEpisodes(t *testing.T) {
 
 // A restart is a second process over the same ledger file. The money persists —
 // that is the point of the live -db default — but the roster, the board's
-// numbering and the epoch counter are all in memory and start over. These two
-// tests pin what that costs today, which is that restarting a live world does
-// not work and does not fail gracefully.
+// numbering and the epoch counter are all in memory and start over.
+//
+// These two tests pin why a live boot now refuses a used ledger: this is the
+// failure on the other side of that guard. They construct servers directly
+// rather than going through cmd/dungeond, so the guard does not reach them, and
+// that is deliberate — the refusal is only worth keeping while the thing it
+// refuses is still demonstrably broken. If a later change makes restart work,
+// these fail, and the guard should go with them.
 
 func TestRestartStrandsExistingAgents(t *testing.T) {
 	dir := t.TempDir()

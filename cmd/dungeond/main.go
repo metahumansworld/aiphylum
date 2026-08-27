@@ -22,10 +22,16 @@
 // asks for episodes, and the world persists between them in a ledger on disk.
 // One episode runs at a time, and a failed one stops the daemon taking work —
 // when the money may be wrong, the answer is a human, not another round.
+//
+// That persistence lasts as long as the process does, and no longer. Only the
+// money is on disk; the roster is not, so a used book cannot be resumed and a
+// live boot refuses one rather than coming up subtly wrong. See
+// refuseUsedLedger.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -69,18 +75,25 @@ func main() {
 	deck := flag.Int("deck", 16, "sim: how many bounties the world has to give")
 	flag.Parse()
 
-	// The trace path's default names the arena. A town run that was not given
-	// one gets its own file, so `-town` never truncates a demo trace by
-	// omission.
-	if *townMode {
-		traceSet := false
-		flag.Visit(func(f *flag.Flag) {
-			if f.Name == "trace" {
-				traceSet = true
-			}
-		})
-		if !traceSet {
+	// The trace path's default names the arena. A run on another track that was
+	// not given one gets its own file, so neither a town nor a live world ever
+	// truncates a demo trace by omission.
+	//
+	// The sim is deliberately not in here. Like the demo it replays from a seed,
+	// so overwriting its output is regeneration rather than loss; `make sim-demo`
+	// names its own file anyway.
+	traceSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "trace" {
+			traceSet = true
+		}
+	})
+	if !traceSet {
+		switch {
+		case *townMode:
 			*tracePath = "town-trace.jsonl"
+		case !*demo && !*sim:
+			*tracePath = "live-trace.jsonl"
 		}
 	}
 
@@ -164,11 +177,26 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 			dbPath = filepath.Join(dir, "ledger.db")
 		}
 	}
+	// Both live guards run here, in this order, and both before the trace is
+	// opened. trace.NewWriter is os.Create, so a boot that is going to be
+	// refused must be refused before it can destroy anything on its way out —
+	// and the ledger is read before anything in this process can write to it,
+	// so the question stays "has someone used this world" rather than "has this
+	// binary touched this file".
 	l, err := ledger.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open ledger: %w", err)
 	}
 	defer l.Close()
+
+	if !opt.demo && !opt.sim {
+		if err := refuseUsedLedger(ctx, l, dbPath); err != nil {
+			return err
+		}
+		if err := refuseUsedTrace(opt.tracePath); err != nil {
+			return err
+		}
+	}
 
 	tw, err := trace.NewWriter(opt.tracePath)
 	if err != nil {
@@ -195,6 +223,57 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	default:
 		return runDemo(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt)
 	}
+}
+
+// refuseUsedLedger stops a live world from booting onto a book some other
+// process has already run.
+//
+// Only the money is on disk. The roster, the board's numbering and the epoch
+// counter are in memory, so a second process over the same book cannot re-admit
+// its own living agents — their accounts exist, so intake refuses them, and
+// their credits are stranded where nothing can reach them. Its first episode
+// then reaches for an attempt wallet the previous run retired, and retired
+// accounts are never recreated, which latches the world broken. Both are pinned
+// by TestRestartStrandsExistingAgents and TestRestartCollidesOnAttemptWallets.
+//
+// Refusing at boot is that same outcome, said immediately and in words instead
+// of several minutes later as a conservation fault. What it does not do is make
+// restart work: that would need the roster on disk too, and an agent's image is
+// only ever held in memory.
+func refuseUsedLedger(ctx context.Context, l *ledger.Ledger, dbPath string) error {
+	used, err := l.HasHistory(ctx)
+	if err != nil {
+		return err
+	}
+	if !used {
+		return nil
+	}
+	return fmt.Errorf("ledger %s has already run a world, and a live world cannot be resumed: "+
+		"only the money is on disk, so the agents it belongs to cannot be brought back and "+
+		"their balances are not recoverable by restarting. Move or delete %s to start fresh, "+
+		"or pass -db <path> to leave it alone and run a separate world", dbPath, dbPath)
+}
+
+// refuseUsedTrace stops a live world from truncating a trace that already holds
+// a run. trace.NewWriter is os.Create, so merely opening one is destructive.
+//
+// This is live-only, and the asymmetry is the whole point. An offline trace is
+// reproducible — regenerating an identical one from a seed is what `make demo`
+// is for — so overwriting it costs nothing. A live trace is the only record of a
+// run that cannot be run again, so it is never overwritten without being asked.
+func refuseUsedTrace(path string) error {
+	fi, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check trace %s: %w", path, err)
+	}
+	if fi.Size() == 0 {
+		return nil
+	}
+	return fmt.Errorf("trace %s already holds a run and live mode will not overwrite it: "+
+		"move it aside, or pass -trace <path> to write somewhere else", path)
 }
 
 // loadSuites registers the imported suites as ordinary generators and returns

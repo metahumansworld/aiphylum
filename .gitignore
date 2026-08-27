@@ -8,6 +8,11 @@ sim-trace.jsonl
 town-trace.jsonl
 demo-stderr.log
 
+# the record of a live run, which is none of those things: not deterministic,
+# not regenerated, and not recoverable once gone. Ignored so it is never
+# committed, and deliberately absent from `make clean`.
+live-trace.jsonl
+
 # episode state
 *.db
 *.sqlite
