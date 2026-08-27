@@ -8,3 +8,6 @@ demo-stderr.log
 # episode state
 *.db
 *.sqlite
+
+# macOS Finder
+.DS_Store
