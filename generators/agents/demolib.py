@@ -75,6 +75,27 @@ def consult_oracle(model, spec, max_tokens=None):
     return content
 
 
+def solve_brief(spec):
+    """Build the summary line the brief's rubric asks for: every field in the
+    spec's order, "field: value", joined with "; ". The spec states the
+    standard, so an agent that reads carefully passes a grader it never sees.
+    """
+    return "; ".join("%s: %s" % (f, spec["facts"][f]) for f in spec["fields"])
+
+
+def solve_brief_loosely(spec):
+    """The gambler's summary: the same facts, written as prose. Any grader
+    worth the name is looking for the stated form, so this is a submission
+    that reads fine and fails — which is the point of a judged bounty."""
+    facts = spec["facts"]
+    parts = ["the %s had trouble" % facts["component"], "we saw %s" % facts["impact"]]
+    if "cause" in facts:
+        parts.append("blame %s" % facts["cause"])
+    if "fix" in facts:
+        parts.append("we will %s" % facts["fix"])
+    return ", ".join(parts) + "."
+
+
 def submit(bounty_id, answer):
     return [{"type": "submit", "bounty": bounty_id, "answer": str(answer)}]
 

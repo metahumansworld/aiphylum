@@ -4,6 +4,12 @@
 // Verification is a pure function of (hidden answer, submitted answer) — no
 // human and no judge model anywhere near it, which is what keeps the ladder's
 // number trustworthy.
+//
+// Judged bounties are the deliberate exception. Open-ended work has no answer
+// key, so a model grades it against a hidden rubric — a strictly weaker kind
+// of truth. The board keeps them apart at every seam: Verify never says yes to
+// one, Resolve refuses to decide one, and the orchestrator will not post one
+// into a ranked world at all.
 package bounty
 
 import (
@@ -18,15 +24,34 @@ import (
 	"github.com/metahunmei/dungeon/internal/ledger"
 )
 
-// Task is one generated instance. Prompt is what the agent sees; Answer never
-// leaves the platform.
+// Task is one generated instance. Prompt is what the agent sees; the hidden
+// key — Answer or Rubric — never leaves the platform.
+//
+// Exactly one of Answer and Rubric must be set. A task with an answer is
+// machine-verifiable and may be ranked; a task with a rubric is graded by a
+// model and may not.
 type Task struct {
 	Prompt string `json:"prompt"`
 	Answer string `json:"answer"`
+	// Rubric is the grading criterion for an open-ended task. Its presence is
+	// what makes a bounty judged.
+	Rubric string `json:"rubric"`
 	// ReferenceTokens is the measured token cost of the reference solution,
 	// which prices the payout as a multiple of it.
 	ReferenceTokens int64 `json:"reference_tokens"`
+	// Suite names the imported benchmark this instance was drawn from, empty
+	// for a generated task. Imported work is ranked — unlike judged work —
+	// but it is ranked with an asterisk, because a public benchmark may be
+	// sitting in the model's training corpus and the score may be measuring
+	// recall. Provenance is the only thing that lets a reader tell, so it
+	// travels with the task rather than being reconstructed later.
+	Suite string `json:"suite,omitempty"`
 }
+
+// Keyed reports whether a task carries exactly one hidden key. Post refuses
+// anything else: a task with neither cannot be decided, and a task with both
+// leaves two disagreeing notions of correct.
+func (t Task) Keyed() bool { return (t.Answer == "") != (t.Rubric == "") }
 
 // Generator produces task instances. Seeded and parameterised: the same seed
 // and tier must yield the same task, which is what makes episodes replayable
@@ -54,6 +79,14 @@ type Bounty struct {
 	Tier      int
 	Prompt    string
 	answer    string // unexported: the held-out key
+	rubric    string // unexported: the held-out grading criterion
+	// Judged marks a bounty a model grades rather than a key verifies. Public,
+	// because everyone — agent, spectator, ladder — must be able to tell.
+	Judged bool
+	// Suite is the imported benchmark this instance came from, empty for
+	// generated supply. Public for the same reason Judged is: the asterisk
+	// belongs to whoever reads the score, not to the platform.
+	Suite     string
 	MaxPayout ledger.Credits
 	State     State
 	// Award details, set once won.
@@ -86,24 +119,40 @@ func Normalize(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 }
 
-// Verify is the pure function the whole ladder rests on.
+// Verify is the pure function the whole ladder rests on. A judged bounty has
+// no key to compare against, so it never verifies — its outcome arrives from
+// outside, through ResolveJudged.
 func (b *Bounty) Verify(submitted string) bool {
+	if b.Judged {
+		return false
+	}
 	return Normalize(submitted) == Normalize(b.answer)
 }
 
-// AnswerDigest exposes a hash of the hidden answer for the public trace:
-// enough for anyone to audit post-hoc that the key existed before the attempt,
-// without revealing it while the bounty is live.
+// AnswerDigest exposes a hash of the bounty's hidden key — the answer, or for
+// a judged bounty the rubric — for the public trace: enough for anyone to
+// audit post-hoc that the key existed before the attempt, without revealing it
+// while the bounty is live.
 func (b *Bounty) AnswerDigest() string {
-	sum := sha256.Sum256([]byte(Normalize(b.answer)))
+	key := b.answer
+	if b.Judged {
+		key = b.rubric
+	}
+	sum := sha256.Sum256([]byte(Normalize(key)))
 	return hex.EncodeToString(sum[:8])
 }
+
+// Rubric returns the hidden grading criterion. Only the judge may read it, so
+// this is deliberately not on any view the agent sees.
+func (b *Bounty) Rubric() string { return b.rubric }
 
 var (
 	ErrNotOpen     = errors.New("bounty: not open for award")
 	ErrNotAwarded  = errors.New("bounty: no award to attempt against")
 	ErrUnknown     = errors.New("bounty: no such bounty")
 	ErrNoGenerator = errors.New("bounty: no such generator")
+	ErrJudged      = errors.New("bounty: judged bounty is decided by a verdict, not a key")
+	ErrNotJudged   = errors.New("bounty: keyed bounty is decided by its key, not a verdict")
 )
 
 // Board holds the live bounties and the generator registry.
@@ -142,6 +191,10 @@ func (bd *Board) Post(generator string, seed int64, tier int, tokenCeiling ledge
 	if err != nil {
 		return nil, fmt.Errorf("generate %s seed %d tier %d: %w", generator, seed, tier, err)
 	}
+	if !task.Keyed() {
+		return nil, fmt.Errorf("generate %s seed %d tier %d: a task needs exactly one of answer and rubric",
+			generator, seed, tier)
+	}
 
 	bd.nextID++
 	// The reference solution's cost in credits: tokens priced at a nominal
@@ -155,6 +208,9 @@ func (bd *Board) Post(generator string, seed int64, tier int, tokenCeiling ledge
 		Tier:         tier,
 		Prompt:       task.Prompt,
 		answer:       task.Answer,
+		rubric:       task.Rubric,
+		Judged:       task.Rubric != "",
+		Suite:        task.Suite,
 		MaxPayout:    PayoutFor(refCost, tier),
 		State:        StateOpen,
 		TokenCeiling: tokenCeiling,
@@ -219,9 +275,39 @@ func (bd *Board) Resolve(id string, submitted string, attempted bool) (solved bo
 	if b.State != StateAwarded {
 		return false, fmt.Errorf("%w: %s is %s", ErrNotAwarded, id, b.State)
 	}
-	if attempted && b.Verify(submitted) {
+	if b.Judged {
+		return false, fmt.Errorf("%w: %s", ErrJudged, id)
+	}
+	solved = attempted && b.Verify(submitted)
+	b.close(solved)
+	return solved, nil
+}
+
+// ResolveJudged records the outcome of an attempt at a judged bounty. The
+// verdict comes from the judge, so this takes it rather than deciding it —
+// the one place in the board where correctness is somebody else's word.
+func (bd *Board) ResolveJudged(id string, passed bool) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	b, ok := bd.bounties[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrUnknown, id)
+	}
+	if b.State != StateAwarded {
+		return fmt.Errorf("%w: %s is %s", ErrNotAwarded, id, b.State)
+	}
+	if !b.Judged {
+		return fmt.Errorf("%w: %s", ErrNotJudged, id)
+	}
+	b.close(passed)
+	return nil
+}
+
+// close applies an attempt's outcome to the bounty. Caller holds the lock.
+func (b *Bounty) close(solved bool) {
+	if solved {
 		b.State = StateSolved
-		return true, nil
+		return
 	}
 	// One attempt's tokens per bounty: the winner ate its costs, and the
 	// bounty goes back on the board for others.
@@ -229,7 +315,6 @@ func (bd *Board) Resolve(id string, submitted string, attempted bool) (solved bo
 	b.Winner = ""
 	b.AskedPrice = 0
 	b.Failures++
-	return false, nil
 }
 
 // Void unwinds an award because the platform failed, not the agent. The

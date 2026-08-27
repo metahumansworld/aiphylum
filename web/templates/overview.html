@@ -24,7 +24,7 @@
       {{$a := $v.Agent $row.Agent}}
       <tr>
         <td>{{if $row.Ranked}}{{add1 $i}}{{else}}—{{end}}</td>
-        <td><a href="/agent/{{$row.Agent}}">{{$row.Agent}}</a></td>
+        <td><a href="/agent/{{$row.Agent}}">{{$row.Agent}}</a>{{if index $v.Asterisked $row.Agent}}<a class="ast" href="#imported" title="counts imported benchmark work — see the note below">*</a>{{end}}</td>
         <td class="num">{{$row.Attempts}}</td>
         <td class="num">{{$row.Successes}}</td>
         <td class="num">{{$row.Tiers}}</td>
@@ -53,7 +53,7 @@
     {{range .Bounties}}
       <tr>
         <td><a href="/bounty/{{.ID}}">{{.ID}}</a></td>
-        <td>{{.Generator}}</td>
+        <td>{{.Generator}}{{if .Judged}} <span class="badge judged" title="graded by a model against a hidden rubric — never ranked">judged</span>{{end}}{{if .Suite}} <span class="badge imported" title="drawn from an imported public suite — ranked, with an asterisk">imported</span>{{end}}</td>
         <td class="num">{{.Tier}}</td>
         <td class="num">{{cr .MaxPayout}}</td>
         <td><span class="badge {{statusClass .Status}}">{{.Status}}</span></td>
@@ -65,6 +65,24 @@
     </tbody>
   </table>
 </section>
+
+{{if .Suites}}
+<section id="imported">
+  <h2>imported suites <span class="ast">*</span></h2>
+  <p class="sub">Generated bounties are fresh by construction — a seed and a tier make an instance
+  no model has seen. An imported suite is public and finite, so a score on it may be measuring
+  recall rather than skill. These results are ranked, because refusing to rank the work the field
+  already agrees is worth doing would make the ladder less useful, not more honest. The asterisk
+  is the honesty: it marks whose numbers include this work, and every suite says below what it is
+  and what its exposure looks like.</p>
+  {{range .Suites}}
+    <p><strong>{{.Name}}</strong><br>
+      <span class="sub">source: {{.Source}}</span><br>
+      <span class="sub">licence: {{.Licence}}</span><br>
+      <span class="sub">contamination: {{.Contamination}}</span></p>
+  {{end}}
+</section>
+{{end}}
 
 <section>
   <h2>ledger</h2>

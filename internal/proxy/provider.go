@@ -9,7 +9,10 @@ import (
 	"hash/fnv"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/metahunmei/dungeon/internal/judge"
 )
 
 // AnthropicProvider forwards Messages-API calls to Anthropic. It is the
@@ -70,6 +73,13 @@ func (a *AnthropicProvider) Invoke(ctx context.Context, model string, body []byt
 // different answers, nothing more. The demo's reference agents treat its
 // output as an oracle by construction (see generators/), so the economic loop
 // is exercised for real even though no model is.
+//
+// It answers one question for real. A request that opens with the judge marker
+// is asking it to grade a submission against a rubric, and it grades — by
+// keyword containment, which is a dumb judge but a genuine one: the verdict is
+// a function of what the agent actually wrote, so a careless agent fails
+// offline for the same reason it would fail against a real grader. Nothing
+// else in the stub inspects what it is asked.
 type StubProvider struct {
 	// Latency, if set, is added per call so demos have believable pacing.
 	Latency time.Duration
@@ -114,6 +124,14 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 	var seed [8]byte
 	binary.BigEndian.PutUint64(seed[:], digest)
 	text := fmt.Sprintf("stub:%x", seed)
+	if len(req.Messages) > 0 {
+		var content string
+		if err := json.Unmarshal(req.Messages[len(req.Messages)-1].Content, &content); err == nil {
+			if graded, ok := stubGrade(content); ok {
+				text = graded
+			}
+		}
+	}
 
 	resp, err := json.Marshal(map[string]any{
 		"id":    fmt.Sprintf("msg_stub_%016x", digest),
@@ -133,4 +151,19 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 		return nil, Usage{}, err
 	}
 	return resp, Usage{InputTokens: inputToks, OutputTokens: outputToks}, nil
+}
+
+// stubGrade answers a grading request, or reports that this was not one. The
+// tokens billed are unchanged — grading costs what any call of this size
+// costs — so the judge wallet is metered exactly like an agent's.
+func stubGrade(content string) (string, bool) {
+	if !strings.HasPrefix(strings.TrimSpace(content), judge.Marker) {
+		return "", false
+	}
+	v := judge.Grade(judge.Section(content, judge.SecRubric), judge.Section(content, judge.SecSubmission))
+	word := "fail"
+	if v.Pass {
+		word = "pass"
+	}
+	return fmt.Sprintf("VERDICT: %s\nREASON: %s", word, v.Reason), true
 }

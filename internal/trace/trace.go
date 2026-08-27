@@ -30,6 +30,7 @@ const (
 	EventBid       EventType = "bid"        // a sealed bid, revealed post-award
 	EventCredit    EventType = "credit"     // mint, transfer, burn, payout
 	EventAgent     EventType = "agent"      // spawned, retired, bankrupt
+	EventSuite     EventType = "suite"      // an imported benchmark suite and its provenance
 	EventNote      EventType = "note"       // free-form orchestrator annotation
 )
 

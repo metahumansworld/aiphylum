@@ -83,6 +83,11 @@ tbody tr:hover { background: var(--panel); }
 .badge.dead  { color: var(--red); border-color: var(--red); }
 .badge.open  { color: var(--amber); border-color: var(--amber); }
 .badge.sim   { color: var(--violet); border-color: var(--violet); }
+.badge.judged { color: var(--violet); border-color: var(--violet); }
+.badge.imported { color: var(--amber); border-color: var(--amber); }
+/* The imported asterisk: loud enough to notice beside a name, quiet enough
+   not to read as an error. It links down to the provenance note. */
+.ast { color: var(--amber); text-decoration: none; font-weight: 700; }
 
 /* stat cards */
 .cards { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }

@@ -100,6 +100,17 @@ type Orchestrator struct {
 	Ladder *rating.Ladder
 	Log    *slog.Logger
 	Cfg    Config
+	// Judge grades judged bounties. Nil in a ranked world by construction —
+	// postBounty refuses judged supply where a ladder is attached. Install it
+	// with EnableJudging, which endows the wallet the grading is paid from.
+	Judge Judge
+
+	// Suites is the provenance of every imported benchmark suite registered
+	// with the board. Set by whoever registered them; the orchestrator only
+	// publishes it, once per episode, so that the asterisk an imported bounty
+	// wears is explained inside the same trace rather than in documentation
+	// the reader may never see.
+	Suites []SuiteNote
 
 	tw     *trace.Writer
 	faults *faultTracker
@@ -107,6 +118,16 @@ type Orchestrator struct {
 	// watch, if set, sees every settled attempt alongside the ladder. The sim
 	// track uses it to keep its own tallies without becoming a ranking.
 	watch func(rating.Attempt)
+}
+
+// SuiteNote is one imported suite's provenance, as it appears in the trace.
+// It mirrors suites.Manifest without importing it: the orchestrator has no
+// business knowing how a suite file is parsed, only what must be published.
+type SuiteNote struct {
+	Name          string
+	Source        string
+	Licence       string
+	Contamination string
 }
 
 // New assembles the world. The proxy is built here so its recorder can be the
@@ -224,6 +245,15 @@ func (o *Orchestrator) live() []*Agent {
 // wrong must halt, not continue.
 func (o *Orchestrator) RunEpisode(ctx context.Context, ep Episode) error {
 	o.traceEvent(trace.EventEpisode, map[string]any{"action": "start", "rounds": len(ep.Rounds)})
+	// Declare imported supply before any of it is posted, so a reader meets
+	// the licence and the contamination note before the first asterisk. A
+	// world with no imports emits nothing here and its trace is unchanged.
+	for _, s := range o.Suites {
+		o.traceEvent(trace.EventSuite, map[string]any{
+			"action": "registered", "suite": s.Name, "source": s.Source,
+			"licence": s.Licence, "contamination": s.Contamination,
+		})
+	}
 	for i, postings := range ep.Rounds {
 		round := i + 1
 		if err := o.runRound(ctx, round, postings); err != nil {
@@ -310,18 +340,42 @@ func (o *Orchestrator) runRound(ctx context.Context, round int, postings []Posti
 }
 
 // postBounty puts one posting on the board and announces it. Both tracks post
-// through here so a bounty looks the same in either trace.
+// through here, so a bounty looks the same in either trace — and so this is
+// the one place that has to refuse judged supply in a ranked world.
+//
+// A model's opinion must never become a rank. The refusal halts the episode
+// rather than quietly skipping the posting: a ranked world configured with
+// judged generators is a mistake in the wiring, and continuing would mean
+// running a different world than the operator asked for.
 func (o *Orchestrator) postBounty(p Posting) (*bounty.Bounty, error) {
 	b, err := o.Board.Post(p.Generator, p.Seed, p.Tier, p.TokenCeiling, p.WallClockSec)
 	if err != nil {
 		return nil, err
 	}
-	o.traceEvent(trace.EventBounty, map[string]any{
+	if b.Judged && o.Ladder != nil {
+		return nil, fmt.Errorf(
+			"orchestrator: %s (%s) is judged by a model, and this world is ranked — judged bounties are sim-only by design",
+			b.ID, b.Generator)
+	}
+	payload := map[string]any{
 		"action": "posted", "id": b.ID, "generator": b.Generator, "seed": b.Seed,
 		"tier": b.Tier, "max_payout": b.MaxPayout, "reserve": o.reserveFor(b.MaxPayout),
 		"answer_digest": b.AnswerDigest(), "token_ceiling": b.TokenCeiling,
 		"wall_clock_sec": b.WallClockSec, "failures": b.Failures,
-	})
+	}
+	// Only when true: a keyed bounty's posting line stays exactly what it was,
+	// so benchmark traces recorded before judging existed still replay byte
+	// for byte. For a judged bounty the digest above is of the rubric.
+	if b.Judged {
+		payload["judged"] = true
+	}
+	// Same conditional, same reason: generated supply's posting line keeps the
+	// exact shape it has always had, so traces recorded before suites existed
+	// still replay byte for byte.
+	if b.Suite != "" {
+		payload["suite"] = b.Suite
+	}
+	o.traceEvent(trace.EventBounty, payload)
 	return b, nil
 }
 
@@ -330,7 +384,8 @@ func (o *Orchestrator) bountyView(b *bounty.Bounty) BountyView {
 	return BountyView{
 		ID: b.ID, Tier: b.Tier, Prompt: b.Prompt,
 		MaxPayout: b.MaxPayout, Reserve: o.reserveFor(b.MaxPayout),
-		Failures: b.Failures, AnswerDigest: b.AnswerDigest(),
+		Failures: b.Failures, AnswerDigest: b.AnswerDigest(), Judged: b.Judged,
+		Suite: b.Suite,
 	}
 }
 

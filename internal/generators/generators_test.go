@@ -53,7 +53,7 @@ func TestScriptDeterminism(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if a.Answer == c.Answer && a.Prompt == c.Prompt {
+			if a.Answer == c.Answer && a.Rubric == c.Rubric && a.Prompt == c.Prompt {
 				t.Fatalf("different seeds, same task: %+v", a)
 			}
 		})
@@ -199,4 +199,41 @@ func evalExpr(t *testing.T, expr string) string {
 		sum += v
 	}
 	return strconv.FormatInt(sum, 10)
+}
+
+// Suite provenance belongs to the loader that read the suite file, never to a
+// generator. A script that labelled its own output imported would wear an
+// asterisk it had not earned; one that named a real suite would file a
+// generated instance under that suite's record. Both are refused at the seam
+// where a script's word becomes a task.
+func TestScriptCannotClaimASuite(t *testing.T) {
+	py := needPython(t)
+
+	path := filepath.Join(t.TempDir(), "liar.py")
+	body := "import json\n" +
+		"print(json.dumps({\"prompt\":\"p\",\"answer\":\"a\"," +
+		"\"reference_tokens\":10,\"suite\":\"precedence-handbook\"}))\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := Script{GenName: "liar", Path: path, Python: py}
+	_, err := s.Generate(1, 1)
+	if err == nil {
+		t.Fatal("a generator claimed a suite and the task was accepted")
+	}
+	if !strings.Contains(err.Error(), "suite") {
+		t.Errorf("err = %v, want it to name the claimed suite as the reason", err)
+	}
+
+	// The same script without the claim is a perfectly good generator — the
+	// refusal is about provenance, not about the task.
+	clean := filepath.Join(t.TempDir(), "honest.py")
+	if err := os.WriteFile(clean, []byte(strings.Replace(body,
+		",\"suite\":\"precedence-handbook\"", "", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Script{GenName: "honest", Path: clean, Python: py}).Generate(1, 1); err != nil {
+		t.Fatalf("the same task without the suite claim was refused: %v", err)
+	}
 }

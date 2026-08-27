@@ -33,6 +33,18 @@ type View struct {
 	Agents    []*AgentView
 	Bounties  []*BountyView
 	Ladder    []rating.Row
+	// Suites is the provenance of the imported benchmark supply this episode
+	// drew on, in registration order. Empty for a world of purely generated
+	// bounties, which is what makes the asterisk meaningful when it appears.
+	Suites []SuiteView
+	// Asterisked is the set of agents whose ladder row counts at least one
+	// imported attempt. It is a display concern and nothing more: imported
+	// work is ranked, so it is in the row's numbers either way. This only
+	// marks whose numbers a reader should read with the contamination note in
+	// mind. Kept beside the ladder rather than inside rating.Row because the
+	// ladder computes a score and this is a footnote about where the score
+	// came from — the ranking must not be able to see it.
+	Asterisked map[string]bool
 
 	CallCount int
 	CallSpend ledger.Credits
@@ -116,6 +128,16 @@ type BountyView struct {
 	MaxPayout ledger.Credits
 	Reserve   ledger.Credits
 
+	// Judged marks a bounty a model graded against a hidden rubric. The
+	// viewer shows it because the difference matters to a reader: a solved
+	// judged bounty is an opinion that went the agent's way, not a proof.
+	Judged bool
+
+	// Suite names the imported benchmark this instance was drawn from, empty
+	// for generated supply. An imported bounty's result counts on the ladder,
+	// so the page says where it came from and lets the reader discount it.
+	Suite string
+
 	Status   string // open, solved, failed, voided, no bids
 	SolvedBy string
 	Payout   ledger.Credits
@@ -123,6 +145,16 @@ type BountyView struct {
 
 	History []BountyEventView
 	Calls   []CallView
+}
+
+// SuiteView is one imported suite's provenance, as published in the trace.
+// The contamination note is the load-bearing field: it is what turns the
+// asterisk from a decoration into a claim a reader can weigh.
+type SuiteView struct {
+	Name          string
+	Source        string
+	Licence       string
+	Contamination string
 }
 
 // BountyEventView is one step in a bounty's history, already worded.
@@ -194,6 +226,10 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 
 	round := 0
 	awardee := map[string]string{} // bounty id → agent currently holding the award
+	// Whose ladder numbers include imported work. Filled at the same two
+	// places the ladder is fed, so the footnote and the score can never
+	// disagree about what was counted.
+	asterisked := map[string]bool{}
 
 	if len(lines) > 0 {
 		v.Episode.Start = lines[0].Time
@@ -211,6 +247,7 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 			return int64(f)
 		}
 		credits := func(k string) ledger.Credits { return ledger.Credits(num(k)) }
+		boolean := func(k string) bool { b, _ := p[k].(bool); return b }
 
 		switch l.Type {
 		case trace.EventAgent:
@@ -225,6 +262,14 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				if a := v.agentByID[str("agent")]; a != nil {
 					a.Bankrupt = true
 				}
+			}
+
+		case trace.EventSuite:
+			if str("action") == "registered" {
+				v.Suites = append(v.Suites, SuiteView{
+					Name: str("suite"), Source: str("source"),
+					Licence: str("licence"), Contamination: str("contamination"),
+				})
 			}
 
 		case trace.EventEpisode:
@@ -255,6 +300,7 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					ID: id, Generator: str("generator"), Seed: num("seed"),
 					Tier: int(num("tier")), MaxPayout: credits("max_payout"),
 					Reserve: credits("reserve"), Status: "open",
+					Judged: boolean("judged"), Suite: str("suite"),
 				}
 				v.Bounties = append(v.Bounties, b)
 				v.bountyByID[id] = b
@@ -262,6 +308,12 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					Seq: l.Seq, Round: round, Action: "posted",
 					Detail: fmt.Sprintf("tier %d, max payout %d, reserve %d", b.Tier, b.MaxPayout, b.Reserve),
 				})
+				if b.Judged {
+					b.History[len(b.History)-1].Detail += " — judged against a hidden rubric, unranked"
+				}
+				if b.Suite != "" {
+					b.History[len(b.History)-1].Detail += " — imported from " + b.Suite + ", ranked with an asterisk"
+				}
 			case "awarded":
 				if b == nil {
 					continue
@@ -291,6 +343,18 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					}
 				}
 				b.History = append(b.History, ev)
+			case "judged":
+				if b == nil {
+					continue
+				}
+				word := "failed"
+				if boolean("pass") {
+					word = "passed"
+				}
+				b.History = append(b.History, BountyEventView{
+					Seq: l.Seq, Round: round, Action: "judged",
+					Detail: fmt.Sprintf("%s by %s — %s", word, str("grader"), str("reason")),
+				})
 			case "no_bids":
 				if b == nil {
 					continue
@@ -317,10 +381,20 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 						Outcome: "solved", Payout: payout, Burned: burned,
 					})
 				}
-				ladder.Record(rating.Attempt{
-					Agent: agent, Bounty: id, Tier: b.Tier,
-					Earned: payout, Burned: burned, Success: true, Time: l.Time,
-				})
+				// Not "if the track allows it" — judged work is never ranked
+				// on any track. The viewer rebuilds the ladder from scratch
+				// rather than copying one, so the rule has to be restated
+				// here or the rebuild would quietly invent a ranking the
+				// orchestrator refused to produce.
+				if !b.Judged {
+					ladder.Record(rating.Attempt{
+						Agent: agent, Bounty: id, Tier: b.Tier,
+						Earned: payout, Burned: burned, Success: true, Time: l.Time,
+					})
+					if b.Suite != "" {
+						asterisked[agent] = true
+					}
+				}
 				delete(awardee, id)
 			case "failed":
 				if b == nil {
@@ -342,10 +416,15 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 						Outcome: "failed", Reason: reason, Burned: burned,
 					})
 				}
-				ladder.Record(rating.Attempt{
-					Agent: agent, Bounty: id, Tier: b.Tier,
-					Burned: burned, Success: false, Time: l.Time,
-				})
+				if !b.Judged {
+					ladder.Record(rating.Attempt{
+						Agent: agent, Bounty: id, Tier: b.Tier,
+						Burned: burned, Success: false, Time: l.Time,
+					})
+					if b.Suite != "" {
+						asterisked[agent] = true
+					}
+				}
 				delete(awardee, id)
 			case "voided":
 				if b == nil {
@@ -411,6 +490,7 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 	}
 
 	v.Ladder = ladder.Board(v.Episode.End.Add(time.Second))
+	v.Asterisked = asterisked
 	if v.Episode.Track == TrackSim {
 		// The sim's numbers are a chronicle, not a score. The rows survive —
 		// they are what happened — but nothing here is ranked, because who was

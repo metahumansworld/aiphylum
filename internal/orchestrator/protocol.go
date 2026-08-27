@@ -66,6 +66,15 @@ type BountyView struct {
 	Reserve      ledger.Credits `json:"reserve"`
 	Failures     int            `json:"failures"`
 	AnswerDigest string         `json:"answer_digest"`
+	// Judged marks a bounty a model grades against a hidden rubric instead of
+	// a key. Omitted when false, so a keyed bounty's observation is byte-for-
+	// byte what it always was.
+	Judged bool `json:"judged,omitempty"`
+	// Suite names the imported benchmark this instance came from. Agents see
+	// it because provenance is public — an agent may reasonably price an
+	// instance it might have memorised differently from a fresh one. Omitted
+	// when empty, so generated supply looks exactly as it always did.
+	Suite string `json:"suite,omitempty"`
 }
 
 // TaskView is the awarded bounty as the winner sees it during its attempt.
@@ -76,6 +85,7 @@ type TaskView struct {
 	AskedPrice   ledger.Credits `json:"asked_price"`
 	Budget       ledger.Credits `json:"budget"` // the attempt wallet's funding
 	WallClockSec int            `json:"wall_clock_sec"`
+	Judged       bool           `json:"judged,omitempty"`
 }
 
 // Action is one thing an agent asks the platform to do.

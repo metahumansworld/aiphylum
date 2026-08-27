@@ -32,11 +32,13 @@ import (
 
 	"github.com/metahunmei/dungeon/internal/bounty"
 	"github.com/metahunmei/dungeon/internal/generators"
+	"github.com/metahunmei/dungeon/internal/judge"
 	"github.com/metahunmei/dungeon/internal/ledger"
 	"github.com/metahunmei/dungeon/internal/orchestrator"
 	"github.com/metahunmei/dungeon/internal/proxy"
 	"github.com/metahunmei/dungeon/internal/rating"
 	"github.com/metahunmei/dungeon/internal/runner"
+	"github.com/metahunmei/dungeon/internal/suites"
 	"github.com/metahunmei/dungeon/internal/trace"
 )
 
@@ -48,6 +50,7 @@ func main() {
 	tracePath := flag.String("trace", "demo-trace.jsonl", "trace output path")
 	dbPath := flag.String("db", "", "ledger database path (default: temp file)")
 	genDir := flag.String("generators", "generators", "path to the generators directory")
+	imported := flag.Bool("imported", false, "also draw bounties from the imported suites in <generators>/suites — ranked, with an asterisk")
 	latency := flag.Duration("latency", 0, "per-call stub latency, for believable pacing")
 	post := flag.Duration("post", 900*time.Millisecond, "sim: how often the clock ticks and a bounty appears")
 	window := flag.Duration("window", 1500*time.Millisecond, "sim: how long an auction takes bids")
@@ -63,7 +66,8 @@ func main() {
 	opts := options{
 		demo: *demo, sim: *sim, rounds: *rounds, seed: *seed,
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
-		post: *post, window: *window, runFor: *runFor, deck: *deck,
+		imported: *imported,
+		post:     *post, window: *window, runFor: *runFor, deck: *deck,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("dungeond failed", "err", err)
@@ -81,6 +85,12 @@ type options struct {
 	dbPath    string
 	genDir    string
 	latency   time.Duration
+	// imported gates the whole imported path at once — load, register,
+	// declare, and deal. One switch, because a world that declares a suite it
+	// never posts from would print a provenance note explaining nothing, and a
+	// world that posts from one it never declared would be the asterisk
+	// missing from the board.
+	imported bool
 
 	post, window, runFor time.Duration
 	deck                 int
@@ -112,17 +122,54 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	for _, g := range generators.Dir(opt.genDir) {
 		board.RegisterGenerator(g)
 	}
+	notes, err := loadSuites(board, opt)
+	if err != nil {
+		return err
+	}
 
 	switch {
 	case opt.sim:
 		// No ladder, and not as an omission: RunSim refuses a world that has
 		// one. Real-time results are not comparable, so they are never scored.
-		return runSim(ctx, log, l, board, tw, opt)
+		return runSim(ctx, log, l, board, tw, notes, opt)
 	case !opt.demo:
-		return runLive(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()))
+		return runLive(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes)
 	default:
-		return runDemo(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), opt)
+		return runDemo(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt)
 	}
+}
+
+// loadSuites registers the imported suites as ordinary generators and returns
+// the provenance the orchestrator publishes for them. Without -imported it
+// returns nothing at all, which is what keeps the default demo — and every
+// number pinned against it — exactly as it was before suites existed.
+func loadSuites(board *bounty.Board, opt options) ([]orchestrator.SuiteNote, error) {
+	if !opt.imported {
+		return nil, nil
+	}
+	dir := filepath.Join(opt.genDir, "suites")
+	loaded, err := suites.LoadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("imported suites: %w", err)
+	}
+	// LoadDir treats a missing directory as an empty world, which is right for
+	// a caller who did not ask. This caller asked, so silence would be a lie.
+	if len(loaded) == 0 {
+		return nil, fmt.Errorf("-imported was given but %s holds no .jsonl suites", dir)
+	}
+	notes := make([]orchestrator.SuiteNote, 0, len(loaded))
+	for _, s := range loaded {
+		board.RegisterGenerator(s)
+		notes = append(notes, orchestrator.SuiteNote{
+			Name:          s.Manifest.Name,
+			Source:        s.Manifest.Source,
+			Licence:       s.Manifest.Licence,
+			Contamination: s.Manifest.Contamination,
+		})
+		fmt.Printf("  * %-8s %d instances across tiers %v — imported, ranked with an asterisk\n",
+			s.Name(), s.Len(), s.Tiers())
+	}
+	return notes, nil
 }
 
 // offline is one fully wired offline world: stub provider, subprocess agents
@@ -130,9 +177,10 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 // two apart. Both offline modes build the same one — the only difference
 // between the demo and the sim is what drives the clock.
 type offline struct {
-	orch  *orchestrator.Orchestrator
-	steps *orchestrator.ProcessSteps
-	stop  func()
+	orch     *orchestrator.Orchestrator
+	steps    *orchestrator.ProcessSteps
+	proxyURL string // the judge dials this too: it is metered like anyone else
+	stop     func()
 }
 
 // roster is one seat in the offline cast.
@@ -151,7 +199,7 @@ var cast = []roster{
 }
 
 func newOffline(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
-	tw *trace.Writer, ladder *rating.Ladder, opt options) (*offline, error) {
+	tw *trace.Writer, ladder *rating.Ladder, notes []orchestrator.SuiteNote, opt options) (*offline, error) {
 
 	table := proxy.NewPriceTable()
 	table.Set("stub-1", proxy.Price{InputPerTok: 1000, OutputPerTok: 1000})
@@ -173,10 +221,13 @@ func newOffline(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *
 			// nothing, and it would haunt the board forever. It dies instead.
 			Dust: 200,
 		}, log)
+	// Published once at the head of every episode, ahead of the supply it
+	// explains, so a reader meets the asterisk before the scores it qualifies.
+	orch.Suites = notes
 
 	srv := &http.Server{Handler: orch.Proxy}
 	go srv.Serve(ln)
-	w := &offline{orch: orch, steps: steps, stop: func() {
+	w := &offline{orch: orch, steps: steps, proxyURL: proxyURL, stop: func() {
 		srv.Shutdown(context.Background())
 		ln.Close()
 	}}
@@ -209,15 +260,15 @@ func newOffline(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *
 
 // runDemo is the ranked round loop: a seeded episode, ending in the ladder.
 func runDemo(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
-	tw *trace.Writer, ladder *rating.Ladder, opt options) error {
+	tw *trace.Writer, ladder *rating.Ladder, notes []orchestrator.SuiteNote, opt options) error {
 
-	w, err := newOffline(ctx, log, l, board, tw, ladder, opt)
+	w, err := newOffline(ctx, log, l, board, tw, ladder, notes, opt)
 	if err != nil {
 		return err
 	}
 	defer w.stop()
 
-	ep := demoEpisode(opt.seed, opt.rounds)
+	ep := demoEpisode(opt.seed, opt.rounds, notes)
 	fmt.Printf("\nepisode: seed %d, %d rounds, %d bounties — the board opens\n\n",
 		opt.seed, opt.rounds, countPostings(ep))
 
@@ -233,15 +284,27 @@ func runDemo(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 // runSim is the same world on a clock. It takes a nil ladder because RunSim
 // refuses any other kind, and prints a chronicle instead of a ranking.
 func runSim(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
-	tw *trace.Writer, opt options) error {
+	tw *trace.Writer, notes []orchestrator.SuiteNote, opt options) error {
 
-	w, err := newOffline(ctx, log, l, board, tw, nil, opt)
+	w, err := newOffline(ctx, log, l, board, tw, nil, notes, opt)
 	if err != nil {
 		return err
 	}
 	defer w.stop()
 
-	deck := simDeck(opt.seed, opt.deck)
+	// Judging is enabled only here, in the sim. The orchestrator refuses to
+	// post a judged bounty into a world that has a ladder, so the demo could
+	// not grade one even if it were wired to; this is the other half of the
+	// same rule, stated where an operator reads it.
+	if err := w.orch.EnableJudging(ctx, &judge.HTTP{
+		Base: w.proxyURL, Model: "stub-1", MaxTokens: 64,
+	}, judgeEndowment); err != nil {
+		return fmt.Errorf("enable judging: %w", err)
+	}
+	fmt.Printf("  + %-8s %5d credits — grades the open-ended briefs, spends its own money\n",
+		"judge", judgeEndowment)
+
+	deck := simDeck(opt.seed, opt.deck, notes)
 	fmt.Printf("\nsim: seed %d, %d bounties, one every %s, %s bid windows — the clock starts\n\n",
 		opt.seed, len(deck), opt.post, opt.window)
 
@@ -260,16 +323,29 @@ func runSim(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *boun
 	return nil
 }
 
-// simDeck is the sim's supply: the same generators and tiers the demo posts,
-// flattened into one ordered deck the clock deals from.
-func simDeck(seed int64, n int) []orchestrator.Posting {
-	gens := []string{"arith", "oracle"}
+// judgeEndowment funds the sim's grader. Generous on purpose: a grader that
+// runs out mid-sim does not fail attempts, it voids them, and a chronicle full
+// of voided bounties would say nothing about the agents.
+const judgeEndowment = ledger.Credits(250_000)
+
+// simDeck is the sim's supply: the demo's two keyed generators plus the
+// judged one the ranked track is not allowed to post, flattened into one
+// ordered deck the clock deals from. Imported suites join the rotation as
+// ordinary generators — with none loaded the deck is exactly what it was.
+func simDeck(seed int64, n int, notes []orchestrator.SuiteNote) []orchestrator.Posting {
+	gens := []string{"arith", "oracle", "brief"}
+	for _, s := range notes {
+		gens = append(gens, s.Name)
+	}
 	deck := make([]orchestrator.Posting, 0, n)
 	for i := 0; i < n; i++ {
 		deck = append(deck, orchestrator.Posting{
-			Generator:    gens[i%len(gens)],
-			Seed:         seed*10_000 + int64(i),
-			Tier:         i%3 + 1,
+			Generator: gens[i%len(gens)],
+			Seed:      seed*10_000 + int64(i),
+			// Tier advances a rank per full pass of the generators, not per
+			// card: cycling both on the same stride would pin each generator
+			// to one difficulty forever.
+			Tier:         (i/len(gens))%3 + 1,
 			WallClockSec: 20,
 		})
 	}
@@ -299,18 +375,31 @@ func printChronicle(rep orchestrator.SimReport) {
 // demoEpisode derives the round plan from the seed: every round posts two
 // arith and two oracle bounties with tiers cycling 1..3, seeds unique per
 // posting. Same seed, same plan — the demo is replayable end to end.
-func demoEpisode(seed int64, rounds int) orchestrator.Episode {
+//
+// Each imported suite adds one bounty per round, appended after the generated
+// four so their seeds and their order are untouched. With nothing imported the
+// plan is byte for byte the plan that produced the pinned ladder.
+func demoEpisode(seed int64, rounds int, notes []orchestrator.SuiteNote) orchestrator.Episode {
 	ep := orchestrator.Episode{}
 	for r := 0; r < rounds; r++ {
 		tierA := r%3 + 1
 		tierB := (r+1)%3 + 1
 		base := seed*10_000 + int64(r)*10
-		ep.Rounds = append(ep.Rounds, []orchestrator.Posting{
+		round := []orchestrator.Posting{
 			{Generator: "arith", Seed: base + 1, Tier: tierA, WallClockSec: 20},
 			{Generator: "arith", Seed: base + 2, Tier: tierB, WallClockSec: 20},
 			{Generator: "oracle", Seed: base + 3, Tier: tierA, WallClockSec: 20},
 			{Generator: "oracle", Seed: base + 4, Tier: tierB, WallClockSec: 20},
-		})
+		}
+		for i, s := range notes {
+			// Distinct generators, so one seed per round serves them all; the
+			// tier is offset per suite so a multi-suite world is not stuck at
+			// one difficulty for the round.
+			round = append(round, orchestrator.Posting{
+				Generator: s.Name, Seed: base + 5, Tier: (r+i)%3 + 1, WallClockSec: 20,
+			})
+		}
+		ep.Rounds = append(ep.Rounds, round)
 	}
 	return ep
 }
@@ -364,7 +453,7 @@ func printLadder(orch *orchestrator.Orchestrator, ladder *rating.Ladder, l *ledg
 // against the real runner and a real provider; it refuses to start unless
 // its dependencies actually exist.
 func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
-	tw *trace.Writer, ladder *rating.Ladder) error {
+	tw *trace.Writer, ladder *rating.Ladder, notes []orchestrator.SuiteNote) error {
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
@@ -386,6 +475,7 @@ func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	steps := orchestrator.NewDockerSteps(rn)
 	orch := orchestrator.New(l, board, table, &proxy.AnthropicProvider{APIKey: apiKey},
 		tw, steps, ladder, orchestrator.Config{Dust: 30}, log)
+	orch.Suites = notes
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

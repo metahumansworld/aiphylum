@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/metahunmei/dungeon/internal/bounty"
+	"github.com/metahunmei/dungeon/internal/judge"
 	"github.com/metahunmei/dungeon/internal/ledger"
 	"github.com/metahunmei/dungeon/internal/rating"
 	"github.com/metahunmei/dungeon/internal/trace"
@@ -29,6 +30,14 @@ type attemptOutcome struct {
 	attempted  bool
 	agentFault string // the agent broke: timeout, crash, bad output, no submission
 	runErr     error  // the step runner itself broke — a platform fault
+
+	// Judged bounties only: what the grader said, or why it could not say.
+	// judgeErr is a platform fault for the same reason runErr is — the grader
+	// is the platform's instrument, and an agent must never be charged for the
+	// platform's inability to grade the work it asked for.
+	verdict  judge.Verdict
+	judged   bool
+	judgeErr error
 }
 
 // fundAttempt opens the attempt wallet and funds it with min(bankroll, token
@@ -68,6 +77,7 @@ func (o *Orchestrator) performAttempt(ctx context.Context, ag *Agent, b *bounty.
 		Observation: Observation{Phase: PhaseAttempt, Round: round, Task: &TaskView{
 			BountyID: b.ID, Tier: b.Tier, Prompt: b.Prompt,
 			AskedPrice: b.AskedPrice, Budget: budget, WallClockSec: b.WallClockSec,
+			Judged: b.Judged,
 		}},
 		Wallet: WalletView{ID: attWallet, Balance: budget},
 	})
@@ -109,6 +119,15 @@ func (o *Orchestrator) performAttempt(ctx context.Context, ag *Agent, b *bounty.
 			}
 		}
 	}
+
+	// Grading happens here, on the worker, and only for a submission that
+	// exists: an agent that crashed or never submitted has already failed on
+	// its own terms, and asking a model about it would spend the platform's
+	// tokens to confirm what the step already showed.
+	if b.Judged && out.attempted {
+		v, err := o.judgeSubmission(ctx, b, round, out.submitted)
+		out.verdict, out.judged, out.judgeErr = v, err == nil, err
+	}
 	return out, nil
 }
 
@@ -124,7 +143,13 @@ func (o *Orchestrator) settleAttempt(ctx context.Context, ag *Agent, b *bounty.B
 		return err
 	}
 	burned := budget - after
+	// Two notions of correct, kept apart at the source: a key comparison the
+	// board performs itself, or a verdict it is handed. Verify always answers
+	// false for a judged bounty, so this is a choice, not a fallback.
 	solved := out.attempted && b.Verify(out.submitted)
+	if b.Judged {
+		solved = out.attempted && out.judged && out.verdict.Pass
+	}
 
 	// Merge the attempt wallet back before any payout: the remainder returns
 	// to the head, and earnings land in the bankroll, not the attempt purse.
@@ -147,14 +172,24 @@ func (o *Orchestrator) settleAttempt(ctx context.Context, ag *Agent, b *bounty.B
 	//   platform fault, on a failed attempt  → refunded and voided; no failure
 	//   timeout, crash, bad output, no
 	//   submission, wrong answer             → agent fault; charged and failed
-	platformFault := out.runErr != nil || o.faults.sawFault(attWallet)
+	platformFault := out.runErr != nil || out.judgeErr != nil || o.faults.sawFault(attWallet)
 	// The attempt wallet is retired; its fault flag goes with it. Attempt
 	// wallets are unique per bounty per round, so keeping them would grow the
 	// map for the life of the process.
 	o.faults.reset(attWallet)
+	// The verdict goes in the trace whether it passed or failed, and before the
+	// outcome that followed from it: a judged bounty's whole audit trail is the
+	// grader's own words, so a spectator who disagrees can see exactly what was
+	// said and by which model.
+	if out.judged {
+		o.traceEvent(trace.EventBounty, map[string]any{
+			"action": "judged", "id": b.ID, "agent": ag.ID,
+			"pass": out.verdict.Pass, "reason": out.verdict.Reason, "grader": out.verdict.Grader,
+		})
+	}
 	switch {
 	case solved:
-		if _, err := o.Board.Resolve(b.ID, out.submitted, true); err != nil {
+		if err := o.resolveOutcome(b, out, true); err != nil {
 			return err
 		}
 		// The payout is the asked price — what the agent bid, not the posted
@@ -180,26 +215,44 @@ func (o *Orchestrator) settleAttempt(ctx context.Context, ag *Agent, b *bounty.B
 			return err
 		}
 		reason := "platform fault at the proxy"
-		if out.runErr != nil {
+		switch {
+		case out.runErr != nil:
 			reason = "step runner error: " + out.runErr.Error()
+		case out.judgeErr != nil:
+			reason = "judge error: " + out.judgeErr.Error()
 		}
 		o.traceEvent(trace.EventBounty, map[string]any{"action": "voided", "id": b.ID, "agent": ag.ID, "reason": reason})
 		// No ladder record: a voided attempt never happened for the ranking.
 		return nil
 
 	default:
-		if _, err := o.Board.Resolve(b.ID, out.submitted, out.attempted); err != nil {
+		if err := o.resolveOutcome(b, out, false); err != nil {
 			return err
 		}
 		reason := out.agentFault
 		if reason == "" {
 			reason = "wrong answer"
+			if b.Judged {
+				reason = "judged: " + out.verdict.Reason
+			}
 		}
 		o.traceEvent(trace.EventBounty, map[string]any{"action": "failed", "id": b.ID, "agent": ag.ID, "reason": reason, "burned": burned})
 		o.record(rating.Attempt{Agent: ag.ID, Bounty: b.ID, Tier: b.Tier, Burned: burned, Success: false, Time: time.Now()})
 	}
 
 	return o.settleAgent(ctx, ag)
+}
+
+// resolveOutcome closes the bounty by whichever kind of truth it has. Keyed
+// bounties re-verify at the board — the board owns the key and decides for
+// itself, so a caller cannot talk it into a payout — while judged ones hand
+// over the verdict the grader already returned.
+func (o *Orchestrator) resolveOutcome(b *bounty.Bounty, out attemptOutcome, solved bool) error {
+	if b.Judged {
+		return o.Board.ResolveJudged(b.ID, solved)
+	}
+	_, err := o.Board.Resolve(b.ID, out.submitted, out.attempted)
+	return err
 }
 
 // settleAgent applies the bankruptcy rule: at or below the dust threshold the

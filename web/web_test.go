@@ -215,3 +215,212 @@ func TestServerPagesRender(t *testing.T) {
 		t.Errorf("model_call label = %q, want %q", call["label"], want)
 	}
 }
+
+// judgedTrace: one agent, three bounties in one round — a keyed one it solves,
+// a judged one it passes, and a judged one it fails. Everything about the
+// three looks alike to the balance arithmetic; only the ladder should tell
+// them apart.
+func judgedTrace(t *testing.T) []trace.Line {
+	t.Helper()
+	var lines []trace.Line
+	at := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	add := func(typ trace.EventType, payload map[string]any) {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at = at.Add(time.Second)
+		lines = append(lines, trace.Line{Seq: int64(len(lines) + 1), Time: at, Type: typ, Payload: raw})
+	}
+
+	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "j", "grant": 100})
+	add(trace.EventEpisode, map[string]any{"action": "start", "rounds": 1})
+	add(trace.EventEpisode, map[string]any{"action": "round", "round": 1, "postings": 3})
+
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "k", "generator": "arith", "seed": 1, "tier": 1, "max_payout": 30, "reserve": 3})
+	add(trace.EventBid, map[string]any{"bounty": "k", "agent": "j", "price": 10})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "k", "winner": "j", "price": 10})
+	add(trace.EventBounty, map[string]any{"action": "solved", "id": "k", "agent": "j", "payout": 10, "burned": 4})
+
+	// A judged posting carries the flag; the ladder must not hear about it
+	// even though it resolves exactly like the keyed one above.
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "g", "generator": "brief", "seed": 2, "tier": 3, "max_payout": 40, "reserve": 4, "judged": true})
+	add(trace.EventBid, map[string]any{"bounty": "g", "agent": "j", "price": 12})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "g", "winner": "j", "price": 12})
+	add(trace.EventBounty, map[string]any{"action": "judged", "id": "g", "agent": "j", "pass": true, "grader": "stub-1", "reason": "covers the standard"})
+	add(trace.EventBounty, map[string]any{"action": "solved", "id": "g", "agent": "j", "payout": 12, "burned": 5})
+
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "h", "generator": "brief", "seed": 3, "tier": 2, "max_payout": 40, "reserve": 4, "judged": true})
+	add(trace.EventBid, map[string]any{"bounty": "h", "agent": "j", "price": 12})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "h", "winner": "j", "price": 12})
+	add(trace.EventBounty, map[string]any{"action": "judged", "id": "h", "agent": "j", "pass": false, "grader": "stub-1", "reason": "ignores the form"})
+	add(trace.EventBounty, map[string]any{"action": "failed", "id": "h", "agent": "j", "reason": "judged: ignores the form", "burned": 6})
+
+	add(trace.EventEpisode, map[string]any{"action": "end", "conservation": "minted=122 wallets=107 burned=0 spent=15 held=0 (drift=0)"})
+	return lines
+}
+
+// The orchestrator refuses to post judged supply into a ranked world, but the
+// viewer rebuilds the ladder from the trace rather than copying one — so the
+// rule has to hold a second time, here, against a trace that contains judged
+// resolutions. A model's opinion must move the wallet and never the ranking.
+func TestViewerKeepsJudgedWorkOffTheLadder(t *testing.T) {
+	v, err := BuildView("judged.jsonl", judgedTrace(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	j := v.Agent("j")
+	if j == nil {
+		t.Fatal("agent j missing from view")
+	}
+	// The wallet counts all three: judged work is paid work.
+	if j.Earned != 22 || j.Burned != 15 || j.Balance != 107 {
+		t.Errorf("agent j earned/burned/balance = %d/%d/%d, want 22/15/107", j.Earned, j.Burned, j.Balance)
+	}
+	if len(j.Attempts) != 3 {
+		t.Errorf("agent j attempts = %d, want 3", len(j.Attempts))
+	}
+
+	// The ladder counts one: the keyed bounty, and only its numbers.
+	if len(v.Ladder) != 1 {
+		t.Fatalf("ladder rows = %d, want 1", len(v.Ladder))
+	}
+	row := v.Ladder[0]
+	if row.Agent != "j" {
+		t.Fatalf("ladder row = %+v, want agent j", row)
+	}
+	if row.Attempts != 1 || row.Successes != 1 {
+		t.Errorf("ladder attempts/successes = %d/%d, want 1/1 — judged work reached the ladder",
+			row.Attempts, row.Successes)
+	}
+	if row.Earned != 10 || row.Burned != 4 {
+		t.Errorf("ladder earned/burned = %d/%d, want 10/4 — judged credits reached the ladder",
+			row.Earned, row.Burned)
+	}
+	// Three attempts across three tiers would have cleared the gates; one
+	// keyed attempt at one tier must not.
+	if row.Ranked {
+		t.Error("agent ranked on a single keyed attempt; judged work filled the gates")
+	}
+
+	// The flag and the verdict both survive into the bounty page.
+	g := v.Bounty("g")
+	if g == nil || !g.Judged {
+		t.Fatalf("bounty g = %+v, want judged", g)
+	}
+	if v.Bounty("k").Judged {
+		t.Error("keyed bounty k came back judged")
+	}
+	var verdict string
+	for _, e := range g.History {
+		if e.Action == "judged" {
+			verdict = e.Detail
+		}
+	}
+	if !strings.Contains(verdict, "passed by stub-1") || !strings.Contains(verdict, "covers the standard") {
+		t.Errorf("judged history detail = %q", verdict)
+	}
+}
+
+// importedTrace: one agent, two bounties in one round — one generated, one
+// drawn from an imported suite. Structurally identical to judgedTrace, which
+// is the point: the same shape must produce the opposite ladder answer.
+func importedTrace(t *testing.T) []trace.Line {
+	t.Helper()
+	var lines []trace.Line
+	at := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	add := func(typ trace.EventType, payload map[string]any) {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at = at.Add(time.Second)
+		lines = append(lines, trace.Line{Seq: int64(len(lines) + 1), Time: at, Type: typ, Payload: raw})
+	}
+
+	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "i", "grant": 100})
+	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "n", "grant": 100})
+	add(trace.EventEpisode, map[string]any{"action": "start", "rounds": 1})
+	add(trace.EventSuite, map[string]any{
+		"action": "registered", "suite": "handbook", "source": "a public benchmark",
+		"licence": "CC0-1.0", "contamination": "public since 2021; assume exposure",
+	})
+	add(trace.EventEpisode, map[string]any{"action": "round", "round": 1, "postings": 2})
+
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "k", "generator": "arith", "seed": 1, "tier": 1, "max_payout": 30, "reserve": 3})
+	add(trace.EventBid, map[string]any{"bounty": "k", "agent": "n", "price": 10})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "k", "winner": "n", "price": 10})
+	add(trace.EventBounty, map[string]any{"action": "solved", "id": "k", "agent": "n", "payout": 10, "burned": 4})
+
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "m", "generator": "handbook", "seed": 2, "tier": 2, "max_payout": 40, "reserve": 4, "suite": "handbook"})
+	add(trace.EventBid, map[string]any{"bounty": "m", "agent": "i", "price": 12})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "m", "winner": "i", "price": 12})
+	add(trace.EventBounty, map[string]any{"action": "solved", "id": "m", "agent": "i", "payout": 12, "burned": 5})
+
+	add(trace.EventEpisode, map[string]any{"action": "end", "conservation": "minted=222 wallets=213 burned=0 spent=9 held=0 (drift=0)"})
+	return lines
+}
+
+// Imported work is the deliberate opposite of judged work: it reaches the
+// ladder, because a held-out answer key is a held-out answer key wherever it
+// came from. What it also does is mark the agent, so a reader weighing the
+// score can find the contamination note that explains the mark.
+func TestViewerRanksImportedWorkWithAnAsterisk(t *testing.T) {
+	v, err := BuildView("imported.jsonl", importedTrace(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The suite's provenance survives the trip through the trace intact —
+	// without it the asterisk would be a mark with nothing behind it.
+	if len(v.Suites) != 1 {
+		t.Fatalf("suites = %+v, want one", v.Suites)
+	}
+	s := v.Suites[0]
+	if s.Name != "handbook" || s.Licence != "CC0-1.0" {
+		t.Errorf("suite = %+v", s)
+	}
+	if !strings.Contains(s.Contamination, "assume exposure") {
+		t.Errorf("contamination note = %q", s.Contamination)
+	}
+
+	// Both agents are on the ladder with their imported/generated work
+	// counted. The ranking cannot see the asterisk.
+	byAgent := map[string]int{}
+	for i, row := range v.Ladder {
+		byAgent[row.Agent] = i
+		if row.Attempts != 1 || row.Successes != 1 {
+			t.Errorf("%s attempts/successes = %d/%d, want 1/1", row.Agent, row.Attempts, row.Successes)
+		}
+	}
+	if len(v.Ladder) != 2 {
+		t.Fatalf("ladder rows = %d, want 2 — imported work must be ranked, not dropped", len(v.Ladder))
+	}
+	if i, ok := byAgent["i"]; !ok {
+		t.Fatal("the imported bounty's solver is missing from the ladder")
+	} else if v.Ladder[i].Earned != 12 || v.Ladder[i].Burned != 5 {
+		t.Errorf("imported earned/burned = %d/%d, want 12/5",
+			v.Ladder[i].Earned, v.Ladder[i].Burned)
+	}
+
+	// Only the agent who did imported work is marked.
+	if !v.Asterisked["i"] {
+		t.Error("the agent who solved an imported bounty is not asterisked")
+	}
+	if v.Asterisked["n"] {
+		t.Error("an agent who only did generated work was asterisked")
+	}
+
+	// And the label reaches the bounty page.
+	m := v.Bounty("m")
+	if m == nil || m.Suite != "handbook" {
+		t.Fatalf("bounty m = %+v, want suite handbook", m)
+	}
+	if v.Bounty("k").Suite != "" {
+		t.Error("a generated bounty came back with a suite")
+	}
+	if !strings.Contains(m.History[0].Detail, "imported from handbook") {
+		t.Errorf("posting detail = %q", m.History[0].Detail)
+	}
+}

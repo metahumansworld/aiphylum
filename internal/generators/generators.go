@@ -47,8 +47,20 @@ func (s Script) Generate(seed int64, tier int) (bounty.Task, error) {
 	if err := json.Unmarshal(stdout.Bytes(), &task); err != nil {
 		return bounty.Task{}, fmt.Errorf("generator %s: bad task JSON: %w", s.GenName, err)
 	}
-	if task.Prompt == "" || task.Answer == "" || task.ReferenceTokens <= 0 {
+	// A task needs a prompt, a price, and exactly one hidden key: an answer to
+	// verify against, or a rubric to be judged against. Both or neither is a
+	// broken generator, not an open-ended task.
+	if task.Prompt == "" || !task.Keyed() || task.ReferenceTokens <= 0 {
 		return bounty.Task{}, fmt.Errorf("generator %s: incomplete task: %+v", s.GenName, task)
+	}
+	// Suite provenance is the loader's to assert, not a script's to claim. A
+	// generated task that labelled itself imported would wear an asterisk it
+	// hadn't earned; one that claimed a real suite's name would launder a
+	// generated instance into that suite's record.
+	if task.Suite != "" {
+		return bounty.Task{}, fmt.Errorf(
+			"generator %s: claimed suite %q — suite provenance comes from an imported suite file, not from a generator",
+			s.GenName, task.Suite)
 	}
 	return task, nil
 }
@@ -59,5 +71,9 @@ func Dir(dir string) []Script {
 	return []Script{
 		{GenName: "arith", Path: filepath.Join(dir, "arith.py")},
 		{GenName: "oracle", Path: filepath.Join(dir, "oracle.py")},
+		// brief is judged, not keyed. Registering it here is safe in either
+		// world: a ranked orchestrator refuses to post one, so the ladder
+		// cannot be reached by a bounty a model decided.
+		{GenName: "brief", Path: filepath.Join(dir, "brief.py")},
 	}
 }

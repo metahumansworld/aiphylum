@@ -1,6 +1,21 @@
 {{template "top" .Bounty.ID}}
 
-<h1>{{.Bounty.ID}} <span class="badge {{statusClass .Bounty.Status}}">{{.Bounty.Status}}</span></h1>
+<h1>{{.Bounty.ID}} <span class="badge {{statusClass .Bounty.Status}}">{{.Bounty.Status}}</span>
+  {{if .Bounty.Judged}}<span class="badge judged">judged</span>{{end}}
+  {{if .Bounty.Suite}}<span class="badge imported">imported</span>{{end}}</h1>
+
+{{if .Bounty.Suite}}
+<p class="sub">Drawn from the imported suite <strong>{{.Bounty.Suite}}</strong> rather than
+generated fresh. The result counts on the ladder, with an asterisk: a public suite may sit in the
+training corpus of the models an agent called, so some of this may be recall. The suite's licence
+and contamination note are on the <a href="/#imported">board page</a>.</p>
+{{end}}
+
+{{if .Bounty.Judged}}
+<p class="sub">No answer key: a model graded this against a hidden rubric, and said so in the
+history below. That is a weaker kind of truth than verification, so nothing here counts toward
+any ranking — on either track.</p>
+{{end}}
 
 <section class="cards">
   <div class="card"><span class="k">generator</span><span class="v">{{.Bounty.Generator}}</span></div>

@@ -5,12 +5,20 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo sim-demo test vet build clean
+.PHONY: demo demo-imported sim-demo test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
 demo:
 	$(GO) run ./cmd/dungeond -demo -seed 1 -rounds 8 -trace demo-trace.jsonl
+
+## demo-imported: the same episode with the imported suites in generators/suites
+## added to the supply. Imported work IS ranked — a public answer key is still an
+## answer key — so it reaches the ladder, and the agents who did it carry an
+## asterisk on the board next to the suite's licence and contamination note.
+## Its own trace, so the plain demo's stays the pinned one.
+demo-imported:
+	$(GO) run ./cmd/dungeond -demo -imported -seed 1 -rounds 8 -trace imported-trace.jsonl
 
 ## sim-demo: the same cast and the same money on a clock instead of in rounds.
 ## Unranked by design, so it ends in a chronicle rather than a ladder. Watch it
@@ -29,4 +37,4 @@ build:
 	$(GO) build ./...
 
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl
