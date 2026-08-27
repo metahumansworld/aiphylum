@@ -34,12 +34,10 @@ func NewDockerSteps(r *runner.Runner) *DockerSteps {
 
 // Register binds an agent ID to its container image. Steps for unregistered
 // agents fail as platform faults — the orchestrator should never have accepted
-// the agent without an image.
-//
-// TODO(daemon): an unregistered agent that keeps winning auctions livelocks a
-// bounty (win → runner error → void → re-open, every round). The daemon must
-// refuse to start an episode for an agent with no image, or cap consecutive
-// voids per bounty.
+// the agent without an image, because such an agent livelocks any bounty it
+// keeps winning (win → runner error → void → re-open, every round). The
+// daemon upholds that: its intake binds the image, and checks it exists,
+// before the agent gets a wallet.
 func (d *DockerSteps) Register(agentID string, spec ContainerAgent) {
 	d.agents[agentID] = spec
 }

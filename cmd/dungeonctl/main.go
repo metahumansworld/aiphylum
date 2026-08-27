@@ -1,5 +1,7 @@
-// dungeonctl inspects the platform from the outside. For now that means
-// traces — the public record of everything an episode did.
+// dungeonctl drives the platform from the outside — either a trace file it
+// already produced, or a dungeond running live.
+//
+// Over a trace file:
 //
 //	dungeonctl trace <file>          every event, one line each
 //	dungeonctl calls <file>          just the metered model calls, with a total
@@ -9,8 +11,14 @@
 //	                                 a trace still being written and streams it
 //	                                 to the browser live.
 //
-// TODO(daemon): submit/run/tail against a running dungeond once it has an
-// episode intake API.
+// Against a running dungeond (-addr, default http://127.0.0.1:8141):
+//
+//	dungeonctl submit -id X -image Y [-grant N] [-cmd ...] [-mount h:c]
+//	                                 put an agent in the world with a wallet
+//	dungeonctl run [-seed N] [-rounds N]
+//	                                 ask for an episode and wait for it
+//	dungeonctl tail                  watch the live trace as it is written
+//	dungeonctl status                world state, episodes, and the roster
 package main
 
 import (
@@ -24,20 +32,34 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
 	}
 
 	switch os.Args[1] {
-	case "trace":
+	case "trace", "calls":
+		if len(os.Args) < 3 {
+			usage()
+			os.Exit(2)
+		}
+		if os.Args[1] == "calls" {
+			printCalls(readTrace(os.Args[2]))
+			return
+		}
 		for i, l := range readTrace(os.Args[2]) {
 			fmt.Printf("%4d %-10s %s\n", i, l.Type, trace.Summary(l))
 		}
-	case "calls":
-		printCalls(readTrace(os.Args[2]))
 	case "serve":
 		serve(os.Args[2:])
+	case "submit":
+		submit(os.Args[2:])
+	case "run":
+		runEpisode(os.Args[2:])
+	case "tail":
+		tail(os.Args[2:])
+	case "status":
+		status(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -45,7 +67,14 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: dungeonctl trace|calls <trace-file> | serve [-follow] <trace-file> [addr]")
+	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  dungeonctl trace|calls <trace-file>")
+	fmt.Fprintln(os.Stderr, "  dungeonctl serve [-follow] <trace-file> [addr]")
+	fmt.Fprintln(os.Stderr, "  dungeonctl submit -id <id> -image <image> [-grant n] [-cmd ...] [-mount host:container]")
+	fmt.Fprintln(os.Stderr, "  dungeonctl run [-seed n] [-rounds n] [-detach]")
+	fmt.Fprintln(os.Stderr, "  dungeonctl tail")
+	fmt.Fprintln(os.Stderr, "  dungeonctl status")
+	fmt.Fprintln(os.Stderr, "\nthe last four take -addr (default "+defaultAddr+") and talk to a running dungeond")
 }
 
 func readTrace(path string) []trace.Line {

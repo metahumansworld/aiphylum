@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 
@@ -176,6 +177,33 @@ func (bd *Board) RegisterGenerator(g Generator) {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
 	bd.generators[g.Name()] = g
+}
+
+// Generators lists the registered task sources, sorted by name — the stable
+// order a caller needs to derive a deterministic posting plan from the
+// registry rather than from a hard-coded list.
+func (bd *Board) Generators() []string {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	out := make([]string, 0, len(bd.generators))
+	for name := range bd.generators {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Probe generates a task from a registered generator without posting it —
+// how a caller planning an episode can learn, ahead of time, whether a
+// generator's supply is judged and would be refused in a ranked world.
+func (bd *Board) Probe(generator string, seed int64, tier int) (Task, error) {
+	bd.mu.Lock()
+	g, ok := bd.generators[generator]
+	bd.mu.Unlock()
+	if !ok {
+		return Task{}, fmt.Errorf("%w: %s", ErrNoGenerator, generator)
+	}
+	return g.Generate(seed, tier)
 }
 
 // Post generates one task and puts it on the board.

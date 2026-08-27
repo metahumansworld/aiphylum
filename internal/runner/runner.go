@@ -79,6 +79,17 @@ func Available(ctx context.Context) bool {
 	return exec.CommandContext(ctx, "docker", "info").Run() == nil
 }
 
+// ImageExists checks that an image is present locally. The daemon calls this
+// at agent intake: an agent whose image cannot run would livelock every bounty
+// it wins, so the time to find out is before it has a wallet, not mid-round.
+// Deliberately no pull — what runs in the arena is what the operator loaded.
+func (r *Runner) ImageExists(ctx context.Context, image string) error {
+	if _, err := r.docker(ctx, "image", "inspect", image); err != nil {
+		return fmt.Errorf("image %s not present locally: %w", image, err)
+	}
+	return nil
+}
+
 // EnsureNetwork creates the internal network if it does not exist.
 func (r *Runner) EnsureNetwork(ctx context.Context) error {
 	if _, err := r.docker(ctx, "network", "inspect", r.Network); err == nil {

@@ -114,6 +114,14 @@ type Orchestrator struct {
 
 	tw     *trace.Writer
 	faults *faultTracker
+	// epoch namespaces attempt wallets across episodes. A bounty that failed
+	// in one episode re-enters auction in the next with its ID intact; if it
+	// is re-awarded at the same round number, the attempt wallet name repeats
+	// — and the ledger refuses to recreate a retired account, ever. Zero (the
+	// single-episode demo and sim, and every pinned trace) keeps the original
+	// un-namespaced names; NextEpoch moves a multi-episode world onto fresh
+	// ones.
+	epoch  int
 	agents []*Agent // registration order: the deterministic iteration order
 	// watch, if set, sees every settled attempt alongside the ladder. The sim
 	// track uses it to keep its own tallies without becoming a ranking.
@@ -201,6 +209,36 @@ func (f *faultTracker) sawFault(wallet string) bool {
 	return f.faulted[wallet]
 }
 
+// resetAll drops every remembered fault. Between episodes nothing is running,
+// so anything still in the map is a leftover from a step that never settled —
+// it must not colour the first attempt of the next episode.
+func (f *faultTracker) resetAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	clear(f.faulted)
+}
+
+// NextEpoch advances the world to a fresh episode: attempt wallets get a new
+// namespace and the fault tracker starts clean. A caller running more than one
+// episode on the same orchestrator MUST call this before each RunEpisode after
+// the first — without it, a bounty failed in one episode and re-awarded at the
+// same round number in the next would collide with its own retired attempt
+// wallet and abort the episode.
+func (o *Orchestrator) NextEpoch() {
+	o.epoch++
+	o.faults.resetAll()
+}
+
+// attemptWallet names the wallet one attempt is funded through. Epoch zero
+// keeps the historical two-part name so every trace pinned before epochs
+// existed still replays byte for byte.
+func (o *Orchestrator) attemptWallet(bountyID string, round int) string {
+	if o.epoch == 0 {
+		return fmt.Sprintf("att:%s:r%d", bountyID, round)
+	}
+	return fmt.Sprintf("att:%s:e%d:r%d", bountyID, o.epoch, round)
+}
+
 // AddAgent registers a competitor: a wallet, a grant, a trace line. The ID
 // must be fresh — a retired agent's ID cannot be reused, which is half of what
 // makes bankruptcy permanent.
@@ -243,6 +281,9 @@ func (o *Orchestrator) live() []*Agent {
 // RunEpisode runs the plan round by round, auditing the ledger after each. A
 // conservation failure aborts the episode loudly: a world whose money is
 // wrong must halt, not continue.
+//
+// A caller running several episodes on one orchestrator must call NextEpoch
+// between them — see its comment for what goes wrong without it.
 func (o *Orchestrator) RunEpisode(ctx context.Context, ep Episode) error {
 	o.traceEvent(trace.EventEpisode, map[string]any{"action": "start", "rounds": len(ep.Rounds)})
 	// Declare imported supply before any of it is posted, so a reader meets
@@ -493,7 +534,7 @@ func (o *Orchestrator) attempt(ctx context.Context, round int, b *bounty.Bounty)
 		o.traceEvent(trace.EventBounty, map[string]any{"action": "voided", "id": b.ID, "reason": "winner retired before attempt"})
 		return nil
 	}
-	attWallet := fmt.Sprintf("att:%s:r%d", b.ID, round)
+	attWallet := o.attemptWallet(b.ID, round)
 	budget, err := o.fundAttempt(ctx, ag.ID, attWallet, b.TokenCeiling)
 	if err != nil {
 		return err

@@ -16,6 +16,12 @@
 // zero-egress network, the relay bridging them to this process's proxy, and
 // a real provider billed at real prices. It needs docker and ANTHROPIC_API_KEY
 // and refuses to start without them.
+//
+// Live mode is also the only one that does not run an episode of its own. It
+// serves a control plane on -listen and waits: dungeonctl submits agents and
+// asks for episodes, and the world persists between them in a ledger on disk.
+// One episode runs at a time, and a failed one stops the daemon taking work —
+// when the money may be wrong, the answer is a human, not another round.
 package main
 
 import (
@@ -31,6 +37,7 @@ import (
 	"time"
 
 	"github.com/metahunmei/dungeon/internal/bounty"
+	"github.com/metahunmei/dungeon/internal/daemon"
 	"github.com/metahunmei/dungeon/internal/generators"
 	"github.com/metahunmei/dungeon/internal/judge"
 	"github.com/metahunmei/dungeon/internal/ledger"
@@ -48,7 +55,8 @@ func main() {
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
 	seed := flag.Int64("seed", 1, "episode seed; same seed, same episode")
 	tracePath := flag.String("trace", "demo-trace.jsonl", "trace output path")
-	dbPath := flag.String("db", "", "ledger database path (default: temp file)")
+	dbPath := flag.String("db", "", "ledger database path (default: temp file offline, "+liveDB+" live)")
+	listen := flag.String("listen", defaultListen, "live: control-plane address for dungeonctl")
 	genDir := flag.String("generators", "generators", "path to the generators directory")
 	imported := flag.Bool("imported", false, "also draw bounties from the imported suites in <generators>/suites — ranked, with an asterisk")
 	latency := flag.Duration("latency", 0, "per-call stub latency, for believable pacing")
@@ -66,8 +74,8 @@ func main() {
 	opts := options{
 		demo: *demo, sim: *sim, rounds: *rounds, seed: *seed,
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
-		imported: *imported,
-		post:     *post, window: *window, runFor: *runFor, deck: *deck,
+		imported: *imported, listen: *listen,
+		post: *post, window: *window, runFor: *runFor, deck: *deck,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("dungeond failed", "err", err)
@@ -91,20 +99,36 @@ type options struct {
 	// world that posts from one it never declared would be the asterisk
 	// missing from the board.
 	imported bool
+	listen   string
 
 	post, window, runFor time.Duration
 	deck                 int
 }
 
+const (
+	// The control plane binds to loopback and carries no authentication: it is
+	// an operator's console on the machine running the arena, not a public API.
+	defaultListen = "127.0.0.1:8141"
+	liveDB        = "dungeon-live.db"
+)
+
 func run(ctx context.Context, log *slog.Logger, opt options) error {
 	dbPath := opt.dbPath
 	if dbPath == "" {
-		dir, err := os.MkdirTemp("", "dungeon-*")
-		if err != nil {
-			return err
+		// The offline modes run one episode and print it; their ledger is
+		// scaffolding and goes away with them. A live world is the opposite —
+		// its balances and permadeaths are the thing being accumulated — so it
+		// defaults to a file that survives the process.
+		if !opt.demo && !opt.sim {
+			dbPath = liveDB
+		} else {
+			dir, err := os.MkdirTemp("", "dungeon-*")
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(dir)
+			dbPath = filepath.Join(dir, "ledger.db")
 		}
-		defer os.RemoveAll(dir)
-		dbPath = filepath.Join(dir, "ledger.db")
 	}
 	l, err := ledger.Open(dbPath)
 	if err != nil {
@@ -133,7 +157,7 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		// one. Real-time results are not comparable, so they are never scored.
 		return runSim(ctx, log, l, board, tw, notes, opt)
 	case !opt.demo:
-		return runLive(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes)
+		return runLive(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt.listen, dbPath)
 	default:
 		return runDemo(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt)
 	}
@@ -450,10 +474,14 @@ func printLadder(orch *orchestrator.Orchestrator, ladder *rating.Ladder, l *ledg
 }
 
 // runLive is the Docker path. It compiles the same wiring the demo proves,
-// against the real runner and a real provider; it refuses to start unless
-// its dependencies actually exist.
+// against the real runner and a real provider; it refuses to start unless its
+// dependencies actually exist. Unlike the other two modes it does not run an
+// episode and exit — it serves the control plane and waits to be told what to
+// run, because a live world outlives any one episode: agents keep their
+// balances, failed bounties stay on the board, and the ladder accumulates.
 func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
-	tw *trace.Writer, ladder *rating.Ladder, notes []orchestrator.SuiteNote) error {
+	tw *trace.Writer, ladder *rating.Ladder, notes []orchestrator.SuiteNote,
+	listen, dbPath string) error {
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
@@ -492,10 +520,41 @@ func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}
 	defer rn.StopRelay(context.Background())
 
-	// TODO(daemon): episode intake — agent image registration (refusing
-	// agents with no image; see the livelock note on DockerSteps.Register),
-	// per-episode faultTracker reset, and a submit/run API for dungeonctl.
-	// Until then live mode proves the wiring and stops.
-	log.Info("live mode wired", "proxy", rn.ProxyURL(), "host_port", hostPort)
-	return fmt.Errorf("live mode has no episode intake yet — run -demo")
+	control := daemon.New(daemon.Config{
+		Orch:       orch,
+		Bind:       steps.Register,
+		CheckImage: rn.ImageExists,
+		TracePath:  tw.Path(),
+		// Episodes outlive the requests that start them; they end when the
+		// daemon does, not when a client hangs up.
+		RunCtx: ctx,
+		Log:    log,
+	})
+
+	api := &http.Server{Addr: listen, Handler: control}
+	errs := make(chan error, 1)
+	go func() {
+		if err := api.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errs <- err
+		}
+	}()
+	log.Info("live mode up", "listen", listen, "proxy", rn.ProxyURL(), "host_port", hostPort,
+		"trace", tw.Path(), "ledger", dbPath)
+	fmt.Printf("dungeond listening on %s — submit agents with `dungeonctl submit`, run with `dungeonctl run`\n", listen)
+
+	select {
+	case err := <-errs:
+		return fmt.Errorf("control plane: %w", err)
+	case <-ctx.Done():
+	}
+
+	// Interrupt: stop taking work, then let anything in flight land. The
+	// episode itself is already unwinding — it runs under ctx.
+	shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := api.Shutdown(shutdown); err != nil {
+		log.Warn("control plane shutdown", "err", err)
+	}
+	log.Info("live mode down")
+	return nil
 }
