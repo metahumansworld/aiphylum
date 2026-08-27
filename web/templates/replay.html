@@ -3,6 +3,7 @@
 <h1>replay <span class="sub">{{.View.TracePath}}</span></h1>
 
 <div class="controls">
+  {{if .Live}}<button id="livebtn" title="follow the live feed">● live</button>{{end}}
   <button id="play">▶</button>
   <input id="scrub" type="range" min="0" max="0" value="0">
   <span id="pos" class="mono"></span>
@@ -30,7 +31,7 @@
   <section class="log" id="log"></section>
 </div>
 
-<script>window.EVENTS = {{.Events}};</script>
+<script>window.EVENTS = {{.Events}}; window.LIVE = {{if .Live}}true{{else}}false{{end}};</script>
 <script src="/static/replay.js"></script>
 
 {{template "bottom"}}

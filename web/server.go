@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"sync"
 
 	"github.com/metahunmei/dungeon/internal/ledger"
 	"github.com/metahunmei/dungeon/internal/trace"
@@ -16,21 +17,36 @@ import (
 var content embed.FS
 
 // Server serves one episode. It is an http.Handler; everything it renders
-// comes from the trace it was built with.
+// comes from the trace it was built with. A static server (NewServer) holds a
+// finished trace and never re-reads it; a live server (NewLiveServer) follows
+// the file as an episode writes it.
 type Server struct {
-	mux    *http.ServeMux
+	mux  *http.ServeMux
+	tmpl *template.Template
+	path string
+	live bool
+
+	mu     sync.Mutex
+	lines  []trace.Line // every complete line consumed so far
+	offset int64        // byte offset just past the last complete line
 	view   *View
-	tmpl   *template.Template
-	replay template.JS // the replay viewer's event stream, marshalled once
+	replay template.JS // the replay viewer's event stream, marshalled per build
 }
 
-// NewServer builds the view from a trace and wires the routes.
+// NewServer builds the view from a finished trace and wires the routes.
 func NewServer(path string, lines []trace.Line) (*Server, error) {
-	view, err := BuildView(path, lines)
+	s, err := newServer(path, false)
 	if err != nil {
 		return nil, err
 	}
+	s.lines = lines
+	if err := s.rebuildLocked(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 
+func newServer(path string, live bool) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"eff":  func(f float64) string { return fmt.Sprintf("%.2f", f) },
 		"add1": func(i int) int { return i + 1 },
@@ -63,18 +79,45 @@ func NewServer(path string, lines []trace.Line) (*Server, error) {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
 
-	replay, err := replayEvents(lines)
-	if err != nil {
-		return nil, err
-	}
-
-	s := &Server{mux: http.NewServeMux(), view: view, tmpl: tmpl, replay: replay}
+	s := &Server{mux: http.NewServeMux(), tmpl: tmpl, path: path, live: live}
 	s.mux.HandleFunc("GET /{$}", s.overview)
 	s.mux.HandleFunc("GET /agent/{id}", s.agent)
 	s.mux.HandleFunc("GET /bounty/{id}", s.bounty)
 	s.mux.HandleFunc("GET /replay", s.replayPage)
 	s.mux.Handle("GET /static/", http.FileServer(http.FS(content)))
+	if live {
+		s.mux.HandleFunc("GET /events", s.events)
+	}
 	return s, nil
+}
+
+// rebuildLocked derives view and replay stream from s.lines. Callers hold
+// s.mu (construction, before the handler is shared, counts).
+func (s *Server) rebuildLocked() error {
+	view, err := BuildView(s.path, s.lines)
+	if err != nil {
+		return err
+	}
+	view.Live = s.live
+	replay, err := replayEvents(s.lines)
+	if err != nil {
+		return err
+	}
+	s.view, s.replay = view, replay
+	return nil
+}
+
+// current returns the view and replay stream, refreshed from the file first
+// when the server is live.
+func (s *Server) current() (*View, template.JS, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.live {
+		if err := s.refreshLocked(); err != nil {
+			return nil, "", err
+		}
+	}
+	return s.view, s.replay, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
@@ -92,11 +135,21 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 }
 
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "overview.html", s.view)
+	v, _, err := s.current()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "overview.html", v)
 }
 
 func (s *Server) agent(w http.ResponseWriter, r *http.Request) {
-	a := s.view.Agent(r.PathValue("id"))
+	v, _, err := s.current()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a := v.Agent(r.PathValue("id"))
 	if a == nil {
 		http.NotFound(w, r)
 		return
@@ -105,11 +158,16 @@ func (s *Server) agent(w http.ResponseWriter, r *http.Request) {
 		View  *View
 		Agent *AgentView
 		Spark template.HTML
-	}{s.view, a, sparkline(a.Timeline)})
+	}{v, a, sparkline(a.Timeline)})
 }
 
 func (s *Server) bounty(w http.ResponseWriter, r *http.Request) {
-	b := s.view.Bounty(r.PathValue("id"))
+	v, _, err := s.current()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	b := v.Bounty(r.PathValue("id"))
 	if b == nil {
 		http.NotFound(w, r)
 		return
@@ -117,39 +175,54 @@ func (s *Server) bounty(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "bounty.html", struct {
 		View   *View
 		Bounty *BountyView
-	}{s.view, b})
+	}{v, b})
 }
 
 func (s *Server) replayPage(w http.ResponseWriter, r *http.Request) {
+	v, replay, err := s.current()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	s.render(w, "replay.html", struct {
 		View   *View
 		Events template.JS
-	}{s.view, s.replay})
+		Live   bool
+	}{v, replay, s.live})
 }
 
-// replayEvents flattens the trace for the viewer's reducer: each event is its
-// payload plus seq, type and a pre-worded label. Model-call bodies are
-// dropped — the viewer shows the money moving, and the full bytes stay in the
-// trace file where replay needs them.
+// cleanEvent flattens one trace line for the viewer: its payload plus seq,
+// type and a pre-worded label, with model-call bodies and per-payload clocks
+// stripped. Both the embedded replay stream and the live event feed go
+// through here, so the two surfaces can never diverge on what leaks.
+func cleanEvent(l trace.Line) (map[string]any, error) {
+	var p map[string]any
+	if err := json.Unmarshal(l.Payload, &p); err != nil {
+		return nil, fmt.Errorf("trace seq %d: %w", l.Seq, err)
+	}
+	delete(p, "request")
+	delete(p, "response")
+	delete(p, "time") // the stream is ordered by seq; per-payload clocks are noise here
+	cleaned, err := json.Marshal(p)
+	if err != nil {
+		return nil, fmt.Errorf("trace seq %d: %w", l.Seq, err)
+	}
+	p["seq"] = l.Seq
+	p["type"] = string(l.Type)
+	// Word the label from the cleaned payload, not the original line, so
+	// call bodies don't bleed into the log.
+	p["label"] = trace.Summary(trace.Line{Type: l.Type, Payload: cleaned})
+	return p, nil
+}
+
+// replayEvents marshals the viewer's whole event stream for embedding.
 func replayEvents(lines []trace.Line) (template.JS, error) {
 	events := make([]map[string]any, 0, len(lines))
 	for _, l := range lines {
-		var p map[string]any
-		if err := json.Unmarshal(l.Payload, &p); err != nil {
-			return "", fmt.Errorf("trace seq %d: %w", l.Seq, err)
-		}
-		delete(p, "request")
-		delete(p, "response")
-		delete(p, "time") // the stream is ordered by seq; per-payload clocks are noise here
-		cleaned, err := json.Marshal(p)
+		p, err := cleanEvent(l)
 		if err != nil {
-			return "", fmt.Errorf("trace seq %d: %w", l.Seq, err)
+			return "", err
 		}
-		p["seq"] = l.Seq
-		p["type"] = string(l.Type)
-		// Word the label from the cleaned payload, not the original line, so
-		// call bodies don't bleed into the log.
-		p["label"] = trace.Summary(trace.Line{Type: l.Type, Payload: cleaned})
 		events = append(events, p)
 	}
 	enc, err := json.Marshal(events)

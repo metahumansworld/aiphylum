@@ -23,11 +23,12 @@ import (
 	"github.com/metahunmei/dungeon/internal/trace"
 )
 
-// View is the whole episode, reshaped for pages. It is built once at startup
-// and read-only afterwards; traces are immutable, so there is nothing to
-// invalidate.
+// View is the whole episode, reshaped for pages. A published trace is
+// immutable, so a static server builds this once and never invalidates it; a
+// live server rebuilds it as the trace grows.
 type View struct {
 	TracePath string
+	Live      bool // the trace is still being written; pages show a live badge
 	Episode   EpisodeInfo
 	Agents    []*AgentView
 	Bounties  []*BountyView

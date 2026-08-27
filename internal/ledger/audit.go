@@ -72,7 +72,15 @@ var ErrCorrupt = errors.New("ledger: integrity check failed")
 //
 // It is cheap enough to run after every episode, which is where the plan puts
 // it — a continuously checked invariant rather than a test that passed once.
+//
+// The audit holds the write lock for its duration. Its five queries only add up
+// to a proof if they see one moment: the sim track audits while model calls are
+// in flight, and a hold opening between the "reserved credits" query and the
+// "hold account" query would otherwise report corruption that never existed.
 func (l *Ledger) Verify(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	// 1. Every transaction ever posted nets to zero, so the whole log does too.
 	var total Credits
 	if err := l.db.QueryRowContext(ctx, `SELECT coalesce(sum(delta), 0) FROM entries`).Scan(&total); err != nil {

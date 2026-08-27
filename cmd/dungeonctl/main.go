@@ -3,14 +3,18 @@
 //
 //	dungeonctl trace <file>          every event, one line each
 //	dungeonctl calls <file>          just the metered model calls, with a total
-//	dungeonctl serve <file> [addr]   browse the episode: leaderboard, agent and
-//	                                 bounty pages, replay viewer
+//	dungeonctl serve [-follow] <file> [addr]
+//	                                 browse the episode: leaderboard, agent and
+//	                                 bounty pages, replay viewer. -follow tails
+//	                                 a trace still being written and streams it
+//	                                 to the browser live.
 //
 // TODO(daemon): submit/run/tail against a running dungeond once it has an
 // episode intake API.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -24,36 +28,16 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	cmd, path := os.Args[1], os.Args[2]
 
-	lines, err := trace.Read(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
-		os.Exit(1)
-	}
-
-	switch cmd {
+	switch os.Args[1] {
 	case "trace":
-		for i, l := range lines {
+		for i, l := range readTrace(os.Args[2]) {
 			fmt.Printf("%4d %-10s %s\n", i, l.Type, trace.Summary(l))
 		}
 	case "calls":
-		printCalls(lines)
+		printCalls(readTrace(os.Args[2]))
 	case "serve":
-		addr := "127.0.0.1:8140"
-		if len(os.Args) > 3 {
-			addr = os.Args[3]
-		}
-		srv, err := web.NewServer(path, lines)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("serving %s on http://%s\n", path, addr)
-		if err := http.ListenAndServe(addr, srv); err != nil {
-			fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
-			os.Exit(1)
-		}
+		serve(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -61,7 +45,52 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: dungeonctl trace|calls|serve <trace-file> [addr]")
+	fmt.Fprintln(os.Stderr, "usage: dungeonctl trace|calls <trace-file> | serve [-follow] <trace-file> [addr]")
+}
+
+func readTrace(path string) []trace.Line {
+	lines, err := trace.Read(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		os.Exit(1)
+	}
+	return lines
+}
+
+func serve(args []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	follow := fs.Bool("follow", false, "tail a trace still being written; pages and the replay viewer update live")
+	fs.Parse(args)
+	if fs.NArg() < 1 {
+		usage()
+		os.Exit(2)
+	}
+	path := fs.Arg(0)
+	addr := "127.0.0.1:8140"
+	if fs.NArg() > 1 {
+		addr = fs.Arg(1)
+	}
+
+	var srv *web.Server
+	var err error
+	if *follow {
+		srv, err = web.NewLiveServer(path)
+	} else {
+		srv, err = web.NewServer(path, readTrace(path))
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		os.Exit(1)
+	}
+	mode := ""
+	if *follow {
+		mode = " (live)"
+	}
+	fmt.Printf("serving %s%s on http://%s\n", path, mode, addr)
+	if err := http.ListenAndServe(addr, srv); err != nil {
+		fmt.Fprintf(os.Stderr, "dungeonctl: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func printCalls(lines []trace.Line) {

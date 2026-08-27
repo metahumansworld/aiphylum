@@ -4,12 +4,16 @@
 // the platform itself applies (solved: +payout −burned; failed: −burned;
 // voided: refunded, a wash; dust burned at retirement). Scrubbing recomputes
 // the fold from zero: at trace scale (hundreds of events) that is instant,
-// and it keeps the reducer trivially correct instead of invertible. This is
-// the component the live spectator view grows from — swap the static EVENTS
-// array for a stream and the reducer does not change.
+// and it keeps the reducer trivially correct instead of invertible.
+//
+// Live mode is the same reducer over a growing array: the server streams new
+// trace events over SSE, each one is appended to EVENTS, and while "follow"
+// is on the position tracks the tip. Scrubbing back through history while the
+// episode continues is just turning follow off.
 "use strict";
 
 const EVENTS = window.EVENTS || [];
+const LIVE = !!window.LIVE;
 
 function reduce(upto) {
   const s = {
@@ -71,9 +75,11 @@ function reduce(upto) {
 
 const $ = (id) => document.getElementById(id);
 const log = $("log"), scrub = $("scrub"), pos = $("pos"), play = $("play"), speed = $("speed");
+const livebtn = $("livebtn"); // present only on a live page
 
 let cur = 0;
 let timer = null;
+let follow = LIVE; // live pages start pinned to the tip
 
 function esc(t) {
   const d = document.createElement("span");
@@ -81,15 +87,17 @@ function esc(t) {
   return d.innerHTML;
 }
 
-function buildLog() {
-  log.innerHTML = EVENTS.map((e, i) =>
-    `<div class="ev t-${esc(e.type)}" data-i="${i}">` +
+function rowHTML(e, i) {
+  return `<div class="ev t-${esc(e.type)}" data-i="${i}">` +
     `<span class="seq">#${e.seq}</span><span class="etype">${esc(e.type)}</span>` +
-    `<span class="elabel">${esc(e.label)}</span></div>`
-  ).join("");
+    `<span class="elabel">${esc(e.label)}</span></div>`;
+}
+
+function buildLog() {
+  log.innerHTML = EVENTS.map(rowHTML).join("");
   log.addEventListener("click", (ev) => {
     const row = ev.target.closest(".ev");
-    if (row) setPos(Number(row.dataset.i));
+    if (row) { setFollow(false); setPos(Number(row.dataset.i)); }
   });
 }
 
@@ -120,7 +128,7 @@ function renderState(s) {
 function setPos(i, scroll = true) {
   cur = Math.max(0, Math.min(EVENTS.length - 1, i));
   scrub.value = cur;
-  pos.textContent = `${cur + 1}/${EVENTS.length}`;
+  pos.textContent = EVENTS.length ? `${cur + 1}/${EVENTS.length}` : "—";
   const prev = log.querySelector(".ev.current");
   if (prev) prev.classList.remove("current");
   const row = log.querySelector(`.ev[data-i="${cur}"]`);
@@ -138,6 +146,7 @@ function setPos(i, scroll = true) {
 function setPlaying(on) {
   if (timer) { clearInterval(timer); timer = null; }
   if (on) {
+    setFollow(false);
     timer = setInterval(() => {
       if (cur >= EVENTS.length - 1) return setPlaying(false);
       setPos(cur + 1);
@@ -146,15 +155,45 @@ function setPlaying(on) {
   play.textContent = on ? "⏸" : "▶";
 }
 
+function setFollow(on) {
+  follow = LIVE && on;
+  if (livebtn) livebtn.classList.toggle("off", !follow);
+  if (follow) {
+    setPlaying(false);
+    setPos(EVENTS.length - 1);
+  }
+}
+
 play.addEventListener("click", () => setPlaying(!timer));
 speed.addEventListener("change", () => { if (timer) setPlaying(true); });
-scrub.addEventListener("input", () => { setPlaying(false); setPos(Number(scrub.value)); });
+scrub.addEventListener("input", () => { setPlaying(false); setFollow(false); setPos(Number(scrub.value)); });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowRight") { setPlaying(false); setPos(cur + 1); }
-  else if (e.key === "ArrowLeft") { setPlaying(false); setPos(cur - 1); }
+  if (e.key === "ArrowRight") { setPlaying(false); setFollow(false); setPos(cur + 1); }
+  else if (e.key === "ArrowLeft") { setPlaying(false); setFollow(false); setPos(cur - 1); }
   else if (e.key === " " && e.target === document.body) { e.preventDefault(); setPlaying(!timer); }
 });
+if (livebtn) livebtn.addEventListener("click", () => setFollow(true));
 
 scrub.max = Math.max(0, EVENTS.length - 1);
 buildLog();
-setPos(0);
+setPos(Math.max(0, LIVE ? EVENTS.length - 1 : 0));
+
+// ---- the live feed ----
+
+if (LIVE) {
+  const last = EVENTS.length ? EVENTS[EVENTS.length - 1].seq : 0;
+  const es = new EventSource(`/events?after=${last}`);
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    EVENTS.push(e);
+    log.insertAdjacentHTML("beforeend", rowHTML(e, EVENTS.length - 1));
+    scrub.max = EVENTS.length - 1;
+    if (follow) setPos(EVENTS.length - 1);
+    else {
+      pos.textContent = `${cur + 1}/${EVENTS.length}`;
+      log.lastElementChild.classList.add("future");
+    }
+  };
+  // The server truncated under us: a new episode took the path. Start over.
+  es.addEventListener("reset", () => location.reload());
+}

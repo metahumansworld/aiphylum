@@ -253,16 +253,9 @@ func (o *Orchestrator) runRound(ctx context.Context, round int, postings []Posti
 	// 1. Post this round's bounties. Failed bounties from earlier rounds are
 	// already back on the board; they re-enter the auction alongside these.
 	for _, p := range postings {
-		b, err := o.Board.Post(p.Generator, p.Seed, p.Tier, p.TokenCeiling, p.WallClockSec)
-		if err != nil {
+		if _, err := o.postBounty(p); err != nil {
 			return err
 		}
-		o.traceEvent(trace.EventBounty, map[string]any{
-			"action": "posted", "id": b.ID, "generator": b.Generator, "seed": b.Seed,
-			"tier": b.Tier, "max_payout": b.MaxPayout, "reserve": o.reserveFor(b.MaxPayout),
-			"answer_digest": b.AnswerDigest(), "token_ceiling": b.TokenCeiling,
-			"wall_clock_sec": b.WallClockSec, "failures": b.Failures,
-		})
 	}
 
 	// 2. Sealed bids. One auction per open bounty; every live agent gets one
@@ -275,14 +268,9 @@ func (o *Orchestrator) runRound(ctx context.Context, round int, postings []Posti
 	byID := make(map[string]*bounty.Bounty, len(open))
 	views := make([]BountyView, 0, len(open))
 	for _, b := range open {
-		reserve := o.reserveFor(b.MaxPayout)
-		aucs[b.ID] = auction.New(b.ID, b.MaxPayout, reserve)
+		aucs[b.ID] = auction.New(b.ID, b.MaxPayout, o.reserveFor(b.MaxPayout))
 		byID[b.ID] = b
-		views = append(views, BountyView{
-			ID: b.ID, Tier: b.Tier, Prompt: b.Prompt,
-			MaxPayout: b.MaxPayout, Reserve: reserve,
-			Failures: b.Failures, AnswerDigest: b.AnswerDigest(),
-		})
+		views = append(views, o.bountyView(b))
 	}
 	for _, ag := range o.live() {
 		o.bidStep(ctx, round, ag, views, aucs)
@@ -317,6 +305,31 @@ func (o *Orchestrator) runRound(ctx context.Context, round int, postings []Posti
 	return nil
 }
 
+// postBounty puts one posting on the board and announces it. Both tracks post
+// through here so a bounty looks the same in either trace.
+func (o *Orchestrator) postBounty(p Posting) (*bounty.Bounty, error) {
+	b, err := o.Board.Post(p.Generator, p.Seed, p.Tier, p.TokenCeiling, p.WallClockSec)
+	if err != nil {
+		return nil, err
+	}
+	o.traceEvent(trace.EventBounty, map[string]any{
+		"action": "posted", "id": b.ID, "generator": b.Generator, "seed": b.Seed,
+		"tier": b.Tier, "max_payout": b.MaxPayout, "reserve": o.reserveFor(b.MaxPayout),
+		"answer_digest": b.AnswerDigest(), "token_ceiling": b.TokenCeiling,
+		"wall_clock_sec": b.WallClockSec, "failures": b.Failures,
+	})
+	return b, nil
+}
+
+// bountyView is what an agent is shown of a bounty it may bid on.
+func (o *Orchestrator) bountyView(b *bounty.Bounty) BountyView {
+	return BountyView{
+		ID: b.ID, Tier: b.Tier, Prompt: b.Prompt,
+		MaxPayout: b.MaxPayout, Reserve: o.reserveFor(b.MaxPayout),
+		Failures: b.Failures, AnswerDigest: b.AnswerDigest(),
+	}
+}
+
 func (o *Orchestrator) reserveFor(maxPayout ledger.Credits) ledger.Credits {
 	r := ledger.Credits(float64(maxPayout) * o.Cfg.ReserveFraction)
 	if r < 1 {
@@ -325,15 +338,23 @@ func (o *Orchestrator) reserveFor(maxPayout ledger.Credits) ledger.Credits {
 	return r
 }
 
-// bidStep runs one agent's sealed-bid step. Nothing in here can fail the
-// round: a broken bid step just means this agent places no bids. Model calls
-// made while deciding bids are metered against the agent's bankroll like any
-// other spend.
+// bidStep runs one agent's sealed-bid step and places whatever it asked for.
+// Nothing in here can fail the round: a broken bid step just means this agent
+// places no bids. Model calls made while deciding bids are metered against the
+// agent's bankroll like any other spend.
 func (o *Orchestrator) bidStep(ctx context.Context, round int, ag *Agent, views []BountyView, aucs map[string]*auction.Auction) {
+	o.placeBids(ag, o.performBidStep(ctx, ag, round, views), aucs)
+}
+
+// performBidStep is the half of a bid that runs the agent's code: it asks what
+// the agent wants to bid and returns those actions. Like performAttempt it
+// touches only mutex-guarded pieces, so the sim can run it in a worker while
+// its actor loop keeps the auctions moving.
+func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int, views []BountyView) []Action {
 	bal, err := o.Ledger.Balance(ctx, ag.ID)
 	if err != nil {
 		o.Log.Warn("bid step: balance lookup failed", "agent", ag.ID, "err", err)
-		return
+		return nil
 	}
 	input, err := json.Marshal(StepInput{
 		Observation: Observation{Phase: PhaseBid, Round: round, Bounties: views},
@@ -341,7 +362,7 @@ func (o *Orchestrator) bidStep(ctx context.Context, round int, ag *Agent, views 
 	})
 	if err != nil {
 		o.Log.Error("bid step: marshal", "agent", ag.ID, "err", err)
-		return
+		return nil
 	}
 
 	token := fmt.Sprintf("tok-%s-r%d-bid", ag.ID, round)
@@ -357,17 +378,24 @@ func (o *Orchestrator) bidStep(ctx context.Context, round int, ag *Agent, views 
 	})
 	if err != nil {
 		o.traceEvent(trace.EventNote, map[string]any{"note": "bid step platform error", "agent": ag.ID, "err": err.Error()})
-		return
+		return nil
 	}
 	if res.TimedOut || res.ExitCode != 0 {
 		o.traceEvent(trace.EventNote, map[string]any{"note": "bid step failed", "agent": ag.ID, "exit": res.ExitCode, "timed_out": res.TimedOut})
-		return
+		return nil
 	}
 	actions, err := ParseActions(res.Stdout)
 	if err != nil {
 		o.traceEvent(trace.EventNote, map[string]any{"note": "bid step output unparseable", "agent": ag.ID, "err": err.Error()})
-		return
+		return nil
 	}
+	return actions
+}
+
+// placeBids enters an agent's asks into the auctions that are still taking
+// them. It mutates the auction book, so it belongs to the goroutine that owns
+// the auctions: the round loop, or the sim's actor.
+func (o *Orchestrator) placeBids(ag *Agent, actions []Action, aucs map[string]*auction.Auction) {
 	for _, a := range actions {
 		if a.Type != ActionBid {
 			continue
@@ -386,7 +414,9 @@ func (o *Orchestrator) bidStep(ctx context.Context, round int, ag *Agent, views 
 }
 
 // attempt runs the winner's one attempt at a bounty and settles every
-// consequence: board state, money, ladder, bankruptcy.
+// consequence: board state, money, ladder, bankruptcy. The three legs live in
+// settle.go, shared with the sim loop — the money-path is the same code in
+// both tracks.
 func (o *Orchestrator) attempt(ctx context.Context, round int, b *bounty.Bounty) error {
 	ag := o.agent(b.Winner)
 	if ag == nil || ag.Retired {
@@ -399,188 +429,16 @@ func (o *Orchestrator) attempt(ctx context.Context, round int, b *bounty.Bounty)
 		o.traceEvent(trace.EventBounty, map[string]any{"action": "voided", "id": b.ID, "reason": "winner retired before attempt"})
 		return nil
 	}
-	askedPrice := b.AskedPrice
-
-	// Fund an attempt wallet with min(bankroll, token ceiling). The proxy's
-	// balance check then IS the ceiling — the same mechanism that bounds a
-	// delegated subagent bounds the whole attempt, with no extra bookkeeping.
-	bal, err := o.Ledger.Balance(ctx, ag.ID)
-	if err != nil {
-		return err
-	}
-	budget := b.TokenCeiling
-	if budget <= 0 || budget > bal {
-		budget = bal
-	}
 	attWallet := fmt.Sprintf("att:%s:r%d", b.ID, round)
-	if err := o.Ledger.CreateAccount(ctx, attWallet, ledger.KindAgent, ag.ID); err != nil {
-		return err
-	}
-	if budget > 0 {
-		if _, err := o.Ledger.Transfer(ctx, ag.ID, attWallet, budget, "attempt budget", attWallet); err != nil {
-			return err
-		}
-	}
-
-	token := "tok-" + attWallet
-	o.Proxy.Authorize(token, attWallet)
-	defer o.Proxy.Revoke(token)
-	o.faults.reset(attWallet)
-
-	input, err := json.Marshal(StepInput{
-		Observation: Observation{Phase: PhaseAttempt, Round: round, Task: &TaskView{
-			BountyID: b.ID, Tier: b.Tier, Prompt: b.Prompt,
-			AskedPrice: askedPrice, Budget: budget, WallClockSec: b.WallClockSec,
-		}},
-		Wallet: WalletView{ID: attWallet, Balance: budget},
-	})
+	budget, err := o.fundAttempt(ctx, ag.ID, attWallet, b.TokenCeiling)
 	if err != nil {
 		return err
 	}
-	timeout := o.Cfg.StepTimeout
-	if b.WallClockSec > 0 {
-		timeout = time.Duration(b.WallClockSec) * time.Second
-	}
-
-	res, runErr := o.Steps.RunStep(ctx, StepRequest{
-		AgentID: ag.ID,
-		Name:    fmt.Sprintf("%s-%s-r%d", ag.ID, b.ID, round),
-		Token:   token,
-		Input:   input,
-		Timeout: timeout,
-	})
-
-	// Whatever happened, the attempt's spend is now settled: the proxy
-	// resolves every hold inline, before the step returns.
-	after, err := o.Ledger.Balance(ctx, attWallet)
+	out, err := o.performAttempt(ctx, ag, b, attWallet, round, budget)
 	if err != nil {
 		return err
 	}
-	burned := budget - after
-
-	// Extract a submission if there is one; otherwise name the agent's fault.
-	var submitted string
-	var attempted bool
-	var agentFault string
-	switch {
-	case runErr != nil:
-		// The step runner itself broke — handled below as a platform fault.
-	case res.TimedOut:
-		agentFault = "wall clock exceeded"
-	case res.ExitCode != 0:
-		agentFault = fmt.Sprintf("container exited %d", res.ExitCode)
-	default:
-		if actions, perr := ParseActions(res.Stdout); perr != nil {
-			agentFault = perr.Error()
-		} else {
-			for _, a := range actions {
-				if a.Type == ActionSubmit && (a.Bounty == "" || a.Bounty == b.ID) {
-					submitted, attempted = a.Answer, true
-				}
-			}
-			if !attempted {
-				agentFault = "no submit action in step output"
-			}
-		}
-	}
-	solved := attempted && b.Verify(submitted)
-
-	// Merge the attempt wallet back before any payout: the remainder returns
-	// to the head, and earnings land in the bankroll, not the attempt purse.
-	if after > 0 {
-		if _, err := o.Ledger.Transfer(ctx, attWallet, ag.ID, after, "attempt settlement", attWallet); err != nil {
-			return err
-		}
-	}
-	if err := o.Ledger.Retire(ctx, attWallet); err != nil {
-		// A stranded open hold (proxy died mid-settle) blocks retirement; the
-		// credits in it are out of play but conserved. Log, don't halt.
-		o.Log.Warn("attempt wallet not retired", "wallet", attWallet, "err", err)
-	}
-
-	// The attribution table — plan verification #7. Success always stands: a
-	// platform fault excuses a failure, it never negates a solve.
-	//
-	//   correct answer                       → solved; paid the asked price
-	//   runner error, or a proxy-recorded
-	//   platform fault, on a failed attempt  → refunded and voided; no failure
-	//   timeout, crash, bad output, no
-	//   submission, wrong answer             → agent fault; charged and failed
-	platformFault := runErr != nil || o.faults.sawFault(attWallet)
-	switch {
-	case solved:
-		if _, err := o.Board.Resolve(b.ID, submitted, true); err != nil {
-			return err
-		}
-		// The payout is the asked price — what the agent bid, not the posted
-		// maximum. Underbidding the field is how you win; it is also how you
-		// earn less than the bounty could have paid.
-		if _, err := o.Ledger.Mint(ctx, ag.ID, askedPrice, "bounty payout", "payout:"+b.ID); err != nil {
-			return err
-		}
-		o.traceEvent(trace.EventCredit, map[string]any{"action": "payout", "agent": ag.ID, "bounty": b.ID, "amount": askedPrice})
-		o.traceEvent(trace.EventBounty, map[string]any{"action": "solved", "id": b.ID, "agent": ag.ID, "payout": askedPrice, "burned": burned})
-		o.record(rating.Attempt{Agent: ag.ID, Bounty: b.ID, Tier: b.Tier, Earned: askedPrice, Burned: burned, Success: true, Time: time.Now()})
-
-	case platformFault:
-		if burned > 0 {
-			// Refund what the fault-stricken attempt had already settled:
-			// out of the provider pot, back to the bankroll.
-			if _, err := o.Ledger.Transfer(ctx, ledger.AcctProvider, ag.ID, burned, "refund: platform fault", "refund:"+b.ID); err != nil {
-				return err
-			}
-			o.traceEvent(trace.EventCredit, map[string]any{"action": "refund", "agent": ag.ID, "bounty": b.ID, "amount": burned})
-		}
-		if err := o.Board.Void(b.ID); err != nil {
-			return err
-		}
-		reason := "platform fault at the proxy"
-		if runErr != nil {
-			reason = "step runner error: " + runErr.Error()
-		}
-		o.traceEvent(trace.EventBounty, map[string]any{"action": "voided", "id": b.ID, "agent": ag.ID, "reason": reason})
-		// No ladder record: a voided attempt never happened for the ranking.
-		return nil
-
-	default:
-		if _, err := o.Board.Resolve(b.ID, submitted, attempted); err != nil {
-			return err
-		}
-		reason := agentFault
-		if reason == "" {
-			reason = "wrong answer"
-		}
-		o.traceEvent(trace.EventBounty, map[string]any{"action": "failed", "id": b.ID, "agent": ag.ID, "reason": reason, "burned": burned})
-		o.record(rating.Attempt{Agent: ag.ID, Bounty: b.ID, Tier: b.Tier, Burned: burned, Success: false, Time: time.Now()})
-	}
-
-	return o.settleAgent(ctx, ag)
-}
-
-// settleAgent applies the bankruptcy rule: at or below the dust threshold the
-// remainder is burned and the wallet retired. Retirement is permanent — the
-// closed account refuses all future postings, and AddAgent refuses the ID.
-func (o *Orchestrator) settleAgent(ctx context.Context, ag *Agent) error {
-	bal, err := o.Ledger.Balance(ctx, ag.ID)
-	if err != nil {
-		return err
-	}
-	if bal > o.Cfg.Dust {
-		return nil
-	}
-	if bal > 0 {
-		if _, err := o.Ledger.Burn(ctx, ag.ID, bal, "bankruptcy dust", "bankrupt:"+ag.ID); err != nil {
-			return err
-		}
-		o.traceEvent(trace.EventCredit, map[string]any{"action": "dust_burn", "agent": ag.ID, "amount": bal})
-	}
-	if err := o.Ledger.Retire(ctx, ag.ID); err != nil {
-		return err
-	}
-	ag.Retired = true
-	o.traceEvent(trace.EventAgent, map[string]any{"action": "bankrupt", "agent": ag.ID})
-	o.Log.Info("agent bankrupt", "agent", ag.ID)
-	return nil
+	return o.settleAttempt(ctx, ag, b, attWallet, budget, out)
 }
 
 func (o *Orchestrator) record(a rating.Attempt) {

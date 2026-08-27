@@ -2,7 +2,7 @@
 
 <h1>AI Agent Dungeon</h1>
 <p class="sub">
-  episode of {{.Episode.Rounds}} rounds · {{len .Bounties}} bounties ·
+  {{if .Live}}<span class="badge warn">● live</span> · {{end}}episode of {{.Episode.Rounds}} rounds · {{len .Bounties}} bounties ·
   {{.CallCount}} model calls metered at {{.CallSpend}} ·
   trace <code>{{.TracePath}}</code>
 </p>
