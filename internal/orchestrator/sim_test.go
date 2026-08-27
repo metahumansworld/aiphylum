@@ -238,6 +238,51 @@ func TestSimShelvesABountyNobodyBidsOn(t *testing.T) {
 	}
 }
 
+// The other way a window repeats forever: an agent that wins every auction and
+// fails every attempt. Nothing about money ends that run — a wrong answer that
+// spends nothing keeps its agent solvent, so it never goes bankrupt and never
+// stops bidding — which is why the shelf counts failures as well as silence.
+func TestSimShelvesABountyNobodyCanSolve(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 2 * time.Second, Dust: 10})
+	w.add(t, "stubborn", 5000)
+	w.steps.fns["stubborn"] = script(bidAll(0.4), func(_ StepRequest, in StepInput) StepResult {
+		return out(Action{Type: ActionSubmit, Bounty: in.Observation.Task.BountyID, Answer: "wrong"})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rep, err := w.orch.RunSim(ctx, SimConfig{
+		PostInterval: 5 * time.Millisecond,
+		BidWindow:    5 * time.Millisecond,
+		Duration:     20 * time.Second,
+		MaxReopens:   50,
+		MaxFailures:  3,
+		Deck:         []Posting{post(1, 1)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	// The assertion that is really about liveness: the world stopped because
+	// it ran out of work, not because the clock ran out on it.
+	if rep.Reason != "deck exhausted" {
+		t.Errorf("sim ended %q, want it to run out of work on its own", rep.Reason)
+	}
+	if n := count(lines, trace.EventNote, "bounty shelved"); n != 1 {
+		t.Errorf("%d shelving notes, want 1", n)
+	}
+	if n := count(lines, trace.EventBounty, "failed"); n != 3 {
+		t.Errorf("%d failed attempts, want the configured 3", n)
+	}
+	// The agent is never charged for being wrong here, so the bankruptcy rule
+	// never fires: the shelf is the only thing that can end this.
+	if rep.Standings[0].Retired {
+		t.Error("the agent went bankrupt, so this run proved nothing about the shelf")
+	}
+}
+
 // Cancellation is a shutdown, not a leak: in-flight attempts come home, their
 // money settles, and the audit at the end still balances.
 func TestSimCancellationSettlesInFlightWork(t *testing.T) {
