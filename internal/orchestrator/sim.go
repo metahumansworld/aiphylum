@@ -47,6 +47,15 @@ type SimConfig struct {
 	// shelved. Without it a bounty no agent wants costs every live agent a bid
 	// step, forever. Zero means the default 3.
 	MaxReopens int
+	// MaxFailures is how many failed attempts a bounty gets before it is
+	// shelved. MaxReopens ends "nobody wants this"; this ends the other way a
+	// window repeats forever — somebody wants it every time and can never do
+	// it. An agent whose attempts cost it nothing never goes broke, so no rule
+	// about money can end that run. The count is the board's own Failures,
+	// which excludes voided platform faults but pools every agent's, so a
+	// bounty that has beaten the field this often is shelved even if a quieter
+	// agent might still have solved it. Zero means the default 6.
+	MaxFailures int
 	// Deck is the supply, posted one per tick in order.
 	Deck []Posting
 }
@@ -117,6 +126,9 @@ func (o *Orchestrator) RunSim(ctx context.Context, cfg SimConfig) (SimReport, er
 	}
 	if cfg.MaxReopens <= 0 {
 		cfg.MaxReopens = 3
+	}
+	if cfg.MaxFailures <= 0 {
+		cfg.MaxFailures = 6
 	}
 
 	r := &simRun{
@@ -321,6 +333,16 @@ func (r *simRun) openWindows(ctx context.Context) error {
 	)
 	for _, b := range r.o.Board.Open() {
 		if r.shelved[b.ID] || r.auctionFor(b.ID) != nil {
+			continue
+		}
+		// The second shelf, and the one that makes quiet total: a bounty that
+		// keeps being won and keeps being failed would otherwise reopen here
+		// every tick until somebody stopped the world from outside.
+		if b.Failures >= r.cfg.MaxFailures {
+			r.shelved[b.ID] = true
+			r.o.traceEvent(trace.EventNote, map[string]any{
+				"note": "bounty shelved", "bounty": b.ID, "failures": b.Failures,
+			})
 			continue
 		}
 		r.auctions = append(r.auctions, &simAuction{
