@@ -1,0 +1,50 @@
+# Vet, test and build on every push and pull request.
+#
+# Two things this workflow does NOT cover, stated here so a green tick is not
+# read as more than it is:
+#
+#   - The zero-egress invariant. internal/runner/egress_test.go self-skips when
+#     there is no usable Docker daemon, and this runner has none, so the tests
+#     that prove an agent container cannot reach the network do not run here.
+#     They pass locally with Docker up; that is where that guarantee is checked.
+#
+#   - Any live path. No API key is present and none should ever be added: live
+#     mode spends real money. This is safe by construction rather than by
+#     policy — AnthropicProvider is constructed in exactly one place in the tree
+#     (cmd/dungeond/main.go, inside runLive) and appears in zero test files, so
+#     `go test ./...` cannot reach a provider even if a key were somehow set.
+#
+# python3 is present on ubuntu-latest, so the generator tests do run.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # go-version-file rather than a pinned literal: go.mod is the one place
+      # the version is declared, and a second copy here would drift from it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: make vet
+      - run: make test
+      - run: make build
+
+      # A smoke run, not a golden comparison. Determinism is already asserted
+      # where it counts — internal/town and internal/orchestrator both check
+      # byte-identical event streams modulo timestamps — and a committed
+      # full-output golden would need regenerating on every legitimate change.
+      # This only asks that the whole loop still runs end to end.
+      - name: demo smoke
+        run: |
+          make demo
+          test -s demo-trace.jsonl
+          grep -q '"type":"episode"' demo-trace.jsonl
