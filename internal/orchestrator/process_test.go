@@ -48,9 +48,16 @@ func TestProcessStepsAttribution(t *testing.T) {
 		ps.Register("victim", ProcessAgent{Cmd: []string{"/bin/sh", "-c", "sleep 30"}})
 		cctx, cancel := context.WithCancel(ctx)
 		go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+		start := time.Now()
 		_, err := ps.RunStep(cctx, StepRequest{AgentID: "victim", Timeout: time.Minute})
 		if err == nil {
 			t.Fatal("cancelled episode must surface as an error, not an agent fault")
+		}
+		// Asserting only the error let this case sit through the whole sleep
+		// without complaining — it was the other half of a sixty-second
+		// package. Cancelling has to actually stop the work.
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("cancel did not stop the process (took %v)", elapsed)
 		}
 	})
 

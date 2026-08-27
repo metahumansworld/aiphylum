@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 )
 
 // ProcessAgent describes how to run one registered agent as a subprocess.
@@ -57,6 +58,7 @@ func (p *ProcessSteps) RunStep(ctx context.Context, req StepRequest) (StepResult
 	}
 
 	cmd := exec.CommandContext(tctx, spec.Cmd[0], spec.Cmd[1:]...)
+	isolate(cmd)
 	cmd.Stdin = bytes.NewReader(req.Input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -68,6 +70,16 @@ func (p *ProcessSteps) RunStep(ctx context.Context, req StepRequest) (StepResult
 		"PHYLUM_PROXY_URL="+p.ProxyURL,
 		"PHYLUM_TOKEN="+req.Token,
 	)
+
+	// Killing the group is not by itself enough to get us back: stdout and
+	// stderr are Buffers rather than files, so os/exec is copying through a
+	// pipe and Wait returns only when nobody holds the write end. Bound that
+	// wait too, or one survivor stops the world. The bound has a price we
+	// accept: a step that exits cleanly but leaves a child holding stdout now
+	// comes back as ErrWaitDelay and falls through to the platform-fault case
+	// below. No reference agent does that, and a fault we can see in the trace
+	// is better than an episode that never ends.
+	cmd.WaitDelay = 2 * time.Second
 
 	err := cmd.Run()
 	res := StepResult{Stdout: stdout.String(), Stderr: stderr.String()}
