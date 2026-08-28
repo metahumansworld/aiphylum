@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/singhtushant3-hub/aiphylum/internal/judge"
+	"github.com/singhtushant3-hub/aiphylum/internal/mind"
 )
 
 // AnthropicProvider forwards Messages-API calls to Anthropic. It is the
@@ -129,6 +130,8 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 		if err := json.Unmarshal(req.Messages[len(req.Messages)-1].Content, &content); err == nil {
 			if graded, ok := stubGrade(content); ok {
 				text = graded
+			} else if said, ok := stubMind(content); ok {
+				text = said
 			}
 		}
 	}
@@ -166,4 +169,16 @@ func stubGrade(content string) (string, bool) {
 		word = "pass"
 	}
 	return fmt.Sprintf("VERDICT: %s\nREASON: %s", word, v.Reason), true
+}
+
+// stubMind answers a resident thinking or speaking, or reports that this was
+// not one of those. Like stubGrade it changes only what comes back, never what
+// the call costs — a resident's thought is metered exactly like an agent's
+// attempt, which is the property that lets the town be pointed at a real model
+// later without the accounting changing shape.
+func stubMind(content string) (string, bool) {
+	if !strings.HasPrefix(strings.TrimSpace(content), mind.Marker) {
+		return "", false
+	}
+	return mind.Answer(content), true
 }

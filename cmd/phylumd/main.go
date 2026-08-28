@@ -12,6 +12,13 @@
 // unranked by design — there is no ladder to attach — so it prints a chronicle
 // rather than a scoreboard.
 //
+// Fair mode (-fair) is the sim's economy standing in the town's square: the
+// same cast, given bodies and daily schedules, and a bounty office that posts
+// on the hour. You must be standing at the office to see the board, so who
+// hears about a bounty is a matter of where they happen to be — the economy
+// and the town compose across one seam (town.Config.Visit) and neither learns
+// the other's internals. Stub only, deterministic, unranked, zero spend.
+//
 // Live mode (-demo=false) is the real thing: Docker containers behind the
 // zero-egress network, the relay bridging them to this process's proxy, and
 // a real provider billed at real prices. It needs docker and ANTHROPIC_API_KEY
@@ -58,7 +65,9 @@ import (
 func main() {
 	demo := flag.Bool("demo", true, "run the offline demo episode (stub model, subprocess agents)")
 	sim := flag.Bool("sim", false, "run the real-time sim track instead of the ranked round loop")
-	townMode := flag.Bool("town", false, "run the town: residents on daily schedules, no economy, no model")
+	townMode := flag.Bool("town", false, "run the town: residents on daily schedules, no economy; add -mind for the thinking half")
+	mindFlag := flag.Bool("mind", false, "town: residents keep memories, talk when they meet, and reflect at day's end — on the offline stub, zero API calls")
+	fairMode := flag.Bool("fair", false, "run the fair: the sim's economy at the town's bounty office — the cast gets bodies, and only who is standing at the board can bid; stub only, zero spend")
 	days := flag.Int("days", 1, "town: how many simulated days to run")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
@@ -90,6 +99,12 @@ func main() {
 	})
 	if !traceSet {
 		switch {
+		case *fairMode:
+			*tracePath = "fair-trace.jsonl"
+		case *townMode && *mindFlag:
+			// Its own file: town-trace.jsonl is a pinned artefact, and a
+			// thinking day writes a different stream than a silent one.
+			*tracePath = "town-mind-trace.jsonl"
 		case *townMode:
 			*tracePath = "town-trace.jsonl"
 		case !*demo && !*sim:
@@ -103,7 +118,7 @@ func main() {
 	defer stop()
 
 	opts := options{
-		demo: *demo, sim: *sim, town: *townMode, rounds: *rounds, seed: *seed,
+		demo: *demo, sim: *sim, town: *townMode, fair: *fairMode, mind: *mindFlag, rounds: *rounds, seed: *seed,
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
@@ -119,6 +134,7 @@ func main() {
 // not each grow their own argument list.
 type options struct {
 	demo, sim, town bool
+	fair, mind      bool
 	rounds          int
 	seed            int64
 	tracePath string
@@ -214,6 +230,9 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	}
 
 	switch {
+	case opt.fair:
+		// Like the sim: nil ladder, and NewFair refuses any other kind.
+		return runFair(ctx, log, l, board, tw, notes, opt)
 	case opt.sim:
 		// No ladder, and not as an omission: RunSim refuses a world that has
 		// one. Real-time results are not comparable, so they are never scored.

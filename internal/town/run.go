@@ -16,6 +16,29 @@ type Config struct {
 	Interval    time.Duration // wall clock per tick
 	Days        int           // stop after this many simulated days
 	StartMinute int           // minute of the day the world wakes at
+
+	// Mind is the thinking half, and it is optional. Nil is the town exactly
+	// as it was before mind.go existed — schedules, walls and a clock, no
+	// model and no calls. Set it and the same residents keep a memory stream,
+	// say something when they meet, and sleep on the day.
+	Mind *Minds
+
+	// Visit, if set, is told once per tick where everyone stands, right after
+	// the tick's frame lands on the trace. It is the town's one outward seam,
+	// and it is money-free by construction: the town hands over a clock and a
+	// list of standings and nothing else, so whatever an observer builds on
+	// them — the fair in internal/orchestrator runs its whole bounty economy
+	// on exactly this hook — none of it reaches back in. There is still no
+	// money here. Nil is the town exactly as it was before the seam existed.
+	Visit func(day, mod int, clock string, standings []Standing) error
+}
+
+// Standing is one resident's whereabouts as the Visit hook sees them: the
+// place they are standing in, or "" for the street. Handed over in roster
+// order, every tick.
+type Standing struct {
+	ID    string
+	Place string
 }
 
 func (c Config) withDefaults() Config {
@@ -37,6 +60,23 @@ type Report struct {
 	Days     int
 	Meetings int
 	Reason   string // "day complete" or "interrupted"
+
+	// The thinking half's tally — all zero on a run with no Mind. The token
+	// figures are what the provider reported, not what the town guessed.
+	Utterances int
+	Thoughts   int
+	Calls      int
+	InToks     int64
+	OutToks    int64
+}
+
+// tally folds the mind's counters into the report. Called on both exits so an
+// interrupted run still says what it spent thinking.
+func (rep *Report) tally(mn *Minds) {
+	if mn == nil {
+		return
+	}
+	rep.Calls, rep.InToks, rep.OutToks = mn.Calls, mn.InToks, mn.OutToks
 }
 
 // walkSpeed is cells per tick: four cells in ten simulated minutes. Slow
@@ -66,12 +106,18 @@ type resident struct {
 //	founded  the map and the roster, always the first line
 //	depart   a resident leaves a place for the street
 //	arrive   a resident reaches the place their schedule names
-//	met      two residents are newly in the same place — the hook a memory
-//	         stream will attach to
+//	met      two residents are newly in the same place — the hook the memory
+//	         stream attaches to
+//	said     one turn of a conversation; only with a mind
+//	reflected what a resident decides the day was; only with a mind
 //	tick     the clock and every resident's position, once per tick
 //	closed   the run is over
 func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Config) (Report, error) {
 	cfg = cfg.withDefaults()
+	mn := cfg.Mind
+	if mn != nil {
+		mn.withDefaults()
+	}
 
 	// Walls first: the world knows which cells are solid and where the doors
 	// are, and it hands back a map with those doors filled in. Everything
@@ -91,6 +137,15 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		}
 		x, y := pl.Anchor()
 		rs = append(rs, &resident{p: p, x: x, y: y, place: pl.ID, goal: pl.ID})
+	}
+
+	// A presence key is made of ids, so the met fold below deals in ids.
+	// Conversation needs the residents themselves; one index costs less than
+	// scanning the roster twice per meeting. Indexed, never ranged over —
+	// nothing map-ordered may reach a prompt.
+	byID := make(map[string]*resident, len(rs))
+	for _, r := range rs {
+		byID[r.p.ID] = r
 	}
 
 	type frame struct {
@@ -143,11 +198,16 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		select {
 		case <-ctx.Done():
 			rep.Reason = "interrupted"
+			rep.tally(mn)
 			return rep, tw.Append(trace.EventTown, map[string]any{
 				"action": "closed", "ticks": rep.Ticks, "days": cfg.Days,
 				"meetings": rep.Meetings, "reason": rep.Reason,
 			})
 		case <-ticker.C:
+		}
+
+		if mn != nil {
+			mn.tick = t // recency is measured in ticks, so stamp it first
 		}
 
 		minute := cfg.StartMinute + t*cfg.TickMinutes
@@ -202,6 +262,18 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 				}); err != nil {
 					return rep, err
 				}
+				if mn != nil {
+					// Place names carry their own article — "The Bell &
+					// Bushel", "Mira's Cottage" — so the template adds none.
+					text := "came to " + goal.Name
+					if slot.Activity != "" {
+						text += " — " + slot.Activity
+					}
+					mn.observe(r.p.ID, Memory{
+						Day: day, Clock: clock, Kind: "arrive",
+						Importance: impArrive, Text: text,
+					})
+				}
 			}
 		}
 
@@ -218,10 +290,48 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 			}); err != nil {
 				return rep, err
 			}
+			if mn == nil {
+				continue
+			}
+			a, b := byID[pr[0]], byID[pr[1]]
+			pl, ok := m.Place(pr[2])
+			if a == nil || b == nil || !ok {
+				continue
+			}
+			mn.observe(a.p.ID, Memory{Day: day, Clock: clock, Kind: "met",
+				Importance: impMet, Text: "ran into " + b.p.Name + " at " + pl.Name})
+			mn.observe(b.p.ID, Memory{Day: day, Clock: clock, Kind: "met",
+				Importance: impMet, Text: "ran into " + a.p.Name + " at " + pl.Name})
+			// Counted before the error is checked, so a conversation that dies
+			// halfway still reports the lines it managed.
+			n, err := mn.converse(ctx, tw, a, b, pl, day, clock)
+			rep.Utterances += n
+			if err != nil {
+				return rep, err
+			}
 		}
 		together = map[string]bool{}
 		for k := range now {
 			together[k] = true
+		}
+
+		// Evening. Everyone who has had a day and not yet slept on it decides
+		// what it was, in roster order — the same order on every run. Emitted
+		// before the tick frame, so the viewer has the thought in hand by the
+		// time it draws the minute it happened in.
+		if mn != nil {
+			for _, r := range rs {
+				if !mn.due(r.p.ID, day, mod) {
+					continue
+				}
+				did, err := mn.reflect(ctx, tw, r, day, clock)
+				if did {
+					rep.Thoughts++
+				}
+				if err != nil {
+					return rep, err
+				}
+			}
 		}
 
 		frames := make([]frame, 0, len(rs))
@@ -239,8 +349,22 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		}); err != nil {
 			return rep, err
 		}
+
+		// The seam fires last, with the frame already written: whatever the
+		// visitor records for this minute lands after the minute itself, so a
+		// reader always meets the town's own account first.
+		if cfg.Visit != nil {
+			standings := make([]Standing, 0, len(rs))
+			for _, r := range rs {
+				standings = append(standings, Standing{ID: r.p.ID, Place: r.place})
+			}
+			if err := cfg.Visit(day, mod, clock, standings); err != nil {
+				return rep, err
+			}
+		}
 	}
 
+	rep.tally(mn)
 	return rep, tw.Append(trace.EventTown, map[string]any{
 		"action": "closed", "ticks": rep.Ticks, "days": cfg.Days,
 		"meetings": rep.Meetings, "reason": rep.Reason,

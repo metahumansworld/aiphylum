@@ -1,0 +1,111 @@
+// The fair mode: the composition. The sim proved the economy runs on a clock;
+// the town proved bodies keep schedules on a map; the fair runs both at once
+// and couples them through exactly one seam, town.Config.Visit. The cast are
+// lodgers at the tavern with daily rounds of their own, the office posts
+// bounties on the hour whether anyone is there or not, and only an agent
+// standing at the office is shown the board. Everything money stays in the
+// orchestrator; everything bodily stays in the town; this file is the plug.
+//
+// Still all on the stub, still zero spend: same rule as the town, stated once
+// more because this mode is the first with both a ledger and a map, and it
+// would be the tempting place to blur that line.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
+	"github.com/singhtushant3-hub/aiphylum/internal/judge"
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/singhtushant3-hub/aiphylum/internal/town"
+	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+)
+
+// fairPostMinutes are the office's posting hours: on the hour, nine to four.
+// Deliberately human hours — the gambler sleeps through two of them, and the
+// one o'clock posting opens to a room everyone has left for lunch.
+var fairPostMinutes = []int{540, 600, 660, 720, 780, 840, 900, 960}
+
+func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
+	tw *trace.Writer, notes []orchestrator.SuiteNote, opt options) error {
+
+	m, people := town.AshmereFair()
+
+	fmt.Printf("fair: %s — the arena's cast takes lodgings at the tavern\n", m.Name)
+	w, err := newOffline(ctx, log, l, board, tw, nil, notes, opt)
+	if err != nil {
+		return err
+	}
+	defer w.stop()
+
+	// Judged briefs are legal here for the sim's reason: no ladder, so
+	// nothing a grader says can touch a score.
+	if err := w.orch.EnableJudging(ctx, &judge.HTTP{
+		Base: w.proxyURL, Model: "stub-1", MaxTokens: 64,
+	}, judgeEndowment); err != nil {
+		return fmt.Errorf("enable judging: %w", err)
+	}
+	fmt.Printf("  + %-8s %5d credits — grades the open-ended briefs, spends its own money\n",
+		"judge", judgeEndowment)
+
+	// One card per posting hour per day: the deck is sized by the calendar,
+	// not by a flag, because the office cannot post more often than it opens.
+	deck := simDeck(opt.seed, len(fairPostMinutes)*opt.days, notes)
+	fair, err := orchestrator.NewFair(ctx, w.orch, orchestrator.FairConfig{
+		Deck:        deck,
+		PostMinutes: fairPostMinutes,
+		WindowTicks: 3, // 30 simulated minutes to bid
+		MaxReopens:  3,
+		Office:      "office",
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8143\n", tw.Path())
+	fmt.Printf("seed %d, %d bounties posted on the hour 09:00–16:00, 30-minute bid windows — the office opens\n\n",
+		opt.seed, len(deck))
+
+	rep, err := town.Run(ctx, tw, m, people, town.Config{
+		TickMinutes: 10,
+		Interval:    opt.tick,
+		Days:        opt.days,
+		StartMinute: 7 * 60,
+		// The stub, and only the stub — the town's rule, unchanged by the
+		// money next door.
+		Mind:  &town.Minds{Provider: &proxy.StubProvider{}},
+		Visit: fair.Visit,
+	})
+	if err != nil {
+		return fmt.Errorf("fair: %w", err)
+	}
+	frep, err := fair.Close()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("── the fair, after %d ticks (%s) ─────────────────────────────────────\n",
+		frep.Ticks, rep.Reason)
+	fmt.Printf("%-9s %8s %9s %8s %8s  %s\n",
+		"agent", "attempts", "successes", "earned", "burned", "fate")
+	for _, st := range frep.Standings {
+		fate := fmt.Sprintf("alive, %d credits", st.Balance)
+		if st.Retired {
+			fate = "☠ bankrupt"
+		}
+		fmt.Printf("%-9s %8d %9d %8d %8d  %s\n",
+			st.Agent, st.Attempts, st.Solved, st.Earned, st.Burned, fate)
+	}
+	fmt.Printf("─────────────────────────────────────────────────────────────────────\n")
+	fmt.Printf("%d of %d posted, %d shelved for want of anyone at the board · unranked by design\n",
+		frep.Posted, len(deck), frep.Shelved)
+	fmt.Printf("%d meetings, %d lines said, %d evening reflections — the town went on being a town\n",
+		rep.Meetings, rep.Utterances, rep.Thoughts)
+	fmt.Printf("conservation: %s\n", frep.Conservation)
+	fmt.Printf("\ntrace: %s (replayable; inspect with phylumctl)\n", tw.Path())
+	return nil
+}

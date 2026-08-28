@@ -22,11 +22,34 @@ function reduce(upto) {
     founded: null, day: null, clock: null,
     tick: 0,              // how many ticks have been folded — the animator's clock
     residents: new Map(), // id → {name, x, y, place, activity, path}
-    feed: [],             // arrivals and meetings, newest last
+    feed: [],             // arrivals, meetings, speech and reflection, newest last
     meetings: 0,
+    bubble: null,         // {who, text} — the line currently over someone's head
+    bubbleAge: 0,         // ticks folded since it was said; two and it is stale
   };
   for (let i = 0; i <= upto && i < EVENTS.length; i++) {
     const e = EVENTS[i];
+    // The fair's economy events ride the same stream as the town's own. They
+    // carry no clock — they are stamped with the tick they happened in, which
+    // is exact because the seam that produces them fires after the tick frame.
+    // On a plain town trace none of these types occur and this block is inert.
+    const money = (kind, who, extra) => {
+      s.feed.push(Object.assign({ clock: s.clock, day: s.day, kind, who }, extra || {}));
+    };
+    if (e.type === "bounty") {
+      switch (e.action) {
+        case "posted": money("posted", [], { bounty: e.id, tier: e.tier, generator: e.generator, max: e.max_payout }); break;
+        case "awarded": money("awarded", [e.winner], { bounty: e.id, price: e.price }); break;
+        case "no_bids": money("nobids", [], { bounty: e.id }); break;
+        case "solved": money("solved", [e.agent], { bounty: e.id, payout: e.payout }); break;
+        case "failed": money("failed", [e.agent], { bounty: e.id, burned: e.burned }); break;
+        case "voided": money("voided", e.agent ? [e.agent] : [], { bounty: e.id, reason: e.reason }); break;
+      }
+      continue;
+    }
+    if (e.type === "bid") { money("bid", [e.agent], { bounty: e.bounty, price: e.price }); continue; }
+    if (e.type === "note" && e.note === "bounty shelved") { money("shelved", [], { bounty: e.bounty, windows: e.windows }); continue; }
+    if (e.type === "agent" && e.action === "bankrupt") { money("bankrupt", [e.agent]); continue; }
     if (e.type !== "town") continue;
     switch (e.action) {
       case "founded":
@@ -37,6 +60,7 @@ function reduce(upto) {
         break;
       case "tick":
         s.tick++;
+        if (s.bubble) s.bubbleAge++;
         s.day = e.day; s.clock = e.clock;
         for (const f of e.residents) {
           const r = s.residents.get(f.id);
@@ -51,6 +75,14 @@ function reduce(upto) {
       case "met":
         s.meetings++;
         s.feed.push({ clock: e.clock, day: e.day, kind: "met", who: [e.a, e.b], place: e.place });
+        break;
+      case "said":
+        s.feed.push({ clock: e.clock, day: e.day, kind: "said", who: [e.resident, e.to], place: e.place, text: e.text });
+        s.bubble = { who: e.resident, text: e.text };
+        s.bubbleAge = 0;
+        break;
+      case "reflected":
+        s.feed.push({ clock: e.clock, day: e.day, kind: "reflected", who: [e.resident], text: e.text });
         break;
     }
   }
@@ -129,6 +161,7 @@ const LOOKS = [
   { skin: "#f0c39a", hair: "#8a5a2a", tunic: "#a4632f", trim: "#f5e3c0", hat: "beard", prop: "tankard", build: "stout" },
   { skin: "#ffd2ab", hair: "#3b2a1d", tunic: "#7d3346", trim: "#e8d3d8", hat: "hood", prop: "", build: "robe" },
   { skin: "#e0a878", hair: "#c9a227", tunic: "#6f9e3f", trim: "#f4ead0", hat: "straw", prop: "basket", build: "apron" },
+  { skin: "#d9a06b", hair: "#14100c", tunic: "#c2802e", trim: "#33271a", hat: "scarf", prop: "tankard", build: "plain" },
 ];
 
 // BUILDS are the outlines. sh is the half-width at the shoulder, hp at the hip,
@@ -779,6 +812,45 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+// ---- the speech bubble ----
+//
+// One bubble on screen at a time, over whoever spoke last: conversation is
+// turn-taking, so the current speaker is the whole story, and a second bubble
+// would only ever collide with the first in a doorway. It is authored as a
+// child of the walker's own <g>, so position, depth row and building occlusion
+// all arrive for free from drawWalkers — the renderer never learns that
+// bubbles exist. It rides above .flip, not inside it, or the words would
+// mirror whenever the speaker faced left.
+let bubbleNode = null;
+function showBubble(s) {
+  if (bubbleNode) { bubbleNode.remove(); bubbleNode = null; }
+  if (!s.bubble || s.bubbleAge >= 2) return;
+  const holder = document.getElementById("w-" + s.bubble.who);
+  if (!holder) return;
+  // SVG text does not wrap; break on words, three lines, then an ellipsis.
+  const lines = [""];
+  for (const w of s.bubble.text.split(/\s+/)) {
+    const cur = lines[lines.length - 1];
+    if (cur && (cur + " " + w).length > 24) lines.push(w);
+    else lines[lines.length - 1] = cur ? cur + " " + w : w;
+  }
+  if (lines.length > 3) { lines.length = 3; lines[2] += "…"; }
+  const bw = Math.max(...lines.map((l) => l.length)) * 5.2 + 14;
+  const bh = lines.length * 11 + 9;
+  const top = -48 - bh;
+  const text = lines.map((l, i) =>
+    `<text x="0" y="${top + 13 + i * 11}" text-anchor="middle">${esc(l)}</text>`).join("");
+  // The tail is an open path drawn after the rect: its fill patches over the
+  // rect's bottom edge and its stroke covers only the two slanting sides, so
+  // the seam needs no third shape to hide it.
+  holder.insertAdjacentHTML("beforeend",
+    `<g class="bubble">` +
+    `<rect x="${(-bw / 2).toFixed(1)}" y="${top}" width="${bw.toFixed(1)}" height="${bh}" rx="7"/>` +
+    `<path d="M-5,${top + bh - 1} L0,${top + bh + 5} L5,${top + bh - 1}"/>` +
+    `${text}</g>`);
+  bubbleNode = holder.lastElementChild;
+}
+
 // ---- the page ----
 
 function render(s) {
@@ -821,15 +893,32 @@ function render(s) {
 
   // The clock sits in its own quiet column so the eye reads straight down the
   // sentences and only glances left for the time.
-  feed.innerHTML = s.feed.map((f) => {
+  const feedLine = {
+    met: (f, place) => `<b>${esc(names.get(f.who[0]))}</b> ran into <b>${esc(names.get(f.who[1]))}</b> at ${esc(place)}`,
+    arrive: (f, place) => `<b>${esc(names.get(f.who[0]))}</b> arrived at ${esc(place)}` +
+      (f.activity ? ` — ${esc(f.activity)}` : ""),
+    said: (f) => `<b>${esc(names.get(f.who[0]))}</b>, to ${esc(names.get(f.who[1]))}: ` +
+      `<q>${esc(f.text)}</q>`,
+    reflected: (f) => `<b>${esc(names.get(f.who[0]))}</b> slept on it — <q>${esc(f.text)}</q>`,
+    // The fair's lines. An agent is a resident here, so the same name map
+    // serves; the id is the fallback for a stream this page has never met.
+    posted: (f) => `the office pinned <b>${esc(f.bounty)}</b> to the board — ${esc(f.generator)}, tier ${esc(f.tier)}, up to ${esc(f.max)} credits`,
+    bid: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bid ${esc(f.price)} on <b>${esc(f.bounty)}</b>`,
+    awarded: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> won <b>${esc(f.bounty)}</b> at ${esc(f.price)} credits`,
+    nobids: (f) => `the window on <b>${esc(f.bounty)}</b> closed with nobody at the board`,
+    shelved: (f) => `<b>${esc(f.bounty)}</b> was shelved after ${esc(f.windows)} empty windows`,
+    solved: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> delivered <b>${esc(f.bounty)}</b> — paid ${esc(f.payout)} credits`,
+    failed: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> failed <b>${esc(f.bounty)}</b>, burning ${esc(f.burned)}`,
+    voided: (f) => `<b>${esc(f.bounty)}</b> was voided${f.reason ? ` — ${esc(f.reason)}` : ""}`,
+    bankrupt: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> went bankrupt`,
+  };
+  feed.innerHTML = s.feed.filter((f) => feedLine[f.kind]).map((f) => {
     const place = placeNames.get(f.place) || f.place;
-    const line = f.kind === "met"
-      ? `<b>${esc(names.get(f.who[0]))}</b> ran into <b>${esc(names.get(f.who[1]))}</b> at ${esc(place)}`
-      : `<b>${esc(names.get(f.who[0]))}</b> arrived at ${esc(place)}` +
-        (f.activity ? ` — ${esc(f.activity)}` : "");
     return `<div class="feedline ${f.kind}"><span class="when mono">${esc(f.clock)}</span>` +
-      `<span>${line}</span></div>`;
+      `<span>${feedLine[f.kind](f, place)}</span></div>`;
   }).reverse().join("");
+
+  showBubble(s);
 }
 
 // ---- controls: the replay page's wiring, unchanged in spirit ----

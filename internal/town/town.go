@@ -2,16 +2,26 @@
 //
 // It shares nothing with the arena but the spine: the same trace file, the
 // same viewer, the same idea that what happened is a stream of typed events
-// rather than a final report. There is no money here, no bidding, no ranking
-// and — in this first pass — no model. Residents keep a daily schedule, walk
-// between the places on a small map, and are recorded when they end up
-// somewhere together.
+// rather than a final report. There is no money here, no bidding and no
+// ranking. Residents keep a daily schedule, walk between the places on a
+// small map, and are recorded when they end up somewhere together.
 //
-// That last event is the point of the whole package. A "met" is the hook a
+// That last event is the point of the whole package. A "met" is the hook the
 // memory stream attaches to: two residents in one room at one hour is the
-// smallest fact a mind could later have an opinion about. Everything here is
-// deliberately deterministic and unthinking so that when thinking is added,
-// it is obvious which half is which.
+// smallest fact a mind could have an opinion about. The package is split down
+// exactly that line. town.go and run.go are the unthinking half — schedules,
+// walls, routes and a clock, deterministic to the byte. mind.go is the
+// thinking half, and it is opt-in: residents keep what happened to them, say
+// something when they meet, and at the end of the day decide what the day
+// was. It runs on the offline stub, so a thinking town still costs nothing
+// and still replays byte-for-byte — and a town without a mind behaves exactly
+// as it did before the mind existed.
+//
+// The one thing the town shows the outside world is the Visit seam on Config:
+// once per tick, who is standing where. It is one-way by construction — see
+// the field's comment in run.go — and it is how the fair in
+// internal/orchestrator hangs the arena's bounty board on this map without a
+// single credit entering this package.
 package town
 
 import "fmt"
@@ -197,6 +207,70 @@ func Ashmere() (Map, []Persona) {
 			{hm(23, 30), "tavern", "putting the chairs up"},
 		},
 	}}
+
+	return m, people
+}
+
+// AshmereFair is Ashmere on a fair day: the same town with a Bounty Office on
+// the high street and three lodgers taken in at the Bell & Bushel. The lodgers
+// are the arena's demo cast given bodies — their IDs match the cast's agent
+// IDs verbatim, because that ID is the join key between a Standing the Visit
+// seam hands out and a wallet in the ledger. This package still knows nothing
+// about any of that: the office is a shop like the bakery is a shop, and a
+// lodger is a persona like Mira is a persona.
+//
+// Ashmere() itself is untouched — town-trace.jsonl is a pinned artefact — so
+// the fair is an addition beside the original, never a change to it.
+//
+// The schedules are the content, same as Ashmere's. The three keep different
+// hours at the office on purpose: the scholar and the frugal are at the board
+// for the morning postings, the gambler sleeps through them and arrives
+// mid-morning, and over lunch nobody is at the board at all — a bounty posted
+// at one o'clock opens to an empty room, which is exactly the kind of fact
+// the fair exists to make true.
+func AshmereFair() (Map, []Persona) {
+	m, people := Ashmere()
+
+	// The office takes the empty frontage between the bakery and the Archive.
+	// Its south wall faces the high street, so that is where the door lands.
+	m.Places = append(m.Places, Place{
+		ID: "office", Name: "the Bounty Office", Kind: "shop", X: 10, Y: 1, W: 2, H: 3,
+	})
+
+	people = append(people, Persona{
+		ID: "scholar", Name: "Scholar", Home: "tavern",
+		Blurb: "a lodger at the Bell & Bushel; pays the oracle at spec, double-checks its arithmetic",
+		Schedule: []Slot{
+			{hm(7, 30), "tavern", "breakfast over yesterday's notes"},
+			{hm(8, 50), "office", "reading the board"},
+			{hm(12, 0), "library", "chasing a citation"},
+			{hm(13, 50), "office", "back at the board"},
+			{hm(17, 0), "garden", "walking off a proof"},
+			{hm(19, 0), "tavern", "supper"},
+			{hm(22, 30), "tavern", "asleep upstairs"},
+		},
+	}, Persona{
+		ID: "frugal", Name: "Frugal", Home: "tavern",
+		Blurb: "a lodger at the Bell & Bushel; computes, barely spends, bids only what it can solve",
+		Schedule: []Slot{
+			{hm(8, 0), "garden", "a free breakfast of the walking kind"},
+			{hm(8, 50), "office", "studying the board"},
+			{hm(12, 30), "square", "eating something brought from somewhere cheaper"},
+			{hm(13, 50), "office", "back at the board"},
+			{hm(18, 0), "tavern", "one drink, made to last"},
+			{hm(21, 0), "tavern", "asleep upstairs"},
+		},
+	}, Persona{
+		ID: "gambler", Name: "Gambler", Home: "tavern",
+		Blurb: "a lodger at the Bell & Bushel; underbids everyone, burns like it means it",
+		Schedule: []Slot{
+			{hm(2, 0), "tavern", "asleep at last"},
+			{hm(10, 20), "office", "seeing what's left on the board"},
+			{hm(12, 30), "market", "working the stalls for tips"},
+			{hm(13, 50), "office", "back at the board"},
+			{hm(16, 30), "tavern", "holding court"},
+		},
+	})
 
 	return m, people
 }

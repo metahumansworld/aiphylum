@@ -876,6 +876,28 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 .feedline .when { color: var(--ink-muted); font-size: var(--text-caption); line-height: 1.7; }
 .feedline b { color: var(--ink); font-weight: var(--weight-medium); }
 .feedline.met b { color: var(--accent); font-weight: var(--weight-bold); }
+.feedline q { color: var(--ink-secondary); font-style: italic; quotes: "\201C" "\201D"; }
+.feedline.reflected { background: var(--accent-wash); border-radius: var(--radius-sm, 6px); padding-inline: var(--space-1); }
+.feedline.reflected b { color: var(--accent); }
+
+/* The fair's money lines, in the same palette: gold for money landing where
+   somebody wanted it, danger only where credits actually died, and the quiet
+   ink of a notice board for the office's own doings. */
+.feedline.posted { font-style: italic; }
+.feedline.posted b, .feedline.shelved b, .feedline.nobids b, .feedline.voided b { color: var(--ink-secondary); }
+.feedline.awarded b, .feedline.solved b { color: var(--accent); font-weight: var(--weight-bold); }
+.feedline.solved { background: var(--accent-wash); border-radius: var(--radius-sm, 6px); padding-inline: var(--space-1); }
+.feedline.failed b, .feedline.bankrupt b { color: var(--danger); }
+.feedline.nobids, .feedline.shelved { color: var(--ink-muted); }
+
+/* The speech bubble lives inside the town SVG, one per speaker at a time. It
+   is world furniture rather than chrome, so it takes the town's own outline
+   ink at a lighter weight — but on the page palette: white paper, gold-less. */
+.townmap .bubble rect, .townmap .bubble path { fill: rgba(255, 255, 255, .93); stroke: #8b7a5e; stroke-width: 1.2; }
+.townmap .bubble text {
+  font: 600 9.5px/1 ui-rounded, -apple-system, "SF Pro Rounded", system-ui, sans-serif;
+  fill: #4a4136;
+}
 
 /* ===================== empty, loading and error =====================
    Designed with the success state rather than after it. The loading and empty

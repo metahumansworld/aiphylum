@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -34,6 +34,21 @@ sim-demo:
 town-demo:
 	$(GO) run ./cmd/phylumd -town -days 1 -tick 700ms -trace town-trace.jsonl
 
+## town-mind: the same town, thinking — residents keep memories, talk when they
+## meet, and reflect at day's end, all on the offline stub. Its own trace file,
+## because town-trace.jsonl is a pinned artefact and a thinking day writes a
+## different stream than a silent one.
+town-mind:
+	$(GO) run ./cmd/phylumd -town -mind -days 1 -tick 700ms -trace town-mind-trace.jsonl
+
+## fair: the composition — the sim's economy at the town's bounty office. The
+## cast gets bodies and schedules; bounties post on the hour; only whoever is
+## standing at the office sees the board. Deterministic, unranked, zero spend.
+## Watch the map live in another shell:
+##   go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
+fair:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -trace fair-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -48,4 +63,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl

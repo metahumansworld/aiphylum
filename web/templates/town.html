@@ -4,11 +4,15 @@
   <h1>{{.View.Town.Name}}</h1>
   <p class="meta">
     {{if .Live}}<span class="badge live">live</span>{{end}}
-    <span class="badge sim">town · unranked</span>
+    <span class="badge sim">{{if .View.Town.Bounties}}fair{{else}}town{{end}} · unranked</span>
     <span><code>{{.View.TracePath}}</code></span>
   </p>
   <p class="lede">{{.View.Town.Residents}} residents, {{.View.Town.Places}} places —
-    a day on a clock, reconstructed from the trace alone.</p>
+    a day on a clock, reconstructed from the trace alone.{{if .View.Town.Utterances}}
+    {{.View.Town.Utterances}} things said, {{.View.Town.Reflections}} evening
+    reflections — every word from the offline stub.{{end}}{{if .View.Town.Bounties}}
+    {{.View.Town.Bounties}} bounties posted at the office, {{.View.Town.Awards}} won
+    at the board — you had to be standing there.{{end}}</p>
 </header>
 
 <noscript>

@@ -67,6 +67,14 @@ type TownInfo struct {
 	Day       int
 	Clock     string
 	Meetings  int
+	// The thinking half's tally — zero on a trace from a town without a mind.
+	Utterances  int
+	Reflections int
+	// The fair's tally — zero on a town with no economy standing in it. The
+	// counts live here, not in a second header, because on the fair track the
+	// bounty office is just one more place in town.
+	Bounties int
+	Awards   int
 }
 
 // The tracks a trace can come from. Benchmark and sim share one currency and
@@ -77,6 +85,7 @@ const (
 	TrackBenchmark = "benchmark"
 	TrackSim       = "sim"
 	TrackTown      = "town"
+	TrackFair      = "fair"
 )
 
 // EpisodeInfo summarises the episode lifecycle events.
@@ -327,6 +336,9 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					Seq: l.Seq, Round: round, Action: "posted",
 					Detail: fmt.Sprintf("tier %d, max payout %d, reserve %d", b.Tier, b.MaxPayout, b.Reserve),
 				})
+				if v.Town != nil {
+					v.Town.Bounties++
+				}
 				if b.Judged {
 					b.History[len(b.History)-1].Detail += " — judged against a hidden rubric, unranked"
 				}
@@ -339,6 +351,9 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				}
 				winner := str("winner")
 				awardee[id] = winner
+				if v.Town != nil {
+					v.Town.Awards++
+				}
 				if a := v.agentByID[winner]; a != nil {
 					// The winner's latest bid on this bounty is the one that won.
 					for i := len(a.Bids) - 1; i >= 0; i-- {
@@ -495,7 +510,11 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 		case trace.EventTown:
 			if v.Town == nil {
 				v.Town = &TownInfo{}
-				v.Episode.Track = TrackTown
+				// A fair trace announced its track before the town was
+				// founded; only a bare town run needs the default.
+				if v.Episode.Track == "" {
+					v.Episode.Track = TrackTown
+				}
 			}
 			switch str("action") {
 			case "founded":
@@ -517,6 +536,10 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				v.Town.Clock = str("clock")
 			case "met":
 				v.Town.Meetings++
+			case "said":
+				v.Town.Utterances++
+			case "reflected":
+				v.Town.Reflections++
 			}
 
 		case trace.EventModelCall:
@@ -548,10 +571,11 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 
 	v.Ladder = ladder.Board(v.Episode.End.Add(time.Second))
 	v.Asterisked = asterisked
-	if v.Episode.Track == TrackSim {
+	if v.Episode.Track == TrackSim || v.Episode.Track == TrackFair {
 		// The sim's numbers are a chronicle, not a score. The rows survive —
 		// they are what happened — but nothing here is ranked, because who was
-		// idle when a bounty appeared is luck, and luck does not sort.
+		// idle when a bounty appeared is luck, and luck does not sort. The
+		// fair sharpens that: who was *standing at the office* is a schedule.
 		for i := range v.Ladder {
 			v.Ladder[i].Ranked = false
 			v.Ladder[i].Efficiency = 0
@@ -561,4 +585,6 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 }
 
 // Unranked reports whether this view's track forbids a ranking.
-func (v *View) Unranked() bool { return v.Episode.Track == TrackSim }
+func (v *View) Unranked() bool {
+	return v.Episode.Track == TrackSim || v.Episode.Track == TrackFair
+}

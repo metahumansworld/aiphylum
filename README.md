@@ -19,20 +19,29 @@ gate its flat payouts lose the ratio to an agent doing hard work.
 
 ## The tracks
 
-Three tracks run on the same spine — same ledger, same auction, same trace format,
-same viewer — and differ in what they are trying to show. Live mode is the fourth
+Four tracks run on the same spine — same ledger, same auction, same trace format,
+same viewer — and differ in what they are trying to show. Live mode is the last
 row below because it is not a track at all: it is the arena, run for real money.
 
 | Track | Flag | What it is | Ranked? | Spends? |
 | --- | --- | --- | --- | --- |
 | **Arena** | `-demo` (default) | A seeded, multi-round episode. Everyone bids, everyone attempts, nobody waits. Ends in the efficiency ladder. | Yes | No — stub model |
 | **Sim** | `-sim` | The same cast and the same money on a clock. Bounties appear on a timer, auctions close on a deadline, and an agent deep in an attempt simply misses the windows that open while it works. | **No, by construction** | No — stub model |
-| **Town** | `-town` | A small inhabited place called Ashmere: four residents on daily schedules walking a map. No economy, no bidding, no model at all. | n/a | No |
+| **Town** | `-town` | A small inhabited place called Ashmere: four residents on daily schedules walking a map. No economy, no bidding. Add `-mind` and they remember, talk and reflect — on the offline stub, still zero API calls. | n/a | No |
+| **Fair** | `-fair` | The composition: the sim's economy at the town's bounty office. The arena's cast take lodgings in Ashmere, bounties post on the hour whether anyone is there or not, and only an agent standing at the office is shown the board. | **No, by construction** | No — stub model |
 | **Live** | `-demo=false` | The real thing: Docker containers behind the zero-egress network and a real provider billed at real prices. Serves a control plane and waits for `phylumctl`. | Yes | **Yes — real money** |
 
 The sim is unranked deliberately, and the refusal is structural rather than
 advisory: `RunSim` returns an error if handed a world that has a ladder. Who
 happened to be idle when a bounty appeared is luck, and luck does not sort.
+
+The fair is the two halves proving they compose. The town owns bodies, schedules
+and the map; the orchestrator owns posting, auctions, attempts and settlement;
+the sole connection is one seam, `town.Config.Visit` — a call per tick saying
+who stands where — and the one rule the fair builds on it is distance: a bounty
+posted while everyone is at lunch opens to an empty room, reopens, and is
+eventually shelved unsold. `NewFair` refuses a ladder for the sim's reason plus
+its own — presence is a schedule, not a skill, and neither sorts.
 
 ## Prerequisites
 
@@ -46,7 +55,7 @@ The `make` targets find the Go toolchain themselves — the Makefile probes
 `~/.local/go/bin/go` and falls back to plain `go` — but the `phylumctl` lines
 below invoke `go` directly, so it does need to be on your `PATH`.
 
-The arena, sim and town tracks need neither Docker nor an API key, make no
+The arena, sim, town and fair tracks need neither Docker nor an API key, make no
 network calls of any kind, and cost nothing to run. That is not an accident of
 configuration: they use a deterministic stub provider, so the same seed always
 produces the same episode, byte for byte.
@@ -81,15 +90,18 @@ Then browse the episode:
 go run ./cmd/phylumctl serve demo-trace.jsonl
 ```
 
-The other three targets, each writing its own trace so the demo's stays pinned:
+The other targets, each writing its own trace so the demo's stays pinned:
 
 ```bash
 make demo-imported   # the same episode with the imported suites added to supply
 make sim-demo        # the same economy on a clock; ends in a chronicle, not a ladder
 make town-demo       # one simulated day in the town, under a minute of wall clock
+make town-mind       # the same day with minds on: talk, memory, reflection — still offline
+make fair            # the composition: the cast takes lodgings, the office posts on the hour
 ```
 
-`sim-demo` and `town-demo` are worth watching while they run. In another shell:
+`sim-demo`, `town-demo` and `fair` are worth watching while they run. In
+another shell:
 
 ```bash
 go run ./cmd/phylumctl serve -follow sim-trace.jsonl
@@ -97,6 +109,10 @@ go run ./cmd/phylumctl serve -follow sim-trace.jsonl
 
 ```bash
 go run ./cmd/phylumctl serve -follow town-trace.jsonl 127.0.0.1:8142
+```
+
+```bash
+go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 ```
 
 And the usual:
@@ -155,7 +171,7 @@ Nine event types:
 | `agent` | spawned, retired, bankrupt |
 | `suite` | an imported benchmark suite and its provenance |
 | `note` | free-form orchestrator annotation |
-| `town` | founded, tick, arrive, depart, met |
+| `town` | founded, tick, arrive, depart, met, said, reflected |
 
 One trap worth knowing before you write a reader. A `bounty/awarded` event
 carries the revealed auction book, and that book is produced by marshalling a Go
@@ -193,12 +209,22 @@ than buried.
 - **The control plane has no authentication.** It binds to loopback and trusts
   its caller the way any local daemon socket does. Multi-machine operation, auth
   and user-funded intake are later phases.
-- **The town does not think.** Residents keep schedules, walk, and are recorded
-  when they end up somewhere together. They remember none of it. A `met` is the
-  hook a memory stream would attach to — two residents in one room at one hour is
-  the smallest fact a mind could later have an opinion about — and everything in
-  the town is deliberately deterministic and unthinking so that when thinking is
-  added, it is obvious which half is which.
+- **The town thinks only on the stub.** With `-mind`, residents keep memory
+  streams, talk when they meet, and reflect at the end of each day — every word
+  produced by the offline stub, deterministic to the byte and free. The stub's
+  replies are a genuine function of the prompt, so a broken prompt shows up as
+  a visibly broken remark rather than plausible noise; what they cannot be is
+  interesting. Pointing the town at a real model is a separate, unmade
+  decision, and there is deliberately no flag that spends money here: live
+  spend, if it ever comes, routes through the proxy on a funded wallet exactly
+  like the judge's.
+- **The fair's only coupling is distance.** Money never enters `internal/town`
+  — the fair lives in the orchestrator and learns about the town through the
+  one `Visit` seam. Being shown the board requires standing at the office;
+  winning does not require staying, because the bid was made in person and the
+  work is delivered by post. Everything else — who walks where, who talks to
+  whom — is the town's business and proceeds exactly as if the money were not
+  there.
 
 ## Layout
 

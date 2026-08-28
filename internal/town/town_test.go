@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
 	"github.com/singhtushant3-hub/aiphylum/internal/trace"
 )
 
@@ -139,5 +140,52 @@ func TestMeetingDedup(t *testing.T) {
 	}
 	if met != 2 {
 		t.Fatalf("met events = %d, want 2 (once per stretch together, not per tick)", met)
+	}
+}
+
+// TestRunDeterministicWithMind is TestRunDeterministic's sibling and the test
+// that actually protects milestone 2: the same town, thinking this time, still
+// writes byte-identical streams. A fresh Minds per run — sharing one would let
+// the first run's memories leak into the second and prove nothing. The count
+// checks keep it honest: byte-identical silence would also pass the diff.
+func TestRunDeterministicWithMind(t *testing.T) {
+	dir := t.TempDir()
+	run := func(path string) ([]trace.Line, Report) {
+		m, people := Ashmere()
+		cfg := fast
+		cfg.Mind = &Minds{Provider: &proxy.StubProvider{}}
+		tw, err := trace.NewWriter(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rep, err := Run(context.Background(), tw, m, people, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		lines, err := trace.Read(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lines, rep
+	}
+	a, ra := run(filepath.Join(dir, "a.jsonl"))
+	b, rb := run(filepath.Join(dir, "b.jsonl"))
+	if ra.Utterances == 0 || ra.Thoughts == 0 || ra.Calls == 0 {
+		t.Fatalf("the mind never spoke: %+v", ra)
+	}
+	if ra != rb {
+		t.Fatalf("reports differ:\n  %+v\n  %+v", ra, rb)
+	}
+	if len(a) != len(b) {
+		t.Fatalf("run lengths differ: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i].Type != b[i].Type || string(a[i].Payload) != string(b[i].Payload) {
+			t.Fatalf("line %d differs:\n  %s %s\n  %s %s",
+				i, a[i].Type, a[i].Payload, b[i].Type, b[i].Payload)
+		}
 	}
 }
