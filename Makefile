@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -126,6 +126,22 @@ fair-hucksters:
 fair-hucksters-lot:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/hawker.py -tiebreak lot -trace fair-hucksters-lot-trace.jsonl
 
+## fair-lone-reader: the mixed pair — one open fair, the haggler bidding
+## blind on its sealed digests, the huckster reading the book beside it. The
+## flags put the haggler first, which under arrival order is the stronger
+## seat, and the day is about watching that stop mattering: both open at 20%,
+## tie once on the day's first card, and the roster hands it to the haggler —
+## the last award the queue ever decides. From its second lesson on the
+## huckster prices one undercut under the haggler's floor and wins every
+## arith auction it bids in, no tie-break required: strictly-under beats
+## first-in-line. This day is one corner of a 2×2 the fair has now run whole
+## — fair-rivals is the corner where nobody reads, fair-hucksters the corner
+## where both do — and the settled matrix, including which corner is the only
+## stable one and why it is the poorest, is in the README's What is
+## deliberately not here.
+fair-lone-reader:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -book open -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -140,4 +156,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl
