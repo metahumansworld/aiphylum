@@ -13,6 +13,7 @@ fair-vigil-trace.jsonl
 fair-scribe-trace.jsonl
 fair-haggle-trace.jsonl
 fair-rivals-trace.jsonl
+fair-lots-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,

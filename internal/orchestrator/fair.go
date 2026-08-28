@@ -24,8 +24,11 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"strconv"
 
 	"github.com/singhtushant3-hub/aiphylum/internal/auction"
 	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
@@ -61,6 +64,19 @@ type FairConfig struct {
 	// not let anyone sleep in the lobby; it also means one malformed action
 	// cannot burn a wallet dry in a single tick. Zero means the default 6.
 	MaxStayTicks int
+	// Tie is the policy an auction at this fair uses when two bids arrive
+	// at the same lowest price. The zero value is auction.ByArrival — the
+	// earliest bid wins, which is what every fair before this one did
+	// without anyone having decided it: arrival at the board is roster
+	// order, and roster order is the order the -guest flags were typed.
+	// auction.ByLot replaces that queue with a seeded draw among the tied
+	// names.
+	Tie auction.TieBreak
+	// LotSalt seeds the draws when Tie is auction.ByLot; ignored otherwise.
+	// Each window mixes it with the bounty's ID and that bounty's window
+	// count, so one bounty's draw teaches nothing about another's and a
+	// reopened board is a fresh draw rather than the same loser again.
+	LotSalt uint64
 }
 
 // fairWindow is one open bid window, closing at a tick number rather than a
@@ -98,12 +114,18 @@ type Fair struct {
 	runCtx    context.Context
 	settleCtx context.Context
 
-	tick     int
-	posted   int
-	next     int // next deck card
-	windows  []*fairWindow
-	reopens  map[string]int
-	shelved  map[string]bool
+	tick    int
+	posted  int
+	next    int // next deck card
+	windows []*fairWindow
+	reopens map[string]int
+	shelved map[string]bool
+	// draws counts windows opened per bounty under ByLot, never reset — the
+	// draw index each window's salt mixes in. A trace reader holds the same
+	// number without being told it: it is the count of that bounty's earlier
+	// awarded and no_bids events, which is what keeps every lot recomputable
+	// from the file alone.
+	draws    map[string]int
 	standing map[string]*SimStanding
 	// held maps an agent to the last tick its standing is paid through. Read
 	// by Hold, written by chargeStays, both on the town's goroutine.
@@ -132,6 +154,12 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	if cfg.Office == "" {
 		return nil, errors.New("orchestrator: the fair needs an office — presence at it is the whole coupling")
 	}
+	if cfg.Tie != auction.ByArrival && cfg.Tie != auction.ByLot {
+		// Refused rather than defaulted: a tie-break that silently fell
+		// back to arrival would be a policy nobody chose, which is the
+		// accident this field exists to end.
+		return nil, fmt.Errorf("orchestrator: unknown tie-break policy %d", cfg.Tie)
+	}
 	f := &Fair{
 		o:         o,
 		cfg:       cfg,
@@ -139,6 +167,7 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		settleCtx: context.WithoutCancel(ctx),
 		reopens:   map[string]int{},
 		shelved:   map[string]bool{},
+		draws:     map[string]int{},
 		standing:  map[string]*SimStanding{},
 		held:      map[string]int{},
 	}
@@ -155,11 +184,26 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	// carrying both the ticks and the amount, so the price of a day on which
 	// anyone actually bought one is recoverable by division, and on a day
 	// when nobody did there was no price paid to record.
-	o.traceEvent(trace.EventEpisode, map[string]any{
+	//
+	// The tie-break is the one deliberate divergence from that rule, and
+	// only on the runs that chose it. A lot is the stay price's opposite:
+	// no outcome recovers it. The winners alone cannot say whether a queue
+	// or a draw picked them, and the salt is an input, not a consequence —
+	// so a ByLot run declares both up front, while every arrival-order
+	// trace, which is every trace recorded before the policy had a name,
+	// opens with exactly the keys it always did. The salt travels as a
+	// decimal string rather than a JSON number so a reader whose numbers
+	// lose precision past 2^53 can still rerun every draw.
+	start := map[string]any{
 		"action": "start", "track": "fair",
 		"deck": len(cfg.Deck), "post_minutes": cfg.PostMinutes,
 		"window_ticks": cfg.WindowTicks, "office": cfg.Office,
-	})
+	}
+	if cfg.Tie == auction.ByLot {
+		start["tiebreak"] = "lot"
+		start["lot_salt"] = strconv.FormatUint(cfg.LotSalt, 10)
+	}
+	o.traceEvent(trace.EventEpisode, start)
 	return f, nil
 }
 
@@ -215,8 +259,14 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		if f.shelved[b.ID] || f.windowFor(b.ID) != nil {
 			continue
 		}
+		auc := auction.New(b.ID, b.MaxPayout, f.o.reserveFor(b.MaxPayout))
+		if f.cfg.Tie == auction.ByLot {
+			auc.Tie = auction.ByLot
+			auc.Salt = lotSalt(f.cfg.LotSalt, b.ID, f.draws[b.ID])
+			f.draws[b.ID]++
+		}
 		f.windows = append(f.windows, &fairWindow{
-			auc:       auction.New(b.ID, b.MaxPayout, f.o.reserveFor(b.MaxPayout)),
+			auc:       auc,
 			b:         b,
 			closeTick: f.tick + f.cfg.WindowTicks,
 			shown:     map[string]bool{},
@@ -461,4 +511,21 @@ func (f *Fair) windowFor(id string) *fairWindow {
 		}
 	}
 	return nil
+}
+
+// lotSalt is a ByLot window's seed: the run's salt, the bounty's ID and the
+// window's draw index, folded through FNV-1a. Every input is in the trace —
+// the salt on the episode-start line, the ID on the award, the index by
+// counting the bounty's earlier closed windows — so an auditor can rerun any
+// draw from the file alone, which is the property that lets a lot into a
+// venue whose whole defence is replayability.
+func lotSalt(run uint64, bountyID string, draw int) uint64 {
+	h := fnv.New64a()
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], run)
+	h.Write(b[:])
+	h.Write([]byte(bountyID))
+	binary.BigEndian.PutUint64(b[:], uint64(draw))
+	h.Write(b[:])
+	return h.Sum64()
 }

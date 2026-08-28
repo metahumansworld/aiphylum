@@ -10,8 +10,10 @@
 package auction
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"sync"
 
 	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
@@ -25,11 +27,47 @@ var (
 	ErrNoBids       = errors.New("auction: no bids")
 )
 
+// TieBreak is the policy for the moment the price refuses to decide: two
+// bids at the same lowest ask. It is a named choice rather than an accident
+// of the data structure, because for eight milestones it was the accident —
+// arrival order fell out of a slice append, and at the fair arrival order is
+// roster order, which nobody bids for and nobody earns.
+type TieBreak int
+
+const (
+	// ByArrival awards the earliest of the tied bids. The zero value, and
+	// the only behaviour any track had before the policy had a name: the
+	// arena and the sim construct auctions without touching Tie and must go
+	// on awarding exactly as they always have.
+	ByArrival TieBreak = iota
+	// ByLot awards by seeded draw among the tied: the tied name with the
+	// smallest Draw(Salt, name) wins. Deterministic and replayable — the
+	// same salt draws the same name — and a function of the salt and the
+	// tied names alone, which is the point: a tie is two bids the price
+	// could not tell apart, and a queue position is not evidence. Where
+	// the salt comes from is the caller's business, and the honest account
+	// of that is the caller's to give.
+	ByLot
+)
+
+// Draw is ByLot's whole mechanism, exported so a trace reader can rerun it:
+// FNV-1a over the salt and the agent's name, smallest value wins. No bid,
+// balance or history feeds it — a lot that rewarded anything would be a
+// ranking with dice.
+func Draw(salt uint64, agent string) uint64 {
+	h := fnv.New64a()
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], salt)
+	h.Write(b[:])
+	h.Write([]byte(agent))
+	return h.Sum64()
+}
+
 // Bid is one agent's sealed asking price for one bounty.
 type Bid struct {
 	Agent string
 	Price ledger.Credits
-	seq   int // arrival order; the deterministic tie-break
+	seq   int // arrival order; ByArrival's tie-break, and every policy's last resort
 }
 
 // Auction collects sealed bids for a single bounty.
@@ -37,6 +75,13 @@ type Auction struct {
 	BountyID  string
 	MaxPayout ledger.Credits
 	Reserve   ledger.Credits
+
+	// Tie is how a tie at the lowest ask is broken; Salt seeds the draw
+	// when Tie is ByLot and is ignored otherwise. Both are set between New
+	// and the first Place, by the venue running the auction — a tie-break
+	// is the auctioneer's rule, not the bidders'.
+	Tie  TieBreak
+	Salt uint64
 
 	mu     sync.Mutex
 	bids   []Bid
@@ -70,10 +115,11 @@ func (a *Auction) Place(agent string, price ledger.Credits) error {
 	return nil
 }
 
-// Award closes bidding and returns the winner: lowest asking price, earliest
-// arrival breaking ties. Deterministic, so a replayed episode awards
-// identically. The full book is returned alongside — sealed until now, public
-// after, which is what makes bid patterns auditable.
+// Award closes bidding and returns the winner: lowest asking price, with a
+// tie at that price broken by the auction's Tie policy — earliest arrival
+// unless the venue chose ByLot. Either way deterministic, so a replayed
+// episode awards identically. The full book is returned alongside — sealed
+// until now, public after, which is what makes bid patterns auditable.
 func (a *Auction) Award() (winner Bid, book []Bid, err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -85,6 +131,18 @@ func (a *Auction) Award() (winner Bid, book []Bid, err error) {
 	for _, b := range a.bids[1:] {
 		if b.Price < best.Price || (b.Price == best.Price && b.seq < best.seq) {
 			best = b
+		}
+	}
+	if a.Tie == ByLot {
+		// best is the earliest bid at the lowest price; re-decide among
+		// everyone tied with it by draw. The scan is in arrival order and
+		// replaces only on a strictly smaller key, so in the vanishing case
+		// of a key collision the earlier arrival stands — the award is
+		// defined for every book, with no error path to invent.
+		for _, b := range a.bids {
+			if b.Price == best.Price && Draw(a.Salt, b.Agent) < Draw(a.Salt, best.Agent) {
+				best = b
+			}
 		}
 	}
 	book = append(book, a.bids...)

@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -92,6 +92,17 @@ fair-haggle:
 fair-rivals:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/rival.py -trace fair-rivals-trace.jsonl
 
+## fair-lots: the rivals' fair with the queue taken away. Same two copies of
+## the same agent, same seed, one change — -tiebreak lot — so a tie at the
+## lowest ask is decided by a seeded draw among the tied names instead of by
+## who was registered first. The draw is a function of the seed, the bounty
+## and a count of the bounty's windows so far — a count the standing winner
+## can advance by failing the delivery it just won, which re-rolls the next
+## draw but never bends one: the salt is declared on the episode-start line,
+## so every draw the day could hold is computable in advance, by anyone.
+fair-lots:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/rival.py -tiebreak lot -trace fair-lots-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -106,4 +117,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl
