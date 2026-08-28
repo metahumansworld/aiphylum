@@ -546,8 +546,28 @@ function person(r, look) {
     `<circle cx="-2.7" cy="-28.6" r="1.25" fill="#3b2a1d"/>` +
     `<circle cx="2.7" cy="-28.6" r="1.25" fill="#3b2a1d"/>` +
     `</g>` +
+    // The plate. Its width is a guess, because markup cannot know how wide a
+    // name will be set; the first frame that draws this resident measures the
+    // name and fitTag replaces the guess with the answer.
     `<g class="tag"><rect x="-22" y="-58" width="44" height="14" rx="7"/>` +
     `<text y="-47.5">${esc(r.name)}</text></g></g>`;
+}
+
+// A name is set in whatever face the reader's system supplies, so no width
+// written into the markup can be right for every reader: only the browser
+// knows how wide the name came out. fitTag asks it and sizes the pill to the
+// answer. text-anchor is middle on x=0, so the plate is centred by
+// construction and only its width was ever in question. The air either side
+// is the corner radius, which starts the first letter exactly where the
+// pill's straight run begins.
+const TAG_PAD = 7;
+function fitTag(tag) {
+  const w = tag.querySelector("text").getComputedTextLength();
+  if (!(w > 0)) return; // nothing rendered to measure; the authored width stands
+  const pill = Math.round(w) + TAG_PAD * 2;
+  const rect = tag.querySelector("rect");
+  rect.setAttribute("width", pill);
+  rect.setAttribute("x", -pill / 2);
 }
 
 // ---- the standing town ----
@@ -776,6 +796,7 @@ function drawWalkers() {
         if (!w.node) return;
         w.flip = w.node.querySelector(".flip");
         w.tag = w.node.querySelector(".tag");
+        fitTag(w.tag);
         w.limbs = [...w.node.querySelectorAll(".limb")];
       }
       const off = ids.length > 1 ? (i - (ids.length - 1) / 2) * 12 : 0;
