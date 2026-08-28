@@ -10,6 +10,7 @@ town-mind-trace.jsonl
 fair-trace.jsonl
 fair-guest-trace.jsonl
 fair-vigil-trace.jsonl
+fair-scribe-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,

@@ -892,6 +892,12 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 /* Money spent on nothing but presence: named in the accent so it reads as a
    deliberate purchase, and left unshaded because it bought no outcome. */
 .feedline.stayed b { color: var(--accent); }
+/* A memo costs nothing and settles nothing, so it takes no accent and no wash
+   — the quietest line in the feed. Its text is the agent's own, of unknown
+   shape and up to 512 bytes, so it wraps on any character rather than pushing
+   the column wide. */
+.feedline.memo { color: var(--ink-muted); }
+.feedline.memo q { overflow-wrap: anywhere; }
 
 /* The speech bubble lives inside the town SVG, one per speaker at a time. It
    is world furniture rather than chrome, so it takes the town's own outline

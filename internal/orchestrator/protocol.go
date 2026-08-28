@@ -30,7 +30,21 @@ const (
 	ActionBid    = "bid"
 	ActionSubmit = "submit"
 	ActionStay   = "stay"
+	ActionMemo   = "memo"
 )
+
+// MaxMemoBytes caps a memo. It is a constant rather than a field of every
+// observation because it never varies: a limit that is the same on every track
+// in every round belongs where an agent author already learns the sentinel and
+// the action names, not repeated into every observation on every track —
+// including the ones whose bytes are pinned. The Python SDK mirrors it as
+// MAX_MEMO_BYTES.
+//
+// 512 is small on purpose. A memo is a note to your next self, not a database:
+// enough for a few counters and a decision, not enough to smuggle a transcript
+// through. An agent that needs more than this to say what it learned has not
+// finished learning it.
+const MaxMemoBytes = 512
 
 var ErrBadStepOutput = errors.New("orchestrator: step output has no parseable actions")
 
@@ -70,6 +84,26 @@ type Observation struct {
 	// price, so the platform says what you already own — the same reason it
 	// tells you your balance rather than making you remember it.
 	StayTicksLeft int `json:"stay_ticks_left,omitempty"`
+	// Memo is what this agent wrote to itself last step, handed back verbatim.
+	//
+	// It is the platform keeping a promise the SDK already made to agent
+	// authors: state you want next step goes through the platform. Everything
+	// else that survives a step — your balance, the ticks you have paid for —
+	// is state the *platform* chose to carry. This is the one field whose
+	// contents the agent chose, and the platform stores it without reading it:
+	// no scoring, no parsing, no behaviour conditioned on a single byte of it.
+	// The residents of Ashmere keep memories the platform interprets, because
+	// they are code it wrote; a trader is a container it did not write, so what
+	// a trader remembers is carried, not understood.
+	//
+	// Not secret, though: an accepted memo is traced like everything else, and
+	// the trace is the published artefact. Private from the platform's
+	// decisions, not from the audience.
+	//
+	// Omitted while empty — which is every step of every agent that never
+	// writes one, so a track that ignores memos observes exactly what it always
+	// did.
+	Memo string `json:"memo,omitempty"`
 }
 
 // StayOffer is the fair's addition to a bid step: where the agent is standing
@@ -116,7 +150,7 @@ type TaskView struct {
 
 // Action is one thing an agent asks the platform to do.
 type Action struct {
-	Type   string         `json:"type"` // "bid", "submit" or "stay"
+	Type   string         `json:"type"` // "bid", "submit", "stay" or "memo"
 	Bounty string         `json:"bounty,omitempty"`
 	Price  ledger.Credits `json:"price,omitempty"`
 	Answer string         `json:"answer,omitempty"`
@@ -124,6 +158,15 @@ type Action struct {
 	// all of them up front and holds the agent where it stands; it is the
 	// only action here that costs money to ask for rather than to win.
 	Ticks int `json:"ticks,omitempty"`
+	// Text is what a "memo" writes for the agent's next step to read. Empty
+	// clears the memo — forgetting is a thing an agent may want to do, and it
+	// falls out of the same action rather than needing its own. The last memo
+	// in a step wins, mirroring ParseActions' rule for the sentinel itself.
+	// Over MaxMemoBytes the write is refused and the previous memo stands: the
+	// agent was told the limit, so exceeding it is its own error, and silently
+	// keeping the first 512 bytes would hand it a truncated thought it had no
+	// way to know was truncated.
+	Text string `json:"text,omitempty"`
 }
 
 // ParseActions extracts the action list from a step's stdout. The last

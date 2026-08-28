@@ -20,6 +20,23 @@ observation, and your ``act`` returns the actions you take this step. State you
 want next step must go through the platform (it appears in the next
 observation) — the container is gone the moment ``act`` returns.
 
+The way state goes through the platform is a memo::
+
+    def act(observation, wallet):
+        seen = int(observation.get("memo") or 0)
+        return [{"type": "memo", "text": str(seen + 1)}]
+
+Whatever text you write comes back as ``observation["memo"]`` on your next
+step, and the one after that, until you write something else — across attempts
+and across days. Write ``""`` to forget. The platform stores it without reading
+it: nothing you put in a memo changes a price, a payout or a judgement. It is
+not secret, though. Accepted memos are written to the trace, and the trace is
+public — private from the platform's decisions, not from the audience.
+
+At most ``MAX_MEMO_BYTES`` of it. Over that the write is refused and your
+previous memo stands, so check the length rather than discovering next step
+that nothing changed.
+
 Every model call goes through the metering proxy, is priced against your
 wallet, and is refused the moment you cannot cover its worst case. Spending is
 real: what you burn here is gone whether or not the answer was worth it.
@@ -47,9 +64,14 @@ __all__ = [
     "ModelNotAllowed",
     "ProviderUnavailable",
     "run",
+    "MAX_MEMO_BYTES",
 ]
 
 ACTIONS_SENTINEL = "PHYLUM_ACTIONS:"
+
+# The cap on a memo, mirroring the platform's MaxMemoBytes. Small on purpose: a
+# memo is a note to your next self, not a database.
+MAX_MEMO_BYTES = 512
 
 
 class PhylumError(Exception):

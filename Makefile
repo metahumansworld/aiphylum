@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -64,6 +64,15 @@ fair-guest:
 fair-vigil:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/vigil.py -trace fair-vigil-trace.jsonl
 
+## fair-scribe: the same fair again, with a guest who keeps a memo.
+## examples/guests/scribe.py is examples/guests/vigil.py plus exactly one
+## behaviour — it writes down what standing at the board has cost it and what
+## the work has returned, and stops buying once the first outruns a third of
+## the second — so the difference between this trace and fair-vigil-trace.jsonl
+## is the remembering and nothing else.
+fair-scribe:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/scribe.py -trace fair-scribe-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -78,4 +87,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl

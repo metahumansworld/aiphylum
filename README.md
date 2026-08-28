@@ -59,6 +59,16 @@ is the pilgrim plus that single behaviour, so `make fair-vigil` differs from
 `make fair-guest` by the lingering and nothing else. Run it for what it shows,
 which is that the purchase does not pay — see *What is deliberately not here*.
 
+And an agent can now notice that for itself. A step is a fresh process with no
+memory of the last one, which made every trader here a reflex: it could not tell
+a habit that was working from one that was quietly costing it the day. A `memo`
+action fixes that and nothing else — whatever text an agent writes comes back in
+its next observation, across attempts and across days, stored by a platform that
+never reads it. `examples/guests/scribe.py` is vigil plus a running tally of what
+standing has cost against what the work has returned, and it stops buying when
+the first outruns a third of the second. Three guests, three days, one difference
+each: `make fair-guest`, `make fair-vigil`, `make fair-scribe`.
+
 ## Prerequisites
 
 - **Go** — the version in `go.mod` (1.27). One dependency, `modernc.org/sqlite`,
@@ -116,6 +126,7 @@ make town-mind       # the same day with minds on: talk, memory, reflection — 
 make fair            # the composition: the cast takes lodgings, the office posts on the hour
 make fair-guest      # the fair with a user-authored agent lodging and bidding against the cast
 make fair-vigil      # the same guest, plus one behaviour: it pays to stay at the board
+make fair-scribe     # the same again, plus a memo — it learns that the paying isn't paying
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -134,7 +145,7 @@ go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 ```
 
 (`fair-guest` writes `fair-guest-trace.jsonl`; follow that file to watch the
-pilgrim's day instead.)
+pilgrim's day instead. `fair-vigil` and `fair-scribe` write their own too.)
 
 And the usual:
 
@@ -269,6 +280,30 @@ than buried.
   mechanism works and the strategy loses; both halves are the point, and the
   second is the one that keeps the day unranked. Money moves bodies here. It
   does not buy outcomes.
+- **An agent may remember, and the platform may not read it.** A `memo` action
+  carries at most 512 bytes from one step into the next — the only agent-chosen
+  state that survives a container. The platform stores it, counts its length,
+  refuses it whole if it is over (never truncated: a thought cut in half that
+  you cannot tell was cut is worse than one refused), and conditions nothing on
+  its contents. No price, no payout, no judgement reads a byte of it. The
+  contrast with Ashmere's residents is the whole design: the town *interprets*
+  what its residents remember, because they are in-process code it wrote, while
+  a trader is a container it did not write, so what a trader remembers is
+  carried and not understood. Not secret, though — accepted memos go into the
+  trace, and the trace is the published artefact. Private from the platform's
+  decisions, not from the audience.
+- **What memory is worth, measured.** `make fair-scribe` is vigil plus a memo
+  holding two running totals: what standing has cost, and what the work has
+  actually returned — the second inferred from its own balance between steps,
+  because nobody reports it. It keeps buying while the work has returned
+  nothing (you cannot learn what presence is worth without buying some) and
+  stops once the standing bill passes a third of the takings. Same three
+  attempts, same three wins, the same 735 earned as both other guests: the only
+  thing that moved is the standing bill, from vigil's 416 down to 96. The three
+  days end at 2,669 credits (never paid), 2,253 (always paid) and 2,573
+  (stopped paying) — and the memo that decided it is in the trace, updating,
+  step by step. What the platform sold in the previous entry was presence. What
+  it sells here is the ability to find out that presence was a bad buy.
 
 ## Layout
 

@@ -73,8 +73,12 @@ func (o *Orchestrator) performAttempt(ctx context.Context, ag *Agent, b *bounty.
 	defer o.Proxy.Revoke(token)
 	o.faults.reset(attWallet)
 
+	// The memo is keyed by the agent, not by attWallet — unlike the faults
+	// just above it, which belong to the wallet the calls are billed to. An
+	// attempt wallet is minted for this bounty and retired at the end of it;
+	// hanging the agent's memory off it would erase that memory once per win.
 	input, err := json.Marshal(StepInput{
-		Observation: Observation{Phase: PhaseAttempt, Round: round, Task: &TaskView{
+		Observation: Observation{Phase: PhaseAttempt, Round: round, Memo: o.memos.get(ag.ID), Task: &TaskView{
 			BountyID: b.ID, Tier: b.Tier, Prompt: b.Prompt,
 			AskedPrice: b.AskedPrice, Budget: budget, WallClockSec: b.WallClockSec,
 			Judged: b.Judged,
@@ -109,6 +113,12 @@ func (o *Orchestrator) performAttempt(ctx context.Context, ag *Agent, b *bounty.
 		if actions, perr := ParseActions(res.Stdout); perr != nil {
 			out.agentFault = perr.Error()
 		} else {
+			// Filed before the submission is looked at, and kept regardless of
+			// how the attempt goes. What an agent learns from losing is worth
+			// at least as much as what it learns from winning, and charging it
+			// for the failure while also erasing the note about it would be
+			// two punishments for one mistake.
+			o.takeMemo(ag.ID, actions)
 			for _, a := range actions {
 				if a.Type == ActionSubmit && (a.Bounty == "" || a.Bounty == b.ID) {
 					out.submitted, out.attempted = a.Answer, true

@@ -114,6 +114,7 @@ type Orchestrator struct {
 
 	tw     *trace.Writer
 	faults *faultTracker
+	memos  *notebook
 	// epoch namespaces attempt wallets across episodes. A bounty that failed
 	// in one episode re-enters auction in the next with its ID intact; if it
 	// is re-awarded at the same round number, the attempt wallet name repeats
@@ -167,7 +168,59 @@ func New(l *ledger.Ledger, board *bounty.Board, table *proxy.PriceTable, provide
 		Cfg:    cfg,
 		tw:     tw,
 		faults: ft,
+		memos:  &notebook{memos: map[string]string{}},
 	}
+}
+
+// notebook holds what each agent last wrote to itself. It is the platform's
+// half of the only promise the step protocol makes about continuity: a step is
+// a fresh process with no memory of the last one, so anything an agent wants to
+// carry forward has to be carried by something that outlives the container.
+// This map is that something.
+//
+// It is deliberately the same shape as faultTracker — a small mutex-guarded map
+// hanging off the orchestrator — but with the opposite lifetime. A fault is
+// scoped to one step and cleared on the way in and the way out; a memo is
+// scoped to the agent, and nothing clears it. Not the next step, not the next
+// attempt, not the next day. Persistence across days is the entire point: an
+// agent that could only remember within a day could not learn that a habit is
+// costing it money, because the bill arrives tomorrow.
+//
+// Keyed by agent ID, never by wallet. faultTracker keys the other way for a
+// good reason — a fault is a fact about the wallet the call was billed to, and
+// attempt wallets are named per bounty per round — but a memo is a fact about
+// the agent. Keying it by wallet would silently forget everything each time an
+// attempt wallet was minted and retired, which is once per awarded bounty.
+//
+// The platform never reads what it stores here. It counts the bytes, and that
+// is the whole of its interest in the contents.
+type notebook struct {
+	mu    sync.Mutex
+	memos map[string]string
+}
+
+func (n *notebook) get(agent string) string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.memos[agent]
+}
+
+// write records a memo, or clears it when text is empty. It reports false when
+// the text is over the cap: the write is refused, whatever was there before
+// still stands, and the caller traces the refusal. Truncating instead would
+// hand the agent back a thought it had no way to know was cut in half.
+func (n *notebook) write(agent, text string) bool {
+	if len(text) > MaxMemoBytes {
+		return false
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if text == "" {
+		delete(n.memos, agent)
+		return true
+	}
+	n.memos[agent] = text
+	return true
 }
 
 // faultTracker tees proxy events into the trace and remembers, per wallet,
@@ -461,7 +514,7 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 		o.Log.Warn("bid step: balance lookup failed", "agent", ag.ID, "err", err)
 		return nil
 	}
-	obs := Observation{Phase: PhaseBid, Round: round, Bounties: views}
+	obs := Observation{Phase: PhaseBid, Round: round, Bounties: views, Memo: o.memos.get(ag.ID)}
 	if stay != nil {
 		obs.Place, obs.StayPrice, obs.StayTicksLeft = stay.Place, stay.Price, stay.TicksLeft
 	}
@@ -503,7 +556,36 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 		o.traceEvent(trace.EventNote, map[string]any{"note": "bid step output unparseable", "agent": ag.ID, "err": err.Error()})
 		return nil
 	}
+	o.takeMemo(ag.ID, actions)
 	return actions
+}
+
+// takeMemo files whatever the agent wrote to itself this step. The last memo
+// wins, for the reason the last sentinel line does: an agent that says two
+// contradictory things has said the second one.
+//
+// Every step that reaches an agent's code runs through here, both phases, so a
+// memo written while attempting is waiting at the next bid — which is the only
+// way an agent can carry the outcome of an attempt forward, since the attempt
+// wallet it spent from is retired before the next observation is built.
+func (o *Orchestrator) takeMemo(agentID string, actions []Action) {
+	text, wrote := "", false
+	for _, a := range actions {
+		if a.Type == ActionMemo {
+			text, wrote = a.Text, true
+		}
+	}
+	if !wrote {
+		return
+	}
+	if !o.memos.write(agentID, text) {
+		o.traceEvent(trace.EventNote, map[string]any{
+			"note": "memo refused: over limit", "agent": agentID,
+			"bytes": len(text), "limit": MaxMemoBytes,
+		})
+		return
+	}
+	o.traceEvent(trace.EventAgent, map[string]any{"action": "memo", "agent": agentID, "memo": text})
 }
 
 // placeBids enters an agent's asks into the auctions that are still taking

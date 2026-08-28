@@ -51,6 +51,7 @@ function reduce(upto) {
     if (e.type === "note" && e.note === "bounty shelved") { money("shelved", [], { bounty: e.bounty, windows: e.windows }); continue; }
     if (e.type === "agent" && e.action === "bankrupt") { money("bankrupt", [e.agent]); continue; }
     if (e.type === "credit" && e.action === "stayed") { money("stayed", [e.agent], { place: e.place, ticks: e.ticks, amount: e.amount }); continue; }
+    if (e.type === "agent" && e.action === "memo") { money("memo", [e.agent], { text: e.memo }); continue; }
     if (e.type !== "town") continue;
     switch (e.action) {
       case "founded":
@@ -916,6 +917,11 @@ function render(s) {
     // paid to still be standing where it already stood.
     stayed: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> paid ${esc(f.amount)} to stay at ` +
       `${esc(place)} — ${esc(f.ticks)} more ${f.ticks === 1 ? "tick" : "ticks"}`,
+    // An agent writing to its own next step. Shown verbatim and never parsed:
+    // the platform does not read these and neither does this page. It is here
+    // because watching an agent's memory change is the only way to see it
+    // learning — the decision it drives shows up as some other line entirely.
+    memo: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> noted <q>${esc(f.text)}</q>`,
   };
   feed.innerHTML = s.feed.filter((f) => feedLine[f.kind]).map((f) => {
     const place = placeNames.get(f.place) || f.place;

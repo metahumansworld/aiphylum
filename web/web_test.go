@@ -500,3 +500,69 @@ func TestViewerCountsAStayAsMoneyGone(t *testing.T) {
 		t.Errorf("town stays = %+v, want 2", v.Town)
 	}
 }
+
+// A memo is the one action an agent can take that the platform stores without
+// reading and that costs nothing, settles nothing, and pays nobody. So the
+// viewer's job is to leave every number exactly where it was — and the way to
+// assert that is not to check a memo-shaped field but to run the same episode
+// twice, once with memos threaded through it and once without, and demand the
+// money come out the same.
+//
+// Seq numbers legitimately differ between the two runs, because the memo lines
+// take slots in the stream. Everything that is about money must not.
+func TestMemosMoveNoMoneyInTheViewer(t *testing.T) {
+	build := func(withMemos bool) *View {
+		t.Helper()
+		var lines []trace.Line
+		at := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+		add := func(typ trace.EventType, payload map[string]any) {
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			at = at.Add(time.Second)
+			lines = append(lines, trace.Line{Seq: int64(len(lines) + 1), Time: at, Type: typ, Payload: raw})
+		}
+		memo := func(text string) {
+			if withMemos {
+				add(trace.EventAgent, map[string]any{"action": "memo", "agent": "scribe", "memo": text})
+			}
+		}
+
+		add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "scribe", "grant": 500})
+		add(trace.EventEpisode, map[string]any{"action": "start", "track": "fair"})
+		add(trace.EventBounty, map[string]any{"action": "posted", "id": "x", "generator": "arith", "seed": 7, "tier": 1, "max_payout": 60, "reserve": 6})
+		memo(`{"p":0,"w":0,"a":0}`)
+		add(trace.EventBid, map[string]any{"bounty": "x", "agent": "scribe", "price": 40})
+		add(trace.EventBounty, map[string]any{"action": "awarded", "id": "x", "winner": "scribe", "price": 40,
+			"book": []map[string]any{{"agent": "scribe", "price": 40}}})
+		memo(`{"p":0,"w":0,"a":1}`)
+		add(trace.EventBounty, map[string]any{"action": "solved", "id": "x", "agent": "scribe", "payout": 40, "burned": 6})
+		memo(`{"p":0,"w":34,"a":1}`)
+		add(trace.EventEpisode, map[string]any{"action": "end"})
+
+		v, err := BuildView("memo.jsonl", lines)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	with, without := build(true), build(false)
+	a, b := with.Agent("scribe"), without.Agent("scribe")
+	if a == nil || b == nil {
+		t.Fatal("scribe missing from one of the views")
+	}
+	if a.Grant != b.Grant || a.Earned != b.Earned || a.Burned != b.Burned || a.Balance != b.Balance {
+		t.Errorf("memos moved money: with = %d/%d/%d/%d, without = %d/%d/%d/%d",
+			a.Grant, a.Earned, a.Burned, a.Balance, b.Grant, b.Earned, b.Burned, b.Balance)
+	}
+	if len(a.Timeline) != len(b.Timeline) {
+		t.Fatalf("balance line has %d points with memos and %d without", len(a.Timeline), len(b.Timeline))
+	}
+	for i := range a.Timeline {
+		if a.Timeline[i].Balance != b.Timeline[i].Balance || a.Timeline[i].Label != b.Timeline[i].Label {
+			t.Errorf("balance point %d = %+v with memos, %+v without", i, a.Timeline[i], b.Timeline[i])
+		}
+	}
+}
