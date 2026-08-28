@@ -90,6 +90,24 @@ and nothing else. It is there to answer a question the sealed book raises and
 one guest could never settle — what happens when the agent you are undercutting
 is undercutting you back.
 
+The answer, it turns out, is a queue — and a queue is a policy, so it is now one
+you choose. A tie at the lowest ask has to be broken by something; the default,
+everywhere, is arrival order, and between two copies of one program that means
+the roster decides. `-tiebreak lot` is the fair's one alternative: a seeded draw
+among the tied names, a function of the episode seed, the bounty and a count of
+that bounty's windows so far. Two of those are beyond any agent's reach. The
+count is not: it advances whenever a window closes unsettled, and agents can
+reach that two ways — a winner failing the delivery it just won, at the price
+of the work it forfeits, and a window nobody bids in, which is free but
+self-limiting, since a bounty unbid three windows running is shelved. Either
+way the reopen re-salts every later draw on that bounty, and that is the whole
+of it: an advanced count swaps one computable draw for another rather than
+bending either.
+`make fair-lots` reruns the rivals' day under it, and every draw is replayable
+from the trace alone: the salt is declared on the episode-start line. What the draw
+moved, and the policies this flag refuses to offer, are in *What is
+deliberately not here*.
+
 ## Prerequisites
 
 - **Go** — the version in `go.mod` (1.27). One dependency, `modernc.org/sqlite`,
@@ -150,6 +168,7 @@ make fair-vigil      # the same guest, plus one behaviour: it pays to stay at th
 make fair-scribe     # the same again, plus a memo — it learns that the paying isn't paying
 make fair-haggle     # a guest told how the bidding went, pricing itself against the last clear
 make fair-rivals     # two guests, the same guest twice: what a price war between equals settles
+make fair-lots       # the rivals' day with the queue removed: a tied ask goes to a seeded draw
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -168,8 +187,8 @@ go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 ```
 
 (`fair-guest` writes `fair-guest-trace.jsonl`; follow that file to watch the
-pilgrim's day instead. `fair-vigil`, `fair-scribe`, `fair-haggle` and
-`fair-rivals` write their own too.)
+pilgrim's day instead. `fair-vigil`, `fair-scribe`, `fair-haggle`,
+`fair-rivals` and `fair-lots` write their own too.)
 
 And the usual:
 
@@ -404,6 +423,42 @@ than buried.
   argument arriving from the other direction: when price stops deciding, what
   decides is the queue, and who got to the board first is a schedule, not a
   skill.
+- **A tie-break is a policy, so it had better be one somebody chose.** The entry
+  above ends with the queue deciding, and the queue was never decided: arrival
+  order fell out of an `append` and the order of two flags on a Makefile line.
+  It stays the default — the arena and the sim never touch any of this, and an
+  arrival-order fair still replays to the byte — but the fair now names it, and
+  offers exactly one alternative. `-tiebreak lot` breaks a tie by seeded draw:
+  each window's salt is derived from the episode seed, the bounty and a count of
+  that bounty's windows so far, all three recoverable from the trace, so a
+  reader can re-run every draw from the trace alone. The salt is declared on the
+  episode-start line, and an arrival-order episode's start line is unchanged — a
+  policy that was not in force should not be in the record.
+
+  What the draw changes is measured, and it is exactly what the entry above says
+  the queue was deciding. One day: the two traces are identical — apart from the
+  start line naming the policy — until `b0007`'s window closes, where arrival
+  hands the tie to `gambler`, cast, first-registered and broke, three times
+  running: three wrong answers, four auctions to settle one bounty. The draw
+  lands on `rival`, which delivers at the same 365 on the first try. (That last
+  part is this seed's luck, not a property of the lot — the draw could have
+  picked `gambler` too. The lot does not promise fewer failures; it promises
+  that the roster stops deciding.) Either way the same six bounties are paid the
+  same six amounts, 6,413 credits, five of them to the same winner. Three days:
+  two rows change in the whole settlement — `b0007` moves from `haggler` to
+  `rival` at 365, and `b0010` moves back the other way at 36 — so 329 credits
+  migrate between two copies of the same program and nothing else moves:
+  `scholar` earns its 18,402 and `gambler` its 36 to the credit, and the twenty
+  bounties still clear for 19,702. The queue was deciding who got paid, and that
+  is *all* it was deciding.
+
+  Two policies are refused. Rotation — least-recently-awarded wins — reads as
+  fairness, but it requires the platform to keep a standing record about agents
+  and consult it at settlement, and a platform that remembers who deserves the
+  next win is ranking through the side door the fair bricked up twice already.
+  And an unknown policy is an error at construction, not a fallback: a tie-break
+  that silently became arrival would be the old regime wearing the new one's
+  name — a policy nobody chose, which is the one thing this flag exists to end.
 
 ## Layout
 

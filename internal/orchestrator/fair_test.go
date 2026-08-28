@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/singhtushant3-hub/aiphylum/internal/auction"
 	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
 	"github.com/singhtushant3-hub/aiphylum/internal/town"
@@ -201,7 +203,7 @@ func TestFairEmptyOfficeReopensThenShelves(t *testing.T) {
 // bodies on schedules, minds on the stub, bounties on the hour, three agents
 // on the same money. steps is the cast's behaviour, and holding wires the
 // inward seam so an agent that buys standing actually gets it.
-func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool) []trace.Line {
+func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool, tweak ...func(*FairConfig)) []trace.Line {
 	t.Helper()
 	tw, err := trace.NewWriter(path)
 	if err != nil {
@@ -217,11 +219,15 @@ func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool)
 	for i := range deck {
 		deck[i] = post(int64(i+1), 1)
 	}
-	f, err := NewFair(w.ctx, w.orch, FairConfig{
+	fcfg := FairConfig{
 		Deck:        deck,
 		PostMinutes: []int{540, 600, 660, 720, 780, 840, 900, 960},
 		WindowTicks: 3, MaxReopens: 3, Office: "office",
-	})
+	}
+	for _, tw := range tweak {
+		tw(&fcfg)
+	}
+	f, err := NewFair(w.ctx, w.orch, fcfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,5 +512,143 @@ func TestFairStayDeterministic(t *testing.T) {
 	}
 	if !waited {
 		t.Error("credits left the ledger but no body ever stood still")
+	}
+}
+
+// The lot keeps the fair's first property: same seed, same trace. A draw
+// that broke determinism would trade the replay away for the fairness, and
+// the design refuses the trade. Everyone bids the same fraction here, so
+// every award all day is a three-way tie and the draw is what this diff is
+// actually diffing.
+func TestFairLotDeterministic(t *testing.T) {
+	steps := map[string]stepFunc{
+		"scholar": script(bidAll(0.4), solve),
+		"frugal":  script(bidAll(0.4), solve),
+		"gambler": script(bidAll(0.4), solve),
+	}
+	lot := func(cfg *FairConfig) { cfg.Tie = auction.ByLot; cfg.LotSalt = 1 }
+	dir := t.TempDir()
+	a := fairDay(t, filepath.Join(dir, "a.jsonl"), steps, false, lot)
+	b := fairDay(t, filepath.Join(dir, "b.jsonl"), steps, false, lot)
+
+	if len(a) != len(b) {
+		t.Fatalf("run lengths differ: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i].Type != b[i].Type || timeless(t, a[i].Payload) != timeless(t, b[i].Payload) {
+			t.Fatalf("line %d differs:\n  %s %s\n  %s %s",
+				i, a[i].Type, a[i].Payload, b[i].Type, b[i].Payload)
+		}
+	}
+	if n := count(a, trace.EventBounty, "awarded"); n == 0 {
+		t.Error("nothing awarded all day: the diff proved nothing about the draw")
+	}
+}
+
+// Every lot is recomputable from the trace alone, the same right the auction
+// results bought in their milestone: the salt is on the episode-start line
+// (as a decimal string), the bounty's ID is on the award, the draw index is
+// the count of that bounty's earlier closed windows, and the tied names are
+// in the book. This is the property that lets a draw into a venue whose
+// whole defence is replayability — and it is the off-by-one guard on the
+// draw counter, which is exactly the bug a per-window index invites.
+func TestFairLotDrawsAreDerivableFromTheTraceAlone(t *testing.T) {
+	// Every agent flubs its first attempt of the day, so whoever wins the
+	// first award fails it, the bounty is re-auctioned, and the re-auction is
+	// the same three-way tie again — this time at a draw index above zero.
+	// That is the only place a miscounted window could be caught: at index
+	// zero the orchestrator's counter and the trace-side reconstruction are
+	// both trivially zero and agree by accident.
+	var mu sync.Mutex
+	flubbed := map[string]bool{}
+	flubOnce := func(req StepRequest, in StepInput) StepResult {
+		mu.Lock()
+		first := !flubbed[req.AgentID]
+		flubbed[req.AgentID] = true
+		mu.Unlock()
+		if first {
+			return out(Action{Type: ActionSubmit,
+				Bounty: in.Observation.Task.BountyID, Answer: "not it"})
+		}
+		return solve(req, in)
+	}
+	steps := map[string]stepFunc{
+		"scholar": script(bidAll(0.4), flubOnce),
+		"frugal":  script(bidAll(0.4), flubOnce),
+		"gambler": script(bidAll(0.4), flubOnce),
+	}
+	lines := fairDay(t, filepath.Join(t.TempDir(), "lot.jsonl"), steps, false,
+		func(cfg *FairConfig) { cfg.Tie = auction.ByLot; cfg.LotSalt = 42 })
+
+	var salt uint64
+	declared := false
+	closed := map[string]int{} // windows each bounty has already had
+	ties, reTies := 0, 0
+	for _, l := range lines {
+		var p struct {
+			Action string `json:"action"`
+			Track  string `json:"track"`
+			Tie    string `json:"tiebreak"`
+			Salt   string `json:"lot_salt"`
+			ID     string `json:"id"`
+			Winner string `json:"winner"`
+			Book   []struct {
+				Agent string
+				Price ledger.Credits
+			} `json:"book"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventEpisode && p.Action == "start" && p.Track == "fair":
+			if p.Tie != "lot" {
+				t.Fatalf("episode start declares tiebreak %q, want lot", p.Tie)
+			}
+			s, err := strconv.ParseUint(p.Salt, 10, 64)
+			if err != nil {
+				t.Fatalf("lot_salt %q does not parse: %v", p.Salt, err)
+			}
+			salt, declared = s, true
+		case l.Type == trace.EventBounty && p.Action == "no_bids":
+			closed[p.ID]++
+		case l.Type == trace.EventBounty && p.Action == "awarded":
+			if !declared {
+				t.Fatal("an award arrived before the episode start declared the salt")
+			}
+			draw := closed[p.ID]
+			closed[p.ID]++
+			low := p.Book[0].Price
+			for _, b := range p.Book {
+				if b.Price < low {
+					low = b.Price
+				}
+			}
+			want, wantKey, tied := "", uint64(0), 0
+			for _, b := range p.Book { // book order is arrival order: the collision fallback for free
+				if b.Price != low {
+					continue
+				}
+				tied++
+				if k := auction.Draw(lotSalt(salt, p.ID, draw), b.Agent); want == "" || k < wantKey {
+					want, wantKey = b.Agent, k
+				}
+			}
+			if tied > 1 {
+				ties++
+				if draw > 0 {
+					reTies++
+				}
+			}
+			if p.Winner != want {
+				t.Errorf("%s window %d: trace says %s won, the recomputed draw says %s", p.ID, draw, p.Winner, want)
+			}
+		}
+	}
+	if ties == 0 {
+		t.Fatal("no award ever carried a tie: nothing here exercised the lot")
+	}
+	if reTies == 0 {
+		t.Fatal("no re-auctioned window ever carried a tie: the draw index in the salt was only checked at zero")
 	}
 }

@@ -122,6 +122,84 @@ func TestRefusedBidsStayOut(t *testing.T) {
 	}
 }
 
+// The zero value is arrival, and the constant order is load-bearing: the
+// arena and the sim build auctions without ever touching Tie, so reordering
+// the enum would change every track's policy without any of them choosing to.
+func TestZeroValueTieBreakIsArrival(t *testing.T) {
+	if ByArrival != 0 {
+		t.Fatalf("ByArrival = %d, want 0: the zero value is every untouched track's policy", ByArrival)
+	}
+}
+
+// ByLot ignores arrival: the same tied book in either order draws the same
+// winner. And the draw stays among the tied — a dearer bid is never drawn in.
+func TestLotIgnoresArrivalAndStaysAmongTheTied(t *testing.T) {
+	build := func(names ...string) *Auction {
+		a := New("b0001", 1000, 10)
+		a.Tie, a.Salt = ByLot, 7
+		for _, n := range names {
+			must(t, a.Place(n, 400))
+		}
+		must(t, a.Place("dear", 500)) // above the tie, outside the draw
+		return a
+	}
+	w1, _, err := build("late", "later", "last").Award()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w2, _, err := build("last", "later", "late").Award()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w1.Agent != w2.Agent {
+		t.Fatalf("insertion order moved the draw: %s vs %s", w1.Agent, w2.Agent)
+	}
+	if w1.Agent == "dear" {
+		t.Fatal("the draw reached outside the tie")
+	}
+}
+
+// The lot only exists at a tie: a lone lowest ask wins under ByLot exactly as
+// under arrival, whatever the draw thinks of its name.
+func TestLotOnlyDecidesTies(t *testing.T) {
+	for salt := uint64(0); salt < 32; salt++ {
+		a := New("b0001", 1000, 10)
+		a.Tie, a.Salt = ByLot, salt
+		must(t, a.Place("tied1", 400))
+		must(t, a.Place("cheap", 300))
+		must(t, a.Place("tied2", 400))
+		w, _, err := a.Award()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w.Agent != "cheap" {
+			t.Fatalf("salt %d: winner = %s, want cheap (nobody tied with it)", salt, w.Agent)
+		}
+	}
+}
+
+// The draw is a function of the salt — across salts it picks different tied
+// names, or the lottery would be a constant with a ceremony. Thirty-two salts
+// leave a fair coin roughly one chance in four billion of never landing both
+// ways.
+func TestLotIsSeeded(t *testing.T) {
+	won := map[string]bool{}
+	for salt := uint64(0); salt < 32 && len(won) < 2; salt++ {
+		a := New("b0001", 1000, 10)
+		a.Tie, a.Salt = ByLot, salt
+		must(t, a.Place("heads", 400))
+		must(t, a.Place("tails", 400))
+		w, _, err := a.Award()
+		if err != nil {
+			t.Fatal(err)
+		}
+		won[w.Agent] = true
+	}
+	if len(won) < 2 {
+		t.Fatal("32 salts never moved the draw off one name: a queue wearing a lottery's clothes")
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/singhtushant3-hub/aiphylum/internal/auction"
 	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
 	"github.com/singhtushant3-hub/aiphylum/internal/judge"
 	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
@@ -94,13 +95,21 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	// One card per posting hour per day: the deck is sized by the calendar,
 	// not by a flag, because the office cannot post more often than it opens.
 	deck := simDeck(opt.seed, len(fairPostMinutes)*opt.days, notes)
-	fair, err := orchestrator.NewFair(ctx, w.orch, orchestrator.FairConfig{
+	fcfg := orchestrator.FairConfig{
 		Deck:        deck,
 		PostMinutes: fairPostMinutes,
 		WindowTicks: 3, // 30 simulated minutes to bid
 		MaxReopens:  3,
 		Office:      "office",
-	})
+	}
+	if opt.tiebreak == "lot" {
+		// The lot's salt is the episode seed: one number already governs
+		// the deck, so the same -seed replays the same draws, and a
+		// different seed is a different day in every sense at once.
+		fcfg.Tie = auction.ByLot
+		fcfg.LotSalt = uint64(opt.seed)
+	}
+	fair, err := orchestrator.NewFair(ctx, w.orch, fcfg)
 	if err != nil {
 		return err
 	}

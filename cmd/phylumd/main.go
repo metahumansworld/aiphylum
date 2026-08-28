@@ -73,6 +73,7 @@ func main() {
 		guests = append(guests, v)
 		return nil
 	})
+	tiebreak := flag.String("tiebreak", "arrival", "fair: how a tie at the lowest ask is broken — arrival (the earlier bid wins) or lot (a seeded draw among the tied names)")
 	days := flag.Int("days", 1, "town: how many simulated days to run")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
@@ -127,7 +128,7 @@ func main() {
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
-		days: *days, tick: *tick, guests: guests,
+		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -162,6 +163,10 @@ type options struct {
 	// guests are user-authored agents joining the fair; empty everywhere else.
 	guests []string
 	tick   time.Duration
+	// tiebreak names the fair's policy for a tie at the lowest ask:
+	// "arrival" or "lot". Arrival is the default on every track; lot is a
+	// fair thing, refused elsewhere the way -guest is.
+	tiebreak string
 }
 
 const (
@@ -176,6 +181,16 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	// stand on, and the plain town has no board for a trader to read.
 	if len(opt.guests) > 0 && !opt.fair {
 		return fmt.Errorf("-guest belongs to the fair; run it with -fair")
+	}
+	switch opt.tiebreak {
+	case "", "arrival":
+		// The default everywhere, and the only policy the other tracks have.
+	case "lot":
+		if !opt.fair {
+			return fmt.Errorf("-tiebreak lot belongs to the fair; run it with -fair")
+		}
+	default:
+		return fmt.Errorf("-tiebreak %q is not a policy; it is arrival or lot", opt.tiebreak)
 	}
 
 	// The town is a different genre, not a fourth arena mode: no ledger, no
