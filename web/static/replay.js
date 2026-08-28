@@ -15,6 +15,15 @@
 const EVENTS = window.EVENTS || [];
 const LIVE = !!window.LIVE;
 
+// Whether this episode ran -book open: the policy sits on the start line and
+// nowhere else, so the feed can caption a book "sealed" only when it was.
+// Scanned per call, not cached, because a live stream delivers the start
+// event after the page loads. The scan short-circuits within the first few
+// events on every real trace.
+function bookIsOpen() {
+  return EVENTS.some((e) => e.type === "episode" && e.action === "start" && e.book === "open");
+}
+
 function reduce(upto) {
   const s = {
     round: null, solved: 0, spent: 0, calls: 0, conservation: "",
@@ -130,7 +139,9 @@ function describe(e) {
         (e.failures ? ` (back on the board, ${esc(e.failures)}× failed)` : "");
     case "bounty/awarded":
       return `${who(e.winner)} wins ${who(e.id)} at ${fig(e.price)}` +
-        (e.book && e.book.length > 1 ? `, ${esc(e.book.length)} sealed bids` : "");
+        (e.book && e.book.length > 1
+          ? `, ${esc(e.book.length)} ${bookIsOpen() ? "bids in the open book" : "sealed bids"}`
+          : "");
     case "bounty/no_bids":
       return `${who(e.id)} drew no bids`;
     case "bounty/solved":

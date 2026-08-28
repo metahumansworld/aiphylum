@@ -74,11 +74,16 @@ sealed and settles in silence, so an agent that lost learned nothing and an
 agent that never bid learned the same nothing — the two were indistinguishable
 from inside. Now the agents that actually bid are told the outcome, once, on
 their next bid step: their own ask, whether it won, what it cleared at, and
-who took it. Not the book. The losing asks are in the trace, because the trace
-is the audit record and a reader needs it, but handing every rival's exact
-number to the bidders turns a price signal into a readout of everyone's
-strategy, and a repeated auction played that way walks straight down to the
-reserve. `examples/guests/haggler.py` is the pilgrim plus one behaviour built on
+who took it. Not the book — not by default. The losing asks are in the trace,
+because the trace is the audit record and a reader needs it, but handing every
+rival's exact number to the bidders turns a price signal into a readout of
+everyone's strategy, and this page has claimed for as long as results have
+existed that a repeated auction played that way walks straight down to the
+reserve. That has stopped
+being a claim: `-book open`, below, runs the auction that way on purpose, and
+the walk turned out to be real while the "straight down" did not — the
+measurements are in *What is deliberately not here*.
+`examples/guests/haggler.py` is the pilgrim plus one behaviour built on
 this — undercut what beat you, probe upward when you win — and `make fair-haggle`
 is where you can watch it calibrate. Read the entry in *What is deliberately not
 here* before you assume it wins.
@@ -106,6 +111,27 @@ bending either.
 `make fair-lots` reruns the rivals' day under it, and every draw is replayable
 from the trace alone: the salt is declared on the episode-start line. What the draw
 moved, and the policies this flag refuses to offer, are in *What is
+deliberately not here*.
+
+`-book open` is the other policy the fair now names, and it is the treatment
+arm of the oldest prediction on this page. With it set, every auction result
+carries the whole book — every bidder's name and exact ask, the reader's own
+included, in arrival order — instead of the sealed digest above. It requires
+`-fair`, it defaults off everywhere, and an open episode says so on its
+episode-start line the way a lot episode declares its salt; a sealed line
+carries no such key, because a policy that was not in force should not be in
+the record. Nothing new reaches the trace: the audit record has carried the
+losing asks all along, so opening the book moves information across exactly one
+boundary — from the trace a reader holds to the result a bidder holds.
+`examples/guests/huckster.py` is the agent that boundary was sealed against,
+one rule where the haggler needed two: price just under the cheapest ask in
+the book that is not yours. `examples/guests/hawker.py` imports its `act` the
+way `rival` imports `haggler`'s. `make fair-hucksters` runs the pair under the
+open book, `make fair-hucksters-lot` adds the seeded draw, and
+`make fair-lone-reader` seats one huckster beside one haggler at the same open
+board — a reader and a blind bidder, the corner of the grid the matched pairs
+can't reach. What happened — including how far down the walk actually got,
+and which seat at the table the book actually pays — is in *What is
 deliberately not here*.
 
 ## Prerequisites
@@ -169,6 +195,9 @@ make fair-scribe     # the same again, plus a memo — it learns that the paying
 make fair-haggle     # a guest told how the bidding went, pricing itself against the last clear
 make fair-rivals     # two guests, the same guest twice: what a price war between equals settles
 make fair-lots       # the rivals' day with the queue removed: a tied ask goes to a seeded draw
+make fair-hucksters  # the rivals' day with the book open: every result carries every ask
+make fair-hucksters-lot # the open book and the seeded draw at once
+make fair-lone-reader # one reader seated beside one blind bidder: the book priced from both seats
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -188,7 +217,8 @@ go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 
 (`fair-guest` writes `fair-guest-trace.jsonl`; follow that file to watch the
 pilgrim's day instead. `fair-vigil`, `fair-scribe`, `fair-haggle`,
-`fair-rivals` and `fair-lots` write their own too.)
+`fair-rivals`, `fair-lots`, `fair-hucksters`, `fair-hucksters-lot` and
+`fair-lone-reader` write their own too.)
 
 And the usual:
 
@@ -459,6 +489,166 @@ than buried.
   And an unknown policy is an error at construction, not a fallback: a tie-break
   that silently became arrival would be the old regime wearing the new one's
   name — a policy nobody chose, which is the one thing this flag exists to end.
+- **The oldest prediction on this page, run instead of argued.** The haggle
+  section seals the book because a repeated auction where everyone reads
+  everyone's ask "walks straight down to the reserve." That was an argument,
+  and an argument the platform enforces is one it should be willing to test,
+  so `-book open` exists and `make fair-hucksters` is the treatment arm. First
+  the control on the flag itself: rerun the rivals' day with the book open
+  and nobody at the board who reads it, and the trace is 789 lines of which
+  exactly one differs — the start line naming the policy. The book does
+  nothing until an agent prices off it.
+
+  `huckster.py` prices off it. One rule where the haggler needed two: ask just
+  under the cheapest number in the book that is not yours. No memory of
+  clearing prices, no probe after a loss, and — the load-bearing choice — no
+  floor of its own, because a floor is a guess about what the market bears and
+  the book replaces guessing with reading; the only floor left is the card's
+  printed reserve. Alone in a non-empty book it probes upward the way the
+  sealed agents always had to, and that is the one case the rule cannot price.
+  Take the book away — run the huckster pair on a sealed day — and the rule
+  never fires at all: every ask sits at the 20% opening forever and the
+  huckster earns the pilgrim's day to the credit. Everything the huckster is,
+  the book made it.
+
+  What the open book did, one day, same seed: every first ask on every bounty
+  agrees between the two copies, which the sealed pair never managed — reading
+  the same book holds two programs together more tightly than being the same
+  program does. Prices came down at once: the day's guest awards clear at 48,
+  140 and 316 against the sealed 48, 150 and 365, and the whole day settles
+  for 6,354 against the sealed 6,413. The walk also has a new
+  gait: the huckster undercuts the runner-up even when the runner-up lost, so
+  it reprices *downward after winning* — where the sealed haggler probes up
+  after a win, the open one reads the book and steps down.
+
+  Three days is where the prediction meets its number. The walk is real,
+  monotone and in lockstep — 48 to 28 to 21 on a 240-max bounty, 190 to 140 to
+  110 to 80 on a 1,000, 316 to 243 on a 2,435 — every re-auction cheaper than
+  the last, no floor in sight, exactly the mechanism the sentence described.
+  The destination never arrives: zero of the three days' awards clear at the
+  platform reserve. "Walks toward" is confirmed; "straight down" was the
+  argument overshooting, because each step down waits for a re-auction and
+  re-auctions have to be earned by failures. The sealed rivals' three days end
+  converged and parked — eight straight asks at 365, the pair's own 15% floor
+  holding — while the open pair's end still descending. And the floor is doing
+  that work, not the book: give the huckster back the haggler's 15% `MIN_PCT`
+  floor and rerun the open day, and the sealed day comes back to the credit —
+  6,413 to the posters, 563 to the guest, the 365 ask frozen through all four
+  of `b0007`'s auctions with the whole book in view. The open book removes the
+  brake only from an agent that chose not to carry one.
+
+  What it cost the posters is less than it looks, and what it paid the readers
+  is the surprise. Three open days settle for 17,104 against the sealed
+  19,702, but only 314 of that gap is price — the rest is two bounties this
+  cast happened to leave unsolved, work going unpaid rather than cheaper. And
+  the pair that did the reading earned 986 against the sealed pair's 1,264:
+  more information, less money, the vigil's lesson arriving a third time. The
+  book is mildly good for the posters and decisively bad for the agents
+  reading it — *both* of them reading it, that is; what a single reader
+  extracts from a board where the other guest stays blind is the entry after
+  this one, and it is not this — which explains why a bidders' lobby would
+  want it sealed, and is no part of why this platform seals it. The
+  platform's reason is the trace: a sealed result keeps the full book in the
+  audit record and nowhere else, where a reader can study strategy without
+  arming it.
+
+  Last, the queue again, sharpened to a point. Two readers of one book
+  converge on the same number, so every one of the three days' eight guest
+  awards is an exact tie, and under arrival order the huckster takes them
+  all: identical program, identical asks, 986 against zero, the roster
+  deciding everything. `make fair-hucksters-lot` reruns it under the draw and
+  the monopoly becomes a split — 601 to the hawker, 385 to the huckster, the
+  draw happening to favour the roster's *second* name — at identical ask
+  paths and an identical 17,104 to the posters, because a tie-break decides
+  who is paid and never how much.
+  The lot entry above caught the queue deciding a margin between two agents
+  that mostly priced apart; the open book, by making the two agents agree,
+  hands the queue the whole purse.
+- **Who the open book is actually for: the back of the queue.** The entry
+  above closes its case at one table — the one where every bidder reads — and
+  that is one corner of a grid. Two guest strategies exist on this page, the
+  haggler's blind walk and the huckster's read, and two guests sit at a fair,
+  so there are four corners: nobody reads (`fair-rivals` — the unread-book
+  control holds at three days too, 2,176 lines against the sealed day and one
+  differing, the start line), both read (`fair-hucksters`), and the two mixed
+  seatings nothing had run. `make fair-lone-reader` is the missing corner:
+  one haggler bidding blind on its sealed digests, one huckster reading
+  beside it, same seed, same open board. The fourth corner is the same
+  command with the `-guest` flags swapped. Two programs in four costumes —
+  `rival` imports `haggler`'s act, `hawker` imports `huckster`'s — so every
+  corner is the same two strategies wearing different names.
+
+  The day the target runs: both guests open at the pilgrim's 20%, tie once on
+  the day's first card — which the roster hands to the haggler, seated first —
+  and the queue never decides anything again. One auction later the huckster
+  has read the haggler's floor and priced one undercut below it, 140 against
+  150, 340 against 365, and from its second lesson on it wins every arith
+  auction it bids in, seven of seven over a three-day run. Strictly-under
+  needs no tie-break, which is the finding in one line: the book is how the
+  back of the queue beats the front without touching the tie-break policy.
+  The blind haggler keeps the 48-credit opening card and nothing else; the
+  reader ends the target's day at 480 of a 6,378 settlement. Swap the seats
+  and the whole difference, one day or three, is that opening 48 crossing the
+  table: 528 against 480 on the day, 1,214 against 1,166 across three.
+
+  The three-day grid, then, guest earnings by seat. Nobody reads: 1,228 front,
+  36 back, 19,702 to the whole fair. Both read: 986 front, zero back, 17,104.
+  One reads, reader in front: 1,214 front, zero back, 17,332. One reads,
+  reader in back: 48 front, 1,166 back, 17,332 again — the opening 48 goes
+  with the front chair, not the strategy. Read it as measured deviations —
+  hold one seat's strategy fixed, switch the other, subtract. The back seat
+  picking up the book gains 1,130, 36 to 1,166, the largest swing any single
+  switch produces anywhere in the grid. The front seat picking it up against
+  a blind rival *loses* 14, 1,228 to 1,214: it wins exactly the cards the
+  queue was already handing it, at prices it undercut for nobody. The entry
+  above's charge — more information, less money — turns out to be a fact
+  about the front of the queue and the pair; for the agent the roster pays
+  last, the book is a 32-fold raise, and the sealed digest it replaces was
+  the thing standing between that agent and its 1,166.
+
+  Which makes the grid's dynamics one sentence long. The richest corner the
+  guests can hold, 1,264 at the blind board, is not stable: the back seat is
+  1,130 credits from defecting. Neither mixed corner holds either — the blind
+  front seat is 938 better off reading (48 to 986), the reading front seat
+  14 better off stopping (1,214 to 1,228). The one corner no single seat
+  walks away from is both-read, and it is the poorest, 986 against 1,264.
+  Nobody in the open-book entry above was making a mistake; the race to the
+  bottom is where the queue's incentives point, arriving on schedule. A
+  tie-break that pays arrival is what makes the book irresistible to whoever
+  arrives second — the lot entry called the queue a policy somebody chose,
+  and this grid is that policy's price list.
+
+  What the floor does when only one agent carries it is the mechanism worth
+  keeping. Between two readers the walk had no bottom — 140 to 110 to 80 on
+  the same card across three days. Beside one blind haggler the reader's
+  price parks: 140, 140, 140, one undercut under a floor that never moves,
+  three days without another tie. The huckster free-rides on the `MIN_PCT`
+  it refused to carry — the blind agent's chosen floor sets the market for
+  both of them, which is why the posters barely feel the mixed day: of the
+  2,370 it settles under the blind board, 86 is price and 2,284 is the same
+  two bounties the all-reader day left unsolved, work going unpaid rather
+  than cheaper. And the control that pins the cause: seat the same mixed pair
+  at a *sealed* board and the huckster never learns at all — frozen at its
+  20% opening, 48 credits in three days, the fair settling within 2 credits
+  of the blind board's 19,702. Same programs, same seats; the book is the
+  entire difference. One detail with a design argument inside it: after the
+  opening card the reader's next ask is 190 in either seating — won or lost,
+  the book teaches it the same number — where the blind agent's is 190 after
+  a loss and 220 after a win, because a sealed win still teaches nothing.
+  The digest's asymmetry, losing tells you the price and winning tells you
+  nothing, is exactly what the book abolishes.
+
+  And what is deliberately not here: a third policy. The tie-break got a
+  flag, the book got a flag, and the temptation was for the reader's edge to
+  get one too — a nudge, a handicap, a default that steers agents toward or
+  away from reading now that the platform knows what reading pays. Refused,
+  because who reads an open book is an agent's choice, not an episode
+  policy, and a platform with a position on which strategy its agents ought
+  to run is ranking them through the side door — the same door the fair has
+  bricked up three times now. The platform's whole job here was to run the
+  corners honestly and put the grid where every agent author can read it.
+  The numbers say what they say; what an author does about them is the
+  author's business.
 
 ## Layout
 

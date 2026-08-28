@@ -203,29 +203,38 @@ func TestFairEmptyOfficeReopensThenShelves(t *testing.T) {
 // bodies on schedules, minds on the stub, bounties on the hour, three agents
 // on the same money. steps is the cast's behaviour, and holding wires the
 // inward seam so an agent that buys standing actually gets it.
-func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool, tweak ...func(*FairConfig)) []trace.Line {
+//
+// A tweak is handed both configs because the fair's two policies do not live
+// together: the tie-break is the auction's and sits on FairConfig, while the
+// book is the announcer's and sits on the orchestrator's Config. Both are
+// built in here, so a test that wants either has to be given both.
+func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
 	t.Helper()
 	tw, err := trace.NewWriter(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := newSim(t, tw, Config{StepTimeout: 10 * time.Second, Dust: 10})
+	ocfg := Config{StepTimeout: 10 * time.Second, Dust: 10}
+	fcfg := FairConfig{
+		Deck:        nil, // filled below, once the deck exists
+		PostMinutes: []int{540, 600, 660, 720, 780, 840, 900, 960},
+		WindowTicks: 3, MaxReopens: 3, Office: "office",
+	}
+	for _, tk := range tweak {
+		tk(&ocfg, &fcfg)
+	}
+	w := newSim(t, tw, ocfg)
 	for _, id := range []string{"scholar", "frugal", "gambler"} {
 		w.add(t, id, map[string]ledger.Credits{"scholar": 3000, "frugal": 2500, "gambler": 1600}[id])
 		w.steps.fns[id] = steps[id]
 	}
 
-	deck := make([]Posting, 8)
-	for i := range deck {
-		deck[i] = post(int64(i+1), 1)
-	}
-	fcfg := FairConfig{
-		Deck:        deck,
-		PostMinutes: []int{540, 600, 660, 720, 780, 840, 900, 960},
-		WindowTicks: 3, MaxReopens: 3, Office: "office",
-	}
-	for _, tw := range tweak {
-		tw(&fcfg)
+	if fcfg.Deck == nil {
+		deck := make([]Posting, 8)
+		for i := range deck {
+			deck[i] = post(int64(i+1), 1)
+		}
+		fcfg.Deck = deck
 	}
 	f, err := NewFair(w.ctx, w.orch, fcfg)
 	if err != nil {
@@ -526,7 +535,7 @@ func TestFairLotDeterministic(t *testing.T) {
 		"frugal":  script(bidAll(0.4), solve),
 		"gambler": script(bidAll(0.4), solve),
 	}
-	lot := func(cfg *FairConfig) { cfg.Tie = auction.ByLot; cfg.LotSalt = 1 }
+	lot := func(_ *Config, cfg *FairConfig) { cfg.Tie = auction.ByLot; cfg.LotSalt = 1 }
 	dir := t.TempDir()
 	a := fairDay(t, filepath.Join(dir, "a.jsonl"), steps, false, lot)
 	b := fairDay(t, filepath.Join(dir, "b.jsonl"), steps, false, lot)
@@ -578,7 +587,7 @@ func TestFairLotDrawsAreDerivableFromTheTraceAlone(t *testing.T) {
 		"gambler": script(bidAll(0.4), flubOnce),
 	}
 	lines := fairDay(t, filepath.Join(t.TempDir(), "lot.jsonl"), steps, false,
-		func(cfg *FairConfig) { cfg.Tie = auction.ByLot; cfg.LotSalt = 42 })
+		func(_ *Config, cfg *FairConfig) { cfg.Tie = auction.ByLot; cfg.LotSalt = 42 })
 
 	var salt uint64
 	declared := false
@@ -650,5 +659,72 @@ func TestFairLotDrawsAreDerivableFromTheTraceAlone(t *testing.T) {
 	}
 	if reTies == 0 {
 		t.Fatal("no re-auctioned window ever carried a tie: the draw index in the salt was only checked at zero")
+	}
+}
+
+// The whole cost of the open book, in the trace: one key on one line.
+//
+// The results an agent reads are not traced — they never were, because every
+// one of them is a function of the awarded event plus the reader's identity,
+// and that stayed true when the book was opened. So a day run -book open must
+// write the same stream as the sealed day it is otherwise identical to,
+// except for the episode-start line, which gains "book": "open" so a reader
+// of the record knows what kind of market this was. The sealed day carries no
+// such key: a policy that was not in force should not be in the record.
+//
+// If this test ever fails by finding a second differing line, the milestone's
+// central claim — that opening the book widens what bidders are told without
+// widening the record by a byte — has stopped being true.
+func TestFairOpenBookChangesOnlyTheStartLine(t *testing.T) {
+	steps := map[string]stepFunc{
+		"scholar": script(bidAll(0.8), solve),
+		"frugal":  script(bidAll(0.5), solve),
+		"gambler": script(bidAll(0.3), solve),
+	}
+	dir := t.TempDir()
+	sealed := fairDay(t, filepath.Join(dir, "sealed.jsonl"), steps, false)
+	open := fairDay(t, filepath.Join(dir, "open.jsonl"), steps, false,
+		func(cfg *Config, _ *FairConfig) { cfg.Book = OpenBook })
+
+	if len(sealed) != len(open) {
+		t.Fatalf("run lengths differ: sealed %d, open %d", len(sealed), len(open))
+	}
+	var differing []int
+	for i := range sealed {
+		if sealed[i].Type != open[i].Type || timeless(t, sealed[i].Payload) != timeless(t, open[i].Payload) {
+			differing = append(differing, i)
+		}
+	}
+	if len(differing) != 1 {
+		t.Fatalf("%d lines differ, want exactly the start line: %v", len(differing), differing)
+	}
+
+	// And the one line differs by exactly the one key.
+	i := differing[0]
+	var was, now map[string]any
+	if err := json.Unmarshal(sealed[i].Payload, &was); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(open[i].Payload, &now); err != nil {
+		t.Fatal(err)
+	}
+	if was["action"] != "start" {
+		t.Fatalf("the differing line is a %q, want the episode start: %s", was["action"], sealed[i].Payload)
+	}
+	if _, ok := was["book"]; ok {
+		t.Errorf("the sealed day declared a book policy it was not asked for: %s", sealed[i].Payload)
+	}
+	if now["book"] != "open" {
+		t.Errorf("the open day's start line says book=%v, want \"open\": %s", now["book"], open[i].Payload)
+	}
+	delete(now, "book")
+	if !reflect.DeepEqual(was, now) {
+		t.Errorf("the start line changed by more than the book key:\n  %s\n  %s", sealed[i].Payload, open[i].Payload)
+	}
+
+	// Vacuity guard: a day where nothing was awarded would diff clean too, and
+	// would say nothing at all about what bidders were told.
+	if n := count(sealed, trace.EventBounty, "awarded"); n == 0 {
+		t.Error("no awards all day; the diff proves nothing about the book")
 	}
 }

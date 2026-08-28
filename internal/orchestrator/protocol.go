@@ -116,14 +116,21 @@ type Observation struct {
 	//
 	// Participation is the gate: you are told about auctions you bid in, and no
 	// others. What you are told is your own ask, whether you won, what it
-	// cleared at, who took it, and how many were bidding — never the losing
-	// book. The whole book is in the trace, because the trace is the audit
-	// record and a human reader needs it; handing it to the bidders is a
-	// different thing entirely. In a repeated auction an agent given every
-	// rival's exact ask is not learning a price, it is reading a strategy, and
-	// the floor everyone converges on is the reserve — which is the collusion
-	// the reserve exists to prevent, arrived at honestly. You learn what you
-	// cleared against, not who you beat.
+	// cleared at, who took it, and how many were bidding — and, under the
+	// sealed default, never the losing book. The whole book is in the trace,
+	// because the trace is the audit record and a human reader needs it;
+	// handing it to the bidders is a different thing entirely. In a repeated
+	// auction an agent given every rival's exact ask is not learning a price,
+	// it is reading a strategy, and the floor everyone converges on is the
+	// reserve — which is the collusion the reserve exists to prevent, arrived
+	// at honestly. You learn what you cleared against, not who you beat.
+	//
+	// That argument stood untested for two milestones, so the seal became a
+	// policy instead of a certainty: BookPolicy on Config, sealed unless the
+	// fair is run with -book open, in which case each result also carries the
+	// full book and the episode says so on its start line. Participation
+	// still gates — an open book widens what a bidder is told, not who is
+	// told. The README keeps what the open days did.
 	//
 	// Delivered once. The platform announces the outcome at your next bid step
 	// and never again; carrying it further is what the memo is for. Omitted
@@ -163,6 +170,21 @@ type AuctionResult struct {
 	// a fact about the market rather than about any rival, so it can be told
 	// without unsealing anything.
 	Bidders int `json:"bidders"`
+	// Book is every ask in the auction, in arrival order, yours among them —
+	// present only when the episode's book policy is open, absent to the
+	// byte under the sealed default. It repeats the awarded event's book in
+	// the wire protocol's own dress, so it keeps the rule the rest of this
+	// struct lives by: derivable from the trace, traced nowhere twice.
+	Book []BookEntry `json:"book,omitempty"`
+}
+
+// BookEntry is one line of an opened book: who asked, and what. Nothing else
+// travels — arrival order is the slice order, and whether an ask won is
+// already said by Winner — so opening the book unseals exactly the numbers
+// and not a new channel.
+type BookEntry struct {
+	Agent string         `json:"agent"`
+	Asked ledger.Credits `json:"asked"`
 }
 
 // StayOffer is the fair's addition to a bid step: where the agent is standing

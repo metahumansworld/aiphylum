@@ -45,7 +45,7 @@ any ranking — on either track.</p>
       </span>
       {{if .Book}}
       <table class="book">
-        <thead><tr><th>sealed bids</th><th class="num">asked</th></tr></thead>
+        <thead><tr><th>{{if $.View.Episode.OpenBook}}open book{{else}}sealed bids{{end}}</th><th class="num">asked</th></tr></thead>
         <tbody>
         {{range .Book}}
           <tr><td><a href="/agent/{{.Agent}}">{{.Agent}}</a></td><td class="num">{{cr .Price}}</td></tr>
