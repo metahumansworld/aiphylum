@@ -12,6 +12,7 @@ fair-guest-trace.jsonl
 fair-vigil-trace.jsonl
 fair-scribe-trace.jsonl
 fair-haggle-trace.jsonl
+fair-rivals-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,
@@ -22,6 +23,11 @@ live-trace.jsonl
 # episode state
 *.db
 *.sqlite
+
+# Python bytecode. A guest that splits itself into modules — or imports another
+# guest, as examples/guests/rival.py does — makes CPython write one of these
+# next to the source the first time it runs.
+__pycache__/
 
 # macOS Finder
 .DS_Store

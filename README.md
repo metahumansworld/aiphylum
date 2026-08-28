@@ -83,6 +83,13 @@ this — undercut what beat you, probe upward when you win — and `make fair-ha
 is where you can watch it calibrate. Read the entry in *What is deliberately not
 here* before you assume it wins.
 
+`make fair-rivals` then puts two of them at the board at once, and they are the
+same agent: `examples/guests/rival.py` imports `haggler`'s `act` verbatim, so
+what separates them is a name and the order the two `-guest` flags were written
+and nothing else. It is there to answer a question the sealed book raises and
+one guest could never settle — what happens when the agent you are undercutting
+is undercutting you back.
+
 ## Prerequisites
 
 - **Go** — the version in `go.mod` (1.27). One dependency, `modernc.org/sqlite`,
@@ -142,6 +149,7 @@ make fair-guest      # the fair with a user-authored agent lodging and bidding a
 make fair-vigil      # the same guest, plus one behaviour: it pays to stay at the board
 make fair-scribe     # the same again, plus a memo — it learns that the paying isn't paying
 make fair-haggle     # a guest told how the bidding went, pricing itself against the last clear
+make fair-rivals     # two guests, the same guest twice: what a price war between equals settles
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -160,8 +168,8 @@ go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 ```
 
 (`fair-guest` writes `fair-guest-trace.jsonl`; follow that file to watch the
-pilgrim's day instead. `fair-vigil`, `fair-scribe` and `fair-haggle` write
-their own too.)
+pilgrim's day instead. `fair-vigil`, `fair-scribe`, `fair-haggle` and
+`fair-rivals` write their own too.)
 
 And the usual:
 
@@ -357,6 +365,45 @@ than buried.
   Which is the sharpest argument there is for sealing the book: if one clearing
   price can drag an agent down to its own floor and hold it there, the whole
   book would take every agent down to the platform's.
+- **Two of the same agent is not a price war. It is a queue.** The entry above
+  predicts that agents left to price off each other end up standing on the
+  reserve. `make fair-rivals` is the sealed-book control for that claim, and it
+  is as close to a controlled experiment as this repo gets:
+  `examples/guests/rival.py` imports `haggler`'s `act` verbatim, so the two
+  strategies are identical by construction rather than by inspection, and the
+  town gives every guest the same schedule, so they are shown the same board in
+  the same tick. With the book sealed they never get near the reserve. Over three
+  days they converge on 15% of each posted maximum — the floor `haggler.py` sets
+  for *itself*, three times the platform's 5% — and stop there, because a floor
+  above the reserve is the one thing the rule will not undercut. What the second
+  agent costs the poster is two credits: the same twenty bounties are solved for
+  19,702, against 19,704 with one haggler and 20,108 with the pilgrim that never
+  learns. Doubling the number of agents hunting the price moved the price by
+  0.01%.
+
+  One day shows it harder than three do, and one day is what the target prints.
+  Over it the second agent changes *nothing*: every auction clears at the same
+  price to the same winner as it does in `make fair-haggle` — all twenty-eight
+  awards over the day's eight bounties, in order, re-auctions included — and the
+  day's earnings match to the credit. The only trace `rival` leaves is in the
+  book, where seven auctions carry both names, five of them at exactly the same
+  number, and it wins none of the seven.
+
+  What it moved instead is who gets the work. Thirteen auctions had both names in
+  the book and seven of those were exact ties, every one of which `rival` lost —
+  five to `haggler`, and two to `gambler`, which was level at the same 365 on a
+  three-way tie and, being cast rather than guest, stands ahead of both. A tie
+  goes to the earliest arrival, arrival order is roster order, and roster order
+  is the cast first and then the guests in the order the `-guest` flags happen to
+  be written in the Makefile line. `rival` won exactly one auction in three days,
+  and not by winning a tie: `haggler` had just taken a bounty, probed upward out
+  of the way, and left it alone at the cheapest ask by two credits. It asked that
+  same 36 exactly once more, and that time `gambler` was level with it and the
+  cast's place at the front of the roster decided that one too. Same program,
+  same schedule, same board, 1,228 credits and 36. This is the fair's own
+  argument arriving from the other direction: when price stops deciding, what
+  decides is the queue, and who got to the board first is a schedule, not a
+  skill.
 
 ## Layout
 

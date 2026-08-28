@@ -166,6 +166,41 @@ const LOOKS = [
   { skin: "#d9a06b", hair: "#14100c", tunic: "#c2802e", trim: "#33271a", hat: "scarf", prop: "tankard", build: "plain" },
 ];
 
+// TRAVELLERS are for anyone past the end of that table.
+//
+// LOOKS has exactly one costume per authored resident, which was a complete
+// table right up until -guest made the roster open-ended. Past its end the old
+// LOOKS[i % LOOKS.length] wrapped, and wrapping is the one thing a costume must
+// never do: it hands the eighth person the first person's clothes, so a
+// spectator sees two Miras and has no way to tell which is which. In the fair
+// the cast is exactly seven, so the wrap landed on the first guest — two
+// user-authored strangers walking the square dressed as the baker and the
+// archivist, in a run whose entire point is that they are not of the cast.
+//
+// The renderer is not told who is a guest and does not need to be. All it knows
+// is that nobody wrote a costume for this index, which makes the wearer someone
+// the town was not written for — so it puts them in undyed road cloth and a
+// satchel instead of a trade's colours and a trade's tool. Derived from the
+// index and nothing else: two people watching the same trace must see the same
+// town, so there is no clock and no randomness in here.
+const TRAVELLERS = [
+  { tunic: "#b8a894", trim: "#f7ecd9", hat: "hood", build: "robe" },
+  { tunic: "#9c8b76", trim: "#f0e4cf", hat: "scarf", build: "wrap" },
+  { tunic: "#8a7a68", trim: "#e9dcc4", hat: "hood", build: "plain" },
+  { tunic: "#c4b39c", trim: "#fbf1dc", hat: "straw", build: "stout" },
+];
+
+// The costume for roster position i. Skin and hair keep cycling through LOOKS
+// even out here, so the two tables run at different periods (seven and four)
+// and a traveller does not repeat until the thirty-fifth resident — far past
+// any roster a square this size can hold without the name plates colliding.
+function lookFor(i) {
+  const base = LOOKS[i % LOOKS.length];
+  if (i < LOOKS.length) return base;
+  const t = TRAVELLERS[(i - LOOKS.length) % TRAVELLERS.length];
+  return { skin: base.skin, hair: base.hair, prop: "satchel", ...t };
+}
+
 // BUILDS are the outlines. sh is the half-width at the shoulder, hp at the hip,
 // and hem is where the garment stops — a robe that reaches the ankles hides the
 // legs drawn under it, which is the whole difference between Osric and Pell at
@@ -560,7 +595,7 @@ function person(r, look) {
 function buildMap(f) {
   names = new Map(f.residents.map((r) => [r.id, r.name]));
   placeNames = new Map(f.places.map((p) => [p.id, p.name]));
-  colorOf = new Map(f.residents.map((r, i) => [r.id, LOOKS[i % LOOKS.length].tunic]));
+  colorOf = new Map(f.residents.map((r, i) => [r.id, lookFor(i).tunic]));
 
   OX = f.height * HW + 24;
   const CW = (f.width + f.height) * HW + 48;
@@ -697,7 +732,7 @@ function buildMap(f) {
   const svg = mapEl.firstChild;
   walkers.clear();
   f.residents.forEach((r, i) => {
-    svg.insertAdjacentHTML("beforeend", `<g class="walker" id="w-${esc(r.id)}">${person(r, LOOKS[i % LOOKS.length])}</g>`);
+    svg.insertAdjacentHTML("beforeend", `<g class="walker" id="w-${esc(r.id)}">${person(r, lookFor(i))}</g>`);
     walkers.set(r.id, { gx: r.x + 0.5, gy: r.y + 0.5, q: [], face: 1, phase: 0, row: -1 });
   });
 }
