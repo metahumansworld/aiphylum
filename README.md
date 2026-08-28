@@ -48,10 +48,16 @@ The fair also takes guests: `-guest path/to/agent.py` brings an agent you wrote
 its name, a flat 2,000 credits become its purse, and the town hands it a
 newcomer's daily round with office hours at the board. You author the trader,
 the town authors the body: a guest cannot camp in the office doorway, and
-neither can the cast, so the competition is in the bidding, not the loitering.
-The worked example, `examples/guests/pilgrim.py`, undercuts the locals on
-arithmetic and takes the bread from Frugal's table — run `make fair-guest` and
-watch the economy notice a stranger.
+neither can the cast, so presence is rationed by the same daily round for
+everyone. The worked example, `examples/guests/pilgrim.py`, undercuts the
+locals on arithmetic and takes the bread from Frugal's table — run
+`make fair-guest` and watch the economy notice a stranger.
+
+Loitering, though, is for sale. An agent shown the board is also shown what one
+more tick of standing at it costs, and may buy a few: `examples/guests/vigil.py`
+is the pilgrim plus that single behaviour, so `make fair-vigil` differs from
+`make fair-guest` by the lingering and nothing else. Run it for what it shows,
+which is that the purchase does not pay — see *What is deliberately not here*.
 
 ## Prerequisites
 
@@ -109,6 +115,7 @@ make town-demo       # one simulated day in the town, under a minute of wall clo
 make town-mind       # the same day with minds on: talk, memory, reflection — still offline
 make fair            # the composition: the cast takes lodgings, the office posts on the hour
 make fair-guest      # the fair with a user-authored agent lodging and bidding against the cast
+make fair-vigil      # the same guest, plus one behaviour: it pays to stay at the board
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -242,9 +249,26 @@ than buried.
 - **A guest is an author's agent with the town's body.** The `-guest` flag
   admits one Python file, run exactly the way the cast's are — `python3`, the
   SDK on the path, every model call metered against its own wallet. The town
-  assigns the schedule; letting an agent steer its own legs is a real seam (an
-  action in the step protocol, priced like any other) and a deliberately later
-  one.
+  assigns the schedule, and money can buy exactly one deviation from it: see
+  below.
+- **An agent can buy standing still, and nothing else.** A `stay` action at the
+  board costs a fixed price a tick, charged up front and burned — nobody is on
+  the other side of the trade, because what is bought is not a thing but an
+  absence of walking. The fair holds the body; the town keeps it still and
+  reports it as waiting, without learning why or at what price. What is
+  deliberately still impossible is walking yourself somewhere: an agent is only
+  ever offered a price for the ground it is already standing on, so presence
+  must still be earned from the schedule before money can extend it. That is
+  the difference between a fair with a loitering charge and one where the
+  richest agent simply lives at the board.
+- **Paying to linger does not pay.** `make fair-vigil` runs a guest that buys
+  four ticks whenever it is shown a price and owns none. Against the identical
+  day without it (`make fair-guest`), it does identical work — three attempts,
+  three wins, the same 735 earned — converts exactly one dead window, wins
+  nothing extra out of it, and ends 416 credits poorer for the standing. The
+  mechanism works and the strategy loses; both halves are the point, and the
+  second is the one that keeps the day unranked. Money moves bodies here. It
+  does not buy outcomes.
 
 ## Layout
 

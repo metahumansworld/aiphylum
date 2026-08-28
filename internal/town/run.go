@@ -31,6 +31,19 @@ type Config struct {
 	// on exactly this hook — none of it reaches back in. There is still no
 	// money here. Nil is the town exactly as it was before the seam existed.
 	Visit func(day, mod int, clock string, standings []Standing) error
+
+	// Hold, if set, is asked once per resident per tick whether that resident
+	// has been asked to stay where they are. True and they do not move: the
+	// schedule is not consulted, no route is planned, and no arrival or
+	// departure fires, because nothing about them changed. The visible
+	// evidence of a hold is a resident who simply did not leave.
+	//
+	// It is the inward twin of Visit and money-free in exactly the same way.
+	// The town is told *that* a body was asked to stay still, never why or at
+	// what price — the fair in internal/orchestrator sells the standing and
+	// burns the fee, and none of that reaches in here. There is still no
+	// money in this package. Nil is the town as it was before the seam.
+	Hold func(id string) bool
 }
 
 // Standing is one resident's whereabouts as the Visit hook sees them: the
@@ -215,7 +228,24 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		mod := minute % DayMinutes
 		clock := HHMM(mod)
 
+		// Asked once per resident per tick, before anyone moves, and reused
+		// for both the walking and the frame: Hold is somebody else's code,
+		// so consulting it twice in one minute invites two different answers
+		// and a resident who is held for the walk but not for the picture.
+		// Nil Hold leaves this map nil, which reads false for everyone.
+		var held map[string]bool
+		if cfg.Hold != nil {
+			held = make(map[string]bool, len(rs))
+			for _, r := range rs {
+				held[r.p.ID] = cfg.Hold(r.p.ID)
+			}
+		}
+
 		for _, r := range rs {
+			if held[r.p.ID] {
+				r.walked = nil // last tick's trail is not this tick's
+				continue
+			}
 			slot := r.p.At(mod)
 			goal, ok := m.Place(slot.Place)
 			if !ok {
@@ -337,10 +367,18 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		frames := make([]frame, 0, len(rs))
 		for _, r := range rs {
 			slot := r.p.At(mod)
-			frames = append(frames, frame{
+			f := frame{
 				ID: r.p.ID, X: r.x, Y: r.y, Place: r.place,
 				Activity: slot.Activity, Goal: slot.Place, Path: r.walked,
-			})
+			}
+			// A held resident is not on their way anywhere, so the frame says
+			// so instead of repeating a schedule they are visibly not keeping:
+			// the goal is where they already stand, and the activity is the
+			// waiting itself. Why they are waiting is not the town's business.
+			if held[r.p.ID] {
+				f.Activity, f.Goal = "waiting", r.place
+			}
+			frames = append(frames, f)
 		}
 		rep.Ticks = t
 		if err := tw.Append(trace.EventTown, map[string]any{

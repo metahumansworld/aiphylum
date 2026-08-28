@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
 	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
 	"github.com/singhtushant3-hub/aiphylum/internal/town"
 	"github.com/singhtushant3-hub/aiphylum/internal/trace"
@@ -194,56 +197,70 @@ func TestFairEmptyOfficeReopensThenShelves(t *testing.T) {
 // modulo wall-clock stamps. This is the fair's own version of the town's
 // TestRunDeterministic, and the count checks keep it from passing vacuously:
 // a day where nobody bid would also diff clean.
-func TestFairDeterministic(t *testing.T) {
-	run := func(path string) []trace.Line {
-		tw, err := trace.NewWriter(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		w := newSim(t, tw, Config{StepTimeout: 10 * time.Second, Dust: 10})
-		w.add(t, "scholar", 3000)
-		w.add(t, "frugal", 2500)
-		w.add(t, "gambler", 1600)
-		w.steps.fns["scholar"] = script(bidAll(0.8), solve)
-		w.steps.fns["frugal"] = script(bidAll(0.5), solve)
-		w.steps.fns["gambler"] = script(bidAll(0.3), solve)
-
-		deck := make([]Posting, 8)
-		for i := range deck {
-			deck[i] = post(int64(i+1), 1)
-		}
-		f, err := NewFair(w.ctx, w.orch, FairConfig{
-			Deck:        deck,
-			PostMinutes: []int{540, 600, 660, 720, 780, 840, 900, 960},
-			WindowTicks: 3, MaxReopens: 3, Office: "office",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		m, people := town.AshmereFair()
-		if _, err := town.Run(context.Background(), tw, m, people, town.Config{
-			TickMinutes: 10, Interval: time.Microsecond, Days: 1, StartMinute: 7 * 60,
-			Mind:  &town.Minds{Provider: &proxy.StubProvider{}},
-			Visit: f.Visit,
-		}); err != nil {
-			t.Fatal(err)
-		}
-		rep, err := f.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !rep.Conservation.Holds() {
-			t.Fatalf("conservation broken: %s", rep.Conservation)
-		}
-		if err := tw.Close(); err != nil {
-			t.Fatal(err)
-		}
-		lines, err := trace.Read(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return lines
+// fairDay runs one whole AshmereFair day into path and returns its stream:
+// bodies on schedules, minds on the stub, bounties on the hour, three agents
+// on the same money. steps is the cast's behaviour, and holding wires the
+// inward seam so an agent that buys standing actually gets it.
+func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool) []trace.Line {
+	t.Helper()
+	tw, err := trace.NewWriter(path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	w := newSim(t, tw, Config{StepTimeout: 10 * time.Second, Dust: 10})
+	for _, id := range []string{"scholar", "frugal", "gambler"} {
+		w.add(t, id, map[string]ledger.Credits{"scholar": 3000, "frugal": 2500, "gambler": 1600}[id])
+		w.steps.fns[id] = steps[id]
+	}
+
+	deck := make([]Posting, 8)
+	for i := range deck {
+		deck[i] = post(int64(i+1), 1)
+	}
+	f, err := NewFair(w.ctx, w.orch, FairConfig{
+		Deck:        deck,
+		PostMinutes: []int{540, 600, 660, 720, 780, 840, 900, 960},
+		WindowTicks: 3, MaxReopens: 3, Office: "office",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := town.Config{
+		TickMinutes: 10, Interval: time.Microsecond, Days: 1, StartMinute: 7 * 60,
+		Mind:  &town.Minds{Provider: &proxy.StubProvider{}},
+		Visit: f.Visit,
+	}
+	if holding {
+		cfg.Hold = f.Hold
+	}
+	m, people := town.AshmereFair()
+	if _, err := town.Run(context.Background(), tw, m, people, cfg); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Conservation.Holds() {
+		t.Fatalf("conservation broken: %s", rep.Conservation)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := trace.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lines
+}
+
+func TestFairDeterministic(t *testing.T) {
+	steps := map[string]stepFunc{
+		"scholar": script(bidAll(0.8), solve),
+		"frugal":  script(bidAll(0.5), solve),
+		"gambler": script(bidAll(0.3), solve),
+	}
+	run := func(path string) []trace.Line { return fairDay(t, path, steps, false) }
 	dir := t.TempDir()
 	a := run(filepath.Join(dir, "a.jsonl"))
 	b := run(filepath.Join(dir, "b.jsonl"))
@@ -273,5 +290,221 @@ func TestFairDeterministic(t *testing.T) {
 	}
 	if n := count(a, trace.EventBounty, "no_bids"); n == 0 {
 		t.Error("no window ever closed empty — the schedule never gated anyone")
+	}
+}
+
+// stayer buys standing once and bids on nothing, so the balance after such a
+// day is the grant minus the standing exactly, with no award or attempt in
+// the way. It keeps every offer it was shown, which is how the tests read the
+// countdown the platform sent it.
+type stayer struct {
+	mu     sync.Mutex
+	ask    int
+	bought bool
+	seen   []Observation
+}
+
+func (s *stayer) step(_ StepRequest, in StepInput) StepResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, in.Observation)
+	if s.bought {
+		return out()
+	}
+	s.bought = true
+	return out(Action{Type: ActionStay, Ticks: s.ask})
+}
+
+func (s *stayer) offers() []Observation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Observation(nil), s.seen...)
+}
+
+// stayFair is a fair that posts one bounty a tick, so an agent standing at
+// the office is handed a step every tick and can be asked what it owns.
+func stayFair(t *testing.T, w *world, cfg FairConfig) *Fair {
+	t.Helper()
+	cfg.Deck = []Posting{post(1, 1), post(2, 1), post(3, 1)}
+	cfg.PostMinutes = []int{540, 550, 560}
+	cfg.WindowTicks, cfg.Office = 3, "office"
+	f, err := NewFair(w.ctx, w.orch, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// Standing still is a purchase like any other: paid up front, worth exactly
+// the ticks it bought, and over. The two Hold checks either side of the last
+// paid tick are the point — a hold that never lifts is a body the town has
+// lost, not an agent that bought a minute.
+func TestFairStayHoldsTheBodyForWhatItPaid(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	s := &stayer{ask: 2}
+	w.steps.fns["pat"] = s.step
+
+	f := stayFair(t, w, FairConfig{StayPrice: 20, MaxStayTicks: 6})
+	at := []town.Standing{{ID: "pat", Place: "office"}}
+	hold := []bool{}
+	for i, mod := range []int{540, 550, 560} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+		hold = append(hold, f.Hold("pat"))
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	// Two ticks bought, two movements held, and then the third is free.
+	if want := []bool{true, true, false}; !reflect.DeepEqual(hold, want) {
+		t.Errorf("holds %v, want %v — two paid ticks, then release", hold, want)
+	}
+	if got, want := w.balance(t, "pat"), ledger.Credits(3000-40); got != want {
+		t.Errorf("balance %d, want %d — 2 ticks at the list price of 20", got, want)
+	}
+	if n := count(lines, trace.EventCredit, "stayed"); n != 1 {
+		t.Errorf("%d stay events, want the one purchase", n)
+	}
+
+	// What the platform told it, tick by tick. An agent is a fresh process
+	// with no memory, so a countdown it is not shown is a countdown it cannot
+	// act on — and it would buy the same minute twice, every time.
+	var left []int
+	for _, obs := range s.offers() {
+		if obs.Place != "office" || obs.StayPrice != 20 {
+			t.Errorf("offer says %q at %d, want the office at 20", obs.Place, obs.StayPrice)
+		}
+		left = append(left, obs.StayTicksLeft)
+	}
+	if want := []int{0, 1, 0}; !reflect.DeepEqual(left, want) {
+		t.Errorf("countdown %v, want %v — nothing owned, one left, spent", left, want)
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// A price you cannot pay is a refusal, not a debt: the day goes on, the agent
+// keeps its money, and it is not held.
+func TestFairStayRefusedWhenBroke(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 30)
+	s := &stayer{ask: 2}
+	w.steps.fns["pat"] = s.step
+
+	f := stayFair(t, w, FairConfig{StayPrice: 20, MaxStayTicks: 6})
+	if err := f.Visit(1, 540, town.HHMM(540), []town.Standing{{ID: "pat", Place: "office"}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.Hold("pat") {
+		t.Error("pat is held on 40 credits' worth of standing it could not pay for")
+	}
+	if _, err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	if got, want := w.balance(t, "pat"), ledger.Credits(30); got != want {
+		t.Errorf("balance %d, want the untouched %d", got, want)
+	}
+	if n := count(lines, trace.EventCredit, "stayed"); n != 0 {
+		t.Errorf("%d stay events on a refused purchase, want none", n)
+	}
+	if n := count(lines, trace.EventNote, "stay refused"); n != 1 {
+		t.Errorf("%d refusal notes, want 1 — a refusal nobody records is a silent one", n)
+	}
+}
+
+// The office keeps hours. An agent that asks to stand there all week is
+// charged for the cap and held for the cap, not for what it asked.
+func TestFairStayClampedToTheCap(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	s := &stayer{ask: 99}
+	w.steps.fns["pat"] = s.step
+
+	f := stayFair(t, w, FairConfig{StayPrice: 20, MaxStayTicks: 2})
+	at := []town.Standing{{ID: "pat", Place: "office"}}
+	for _, mod := range []int{540, 550, 560} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.Hold("pat") {
+		t.Error("still held after the cap: the clamp bought more than it charged for")
+	}
+	if _, err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := w.balance(t, "pat"), ledger.Credits(3000-40); got != want {
+		t.Errorf("balance %d, want %d — charged for the cap of 2, not the 99 asked", got, want)
+	}
+	if n := count(read(), trace.EventCredit, "stayed"); n != 1 {
+		t.Errorf("%d stay events, want 1", n)
+	}
+}
+
+// lingers bids like bidAll and, whenever it is shown a price for standing it
+// does not already own, buys two more ticks at the board — vigil's rule in
+// Go, and the whole of it: buy only what you have not already got.
+func lingers(frac float64) stepFunc {
+	return func(req StepRequest, in StepInput) StepResult {
+		if in.Observation.Phase != PhaseBid {
+			return solve(req, in)
+		}
+		acts := bidsFor(in, frac)
+		if in.Observation.StayPrice > 0 && in.Observation.StayTicksLeft == 0 {
+			acts = append(acts, Action{Type: ActionStay, Ticks: 2})
+		}
+		return out(acts...)
+	}
+}
+
+// The whole day again, twice, with money now able to move a body. Holding is
+// the one thing in the fair that changes what the town does next, so it is
+// the one thing that could make two identical days diverge — and the counts
+// below keep the diff from passing on a day where nobody bought anything.
+func TestFairStayDeterministic(t *testing.T) {
+	steps := map[string]stepFunc{
+		"scholar": lingers(0.8),
+		"frugal":  script(bidAll(0.5), solve),
+		"gambler": script(bidAll(0.3), solve),
+	}
+	dir := t.TempDir()
+	a := fairDay(t, filepath.Join(dir, "a.jsonl"), steps, true)
+	b := fairDay(t, filepath.Join(dir, "b.jsonl"), steps, true)
+
+	if len(a) != len(b) {
+		t.Fatalf("run lengths differ: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i].Type != b[i].Type || timeless(t, a[i].Payload) != timeless(t, b[i].Payload) {
+			t.Fatalf("line %d differs:\n  %s %s\n  %s %s",
+				i, a[i].Type, a[i].Payload, b[i].Type, b[i].Payload)
+		}
+	}
+	if n := count(a, trace.EventCredit, "stayed"); n == 0 {
+		t.Error("nobody paid to stand anywhere: the diff proved nothing about lingering")
+	}
+
+	// And the town obeyed the purchase. A resident who is waiting is a
+	// resident the fair's money moved — or rather, kept from moving.
+	waited := false
+	for _, l := range a {
+		if l.Type == trace.EventTown && strings.Contains(string(l.Payload), `"activity":"waiting"`) {
+			waited = true
+			break
+		}
+	}
+	if !waited {
+		t.Error("credits left the ledger but no body ever stood still")
 	}
 }

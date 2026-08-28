@@ -371,7 +371,9 @@ func (r *simRun) dispatchBid(ctx context.Context, sa *simAgent, views []BountyVi
 	r.inflight++
 	tick := r.tickNo
 	go func() {
-		bids := r.o.performBidStep(ctx, sa.ag, tick, views)
+		// Nil stay offer: the sim runs on a clock, not a map — its agents are
+		// always at the board, so there is no absence to buy your way out of.
+		bids := r.o.performBidStep(ctx, sa.ag, tick, views, nil)
 		r.results <- simResult{sa: sa, isBid: true, bids: bids}
 	}()
 }

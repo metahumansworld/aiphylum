@@ -112,18 +112,23 @@ func script(bid, attempt stepFunc) stepFunc {
 	}
 }
 
-// bidAll bids frac × MaxPayout on every open bounty, clamped to the reserve.
+// bidsFor is frac × MaxPayout on every open bounty, clamped to the reserve.
+func bidsFor(in StepInput, frac float64) []Action {
+	var acts []Action
+	for _, b := range in.Observation.Bounties {
+		price := ledger.Credits(float64(b.MaxPayout) * frac)
+		if price < b.Reserve {
+			price = b.Reserve
+		}
+		acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+	}
+	return acts
+}
+
+// bidAll bids that and nothing else.
 func bidAll(frac float64) stepFunc {
 	return func(_ StepRequest, in StepInput) StepResult {
-		var acts []Action
-		for _, b := range in.Observation.Bounties {
-			price := ledger.Credits(float64(b.MaxPayout) * frac)
-			if price < b.Reserve {
-				price = b.Reserve
-			}
-			acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
-		}
-		return out(acts...)
+		return out(bidsFor(in, frac)...)
 	}
 }
 

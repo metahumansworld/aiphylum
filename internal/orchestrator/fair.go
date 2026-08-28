@@ -51,6 +51,16 @@ type FairConfig struct {
 	MaxReopens int
 	// Office is the place ID an agent must be standing in to see the board.
 	Office string
+	// StayPrice is what one tick of standing at the office longer than the
+	// schedule allows costs the agent who asks for it. Zero means the
+	// default 8. The fee is burned rather than paid to anyone: nobody is on
+	// the other side of the transaction, because what is being bought is not
+	// a thing but an absence of walking.
+	StayPrice ledger.Credits
+	// MaxStayTicks caps a single purchase. The office keeps hours and does
+	// not let anyone sleep in the lobby; it also means one malformed action
+	// cannot burn a wallet dry in a single tick. Zero means the default 6.
+	MaxStayTicks int
 }
 
 // fairWindow is one open bid window, closing at a tick number rather than a
@@ -95,6 +105,9 @@ type Fair struct {
 	reopens  map[string]int
 	shelved  map[string]bool
 	standing map[string]*SimStanding
+	// held maps an agent to the last tick its standing is paid through. Read
+	// by Hold, written by chargeStays, both on the town's goroutine.
+	held map[string]int
 }
 
 // NewFair wires a fair onto an orchestrator and announces the episode. Like
@@ -110,6 +123,12 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	if cfg.MaxReopens <= 0 {
 		cfg.MaxReopens = 3
 	}
+	if cfg.StayPrice <= 0 {
+		cfg.StayPrice = 8
+	}
+	if cfg.MaxStayTicks <= 0 {
+		cfg.MaxStayTicks = 6
+	}
 	if cfg.Office == "" {
 		return nil, errors.New("orchestrator: the fair needs an office — presence at it is the whole coupling")
 	}
@@ -121,6 +140,7 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		reopens:   map[string]int{},
 		shelved:   map[string]bool{},
 		standing:  map[string]*SimStanding{},
+		held:      map[string]int{},
 	}
 	for _, ag := range o.live() {
 		f.standing[ag.ID] = &SimStanding{Agent: ag.ID}
@@ -129,6 +149,12 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	// the fair counts exactly what the benchmark counts and refuses to
 	// divide the two numbers, same as the sim.
 	o.watch = f.tally
+	// Deliberately not announcing the stay price here: this line is what a
+	// fair trace opens with, and every fair trace ever recorded opens with
+	// exactly these keys. Nothing is lost — a stay writes its own event
+	// carrying both the ticks and the amount, so the price of a day on which
+	// anyone actually bought one is recoverable by division, and on a day
+	// when nobody did there was no price paid to record.
 	o.traceEvent(trace.EventEpisode, map[string]any{
 		"action": "start", "track": "fair",
 		"deck": len(cfg.Deck), "post_minutes": cfg.PostMinutes,
@@ -222,7 +248,16 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		if len(views) == 0 {
 			continue
 		}
-		f.o.placeBids(ag, f.o.performBidStep(f.runCtx, ag, f.tick, views), aucs)
+		// The agent is told where it is standing and what standing there
+		// longer costs, and answers with one action list holding both what it
+		// wants to bid on and whether it wants to still be here.
+		acts := f.o.performBidStep(f.runCtx, ag, f.tick, views, &StayOffer{
+			Place: st.Place, Price: f.cfg.StayPrice, TicksLeft: f.staying(ag.ID),
+		})
+		f.o.placeBids(ag, acts, aucs)
+		if err := f.chargeStays(ag, st.Place, acts); err != nil {
+			return err
+		}
 	}
 
 	// Close what is due. The award happens at the board; the attempt happens
@@ -329,6 +364,93 @@ func (f *Fair) Close() (FairReport, error) {
 		rep.Standings = append(rep.Standings, out)
 	}
 	return rep, nil
+}
+
+// Hold is the town's inward seam and the exact twin of Visit: the town asks,
+// once per resident per tick, whether this body has been paid to stay put, and
+// the fair answers without telling it anything about money. Called on the
+// town's goroutine like Visit, so the map needs no lock.
+//
+// The arithmetic, because an off-by-one here would silently sell a tick more
+// or less than was paid for and nothing else would notice: a stay bought
+// during tick T's Visit for N ticks holds the agent through the movements of
+// ticks T+1 … T+N. The town moves everyone before it calls Visit, so when it
+// asks during tick T+1's movement f.tick is still T — which is where the +1
+// below comes from, and why TestFairStayExpiry checks both ends.
+func (f *Fair) Hold(id string) bool {
+	return f.held[id] >= f.tick+1
+}
+
+// staying is how many ticks of standing an agent has already paid for and not
+// yet spent, counted from this tick's Visit. It is the same number Hold is
+// about to answer with, said as a quantity instead of a yes: staying() >= 1
+// exactly when the next movement is held.
+func (f *Fair) staying(id string) int {
+	if n := f.held[id] - f.tick; n > 0 {
+		return n
+	}
+	return 0
+}
+
+// chargeStays buys whatever standing an agent asked for and can afford. It
+// runs after the bids from the same step are placed, because the bids are what
+// the agent came for and the stay is only about what it will still be here to
+// see.
+//
+// Nothing here can fail the tick. An agent that cannot pay is simply not held,
+// and told so in the trace rather than in its next observation: it asked to
+// buy something at a price it had been shown, and the answer it gets is the
+// ordinary one — it is not there any more.
+func (f *Fair) chargeStays(ag *Agent, place string, actions []Action) error {
+	for _, a := range actions {
+		if a.Type != ActionStay {
+			continue
+		}
+		// The first stay in a step wins and the rest are ignored. An agent
+		// that asks twice in one breath is asking for one thing, and a loop
+		// in somebody's code should not be able to empty their wallet a
+		// hundred times over inside a single minute.
+		n := a.Ticks
+		if n <= 0 {
+			n = 1 // asking to stay, without saying how long, is asking for a tick
+		}
+		if n > f.cfg.MaxStayTicks {
+			n = f.cfg.MaxStayTicks
+		}
+		cost := f.cfg.StayPrice * ledger.Credits(n)
+		bal, err := f.o.Ledger.Balance(f.settleCtx, ag.ID)
+		if err != nil {
+			return err
+		}
+		if bal < cost {
+			f.o.traceEvent(trace.EventNote, map[string]any{
+				"note": "stay refused", "agent": ag.ID, "ticks": n,
+				"cost": cost, "balance": bal,
+			})
+			return nil
+		}
+		// Burned, not transferred. There is nobody on the other side of this
+		// trade — the agent is not buying a thing from anyone, it is buying
+		// its own absence of walking — so the credits leave the economy
+		// through the sink that exists for exactly that, the same way a
+		// failed attempt's spend does.
+		if _, err := f.o.Ledger.Burn(f.settleCtx, ag.ID, cost, "stay", place); err != nil {
+			return err
+		}
+		// Renewal extends and never shortens: an agent that pays again while
+		// still held has bought the later of the two departures. It pays in
+		// full for the ticks it named either way, so overlapping a stay it
+		// already had is its own mistake to make.
+		if until := f.tick + n; until > f.held[ag.ID] {
+			f.held[ag.ID] = until
+		}
+		f.o.traceEvent(trace.EventCredit, map[string]any{
+			"action": "stayed", "agent": ag.ID, "place": place,
+			"ticks": n, "amount": cost, "until": f.held[ag.ID],
+		})
+		return nil
+	}
+	return nil
 }
 
 func (f *Fair) windowFor(id string) *fairWindow {

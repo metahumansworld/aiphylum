@@ -889,6 +889,9 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 .feedline.solved { background: var(--accent-wash); border-radius: var(--radius-sm, 6px); padding-inline: var(--space-1); }
 .feedline.failed b, .feedline.bankrupt b { color: var(--danger); }
 .feedline.nobids, .feedline.shelved { color: var(--ink-muted); }
+/* Money spent on nothing but presence: named in the accent so it reads as a
+   deliberate purchase, and left unshaded because it bought no outcome. */
+.feedline.stayed b { color: var(--accent); }
 
 /* The speech bubble lives inside the town SVG, one per speaker at a time. It
    is world furniture rather than chrome, so it takes the town's own outline

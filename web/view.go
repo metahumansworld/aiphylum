@@ -75,6 +75,8 @@ type TownInfo struct {
 	// bounty office is just one more place in town.
 	Bounties int
 	Awards   int
+	// Stays counts the times somebody paid to keep standing at the board.
+	Stays int
 }
 
 // The tracks a trace can come from. Benchmark and sim share one currency and
@@ -500,10 +502,28 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 			}
 
 		case trace.EventCredit:
-			if str("action") == "dust_burn" {
+			switch str("action") {
+			case "dust_burn":
 				if a := v.agentByID[str("agent")]; a != nil {
 					a.Balance -= credits("amount")
 					a.Timeline = append(a.Timeline, BalancePoint{l.Seq, a.Balance, "dust burned"})
+				}
+			case "stayed":
+				// A stay is a burn like any other, so it counts in both
+				// places a burn counts: against the reconstructed balance,
+				// and in the burned total. The four numbers at the top of an
+				// agent's page are its whole money story, and grant + earned
+				// − burned must still land on balance — otherwise a reader
+				// who adds them up is off by exactly what the agent spent
+				// standing still, with nothing on the page to say so.
+				if a := v.agentByID[str("agent")]; a != nil {
+					amount := credits("amount")
+					a.Burned += amount
+					a.Balance -= amount
+					a.Timeline = append(a.Timeline, BalancePoint{l.Seq, a.Balance, "stayed at " + str("place")})
+				}
+				if v.Town != nil {
+					v.Town.Stays++
 				}
 			}
 

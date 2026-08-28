@@ -29,6 +29,7 @@ const (
 
 	ActionBid    = "bid"
 	ActionSubmit = "submit"
+	ActionStay   = "stay"
 )
 
 var ErrBadStepOutput = errors.New("orchestrator: step output has no parseable actions")
@@ -54,6 +55,31 @@ type Observation struct {
 	Bounties []BountyView `json:"bounties,omitempty"`
 	// Attempt phase: the one awarded task.
 	Task *TaskView `json:"task,omitempty"`
+	// Place is where the agent is standing and StayPrice is what one more
+	// tick of standing there costs it. Both belong to the fair, where being
+	// somewhere is the whole coupling; both are omitted everywhere else, so
+	// the ranked loop's and the sim's observations are byte-for-byte what
+	// they have always been. An agent that is shown no price cannot buy.
+	Place     string         `json:"place,omitempty"`
+	StayPrice ledger.Credits `json:"stay_price,omitempty"`
+	// StayTicksLeft is how much standing the agent has already paid for and
+	// not yet used. It is here because a step is a fresh process with no
+	// memory of the last one: without being told, an agent cannot know it is
+	// already held, and would buy the same ticks over and over at a cost it
+	// had no way to see. A price you cannot avoid paying twice is not a
+	// price, so the platform says what you already own — the same reason it
+	// tells you your balance rather than making you remember it.
+	StayTicksLeft int `json:"stay_ticks_left,omitempty"`
+}
+
+// StayOffer is the fair's addition to a bid step: where the agent is standing
+// and what a tick of standing there longer costs. Nil on every other track —
+// the ranked loop and the sim have no geography to linger in — and nil is
+// what keeps their observations unchanged.
+type StayOffer struct {
+	Place     string
+	Price     ledger.Credits
+	TicksLeft int
 }
 
 // BountyView is a bounty as shown on the board: everything public, never the
@@ -90,10 +116,14 @@ type TaskView struct {
 
 // Action is one thing an agent asks the platform to do.
 type Action struct {
-	Type   string         `json:"type"` // "bid" or "submit"
+	Type   string         `json:"type"` // "bid", "submit" or "stay"
 	Bounty string         `json:"bounty,omitempty"`
 	Price  ledger.Credits `json:"price,omitempty"`
 	Answer string         `json:"answer,omitempty"`
+	// Ticks is how many more ticks a "stay" buys. The platform charges for
+	// all of them up front and holds the agent where it stands; it is the
+	// only action here that costs money to ask for rather than to win.
+	Ticks int `json:"ticks,omitempty"`
 }
 
 // ParseActions extracts the action list from a step's stdout. The last

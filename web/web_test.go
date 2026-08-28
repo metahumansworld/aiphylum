@@ -424,3 +424,79 @@ func TestViewerRanksImportedWorkWithAnAsterisk(t *testing.T) {
 		t.Errorf("posting detail = %q", m.History[0].Detail)
 	}
 }
+
+// A stay is the one purchase in the tree that buys no work and moves no money
+// to anybody — it just leaves the wallet. The viewer reconstructs every balance
+// from the stream alone, so it has to account for that, and it has to account
+// for it in both places a burn shows up. Otherwise the four numbers at the top
+// of an agent's page stop adding up and the page quietly lies by the exact
+// amount the agent spent standing still.
+func TestViewerCountsAStayAsMoneyGone(t *testing.T) {
+	var lines []trace.Line
+	at := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+	add := func(typ trace.EventType, payload map[string]any) {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at = at.Add(time.Second)
+		lines = append(lines, trace.Line{Seq: int64(len(lines) + 1), Time: at, Type: typ, Payload: raw})
+	}
+
+	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "vigil", "grant": 500})
+	add(trace.EventEpisode, map[string]any{"action": "start", "track": "fair"})
+	add(trace.EventTown, map[string]any{"action": "founded", "town": "Ashmere",
+		"places":    []map[string]any{{"id": "office", "kind": "building"}, {"id": "lane", "kind": "street"}},
+		"residents": []map[string]any{{"id": "vigil"}}})
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "x", "generator": "arith", "seed": 7, "tier": 1, "max_payout": 60, "reserve": 6})
+	add(trace.EventCredit, map[string]any{"action": "stayed", "agent": "vigil", "amount": 24, "place": "office", "ticks": 3, "until": 9})
+	add(trace.EventBid, map[string]any{"bounty": "x", "agent": "vigil", "price": 40})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "x", "winner": "vigil", "price": 40,
+		"book": []map[string]any{{"agent": "vigil", "price": 40}}})
+	add(trace.EventBounty, map[string]any{"action": "solved", "id": "x", "agent": "vigil", "payout": 40, "burned": 6})
+	add(trace.EventCredit, map[string]any{"action": "stayed", "agent": "vigil", "amount": 24, "place": "office", "ticks": 3, "until": 13})
+	add(trace.EventEpisode, map[string]any{"action": "end"})
+
+	v, err := BuildView("stay.jsonl", lines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := v.Agent("vigil")
+	if a == nil {
+		t.Fatal("vigil missing from view")
+	}
+
+	// 500 granted, 40 earned, 6 burned attempting, 48 burned standing still.
+	if a.Earned != 40 {
+		t.Errorf("earned = %d, want 40", a.Earned)
+	}
+	if a.Burned != 54 {
+		t.Errorf("burned = %d, want 54 (6 attempting + 48 standing still)", a.Burned)
+	}
+	if a.Balance != 486 {
+		t.Errorf("balance = %d, want 486", a.Balance)
+	}
+	// The identity the agent page's four stats are read as.
+	if got := a.Grant + a.Earned - a.Burned; got != a.Balance {
+		t.Errorf("grant+earned−burned = %d, but balance = %d", got, a.Balance)
+	}
+
+	// Both purchases have to be on the line, or the chart draws one step where
+	// two credits left. The label is what tells a reader why it stepped.
+	var stays []BalancePoint
+	for _, p := range a.Timeline {
+		if strings.HasPrefix(p.Label, "stayed at ") {
+			stays = append(stays, p)
+		}
+	}
+	if len(stays) != 2 || stays[0].Balance != 476 || stays[1].Balance != 486 {
+		t.Errorf("stay points on the balance line = %+v, want two, at 476 and 486", stays)
+	}
+	if stays[0].Label != "stayed at office" {
+		t.Errorf("stay label = %q", stays[0].Label)
+	}
+
+	if v.Town == nil || v.Town.Stays != 2 {
+		t.Errorf("town stays = %+v, want 2", v.Town)
+	}
+}

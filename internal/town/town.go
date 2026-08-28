@@ -283,9 +283,15 @@ func AshmereFair() (Map, []Persona) {
 // This is a design position, not a stopgap: you author the trader, the town
 // authors the body. A guest cannot schedule itself onto a cot in the office
 // doorway, and neither can the cast — presence is rationed by the same daily
-// round for everyone, so the competition is in the bidding, not the loitering.
-// Letting an agent steer its own legs is a real seam (an action in the step
-// protocol, priced like any other), and it is deliberately not this one.
+// round for everyone.
+//
+// One deviation is for sale, and only one. An agent standing at the office can
+// buy ticks of standing there longer, through the fair's "stay" action and the
+// Config.Hold seam; the town obliges without knowing the price or the reason.
+// It cannot buy a walk: a step only reaches an agent that is already at the
+// board, so the only ground anyone can ever be quoted a price for is the
+// ground under their own feet. Presence is still earned from the schedule.
+// Money can only extend it, and the competition stays in the bidding.
 //
 // Every guest keeps the same round. Two guests are two lodgers on one
 // timetable, which is what a boarding house is.

@@ -443,21 +443,30 @@ func (o *Orchestrator) reserveFor(maxPayout ledger.Credits) ledger.Credits {
 // places no bids. Model calls made while deciding bids are metered against the
 // agent's bankroll like any other spend.
 func (o *Orchestrator) bidStep(ctx context.Context, round int, ag *Agent, views []BountyView, aucs map[string]*auction.Auction) {
-	o.placeBids(ag, o.performBidStep(ctx, ag, round, views), aucs)
+	// No stay offer: the ranked loop has rounds, not places, so there is
+	// nowhere to linger and nothing to charge for lingering there.
+	o.placeBids(ag, o.performBidStep(ctx, ag, round, views, nil), aucs)
 }
 
 // performBidStep is the half of a bid that runs the agent's code: it asks what
 // the agent wants to bid and returns those actions. Like performAttempt it
 // touches only mutex-guarded pieces, so the sim can run it in a worker while
 // its actor loop keeps the auctions moving.
-func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int, views []BountyView) []Action {
+// A non-nil stay is the fair handing the agent its own whereabouts and the
+// price of staying there; nil omits both fields, which is why a track without
+// geography writes exactly the observation it always did.
+func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int, views []BountyView, stay *StayOffer) []Action {
 	bal, err := o.Ledger.Balance(ctx, ag.ID)
 	if err != nil {
 		o.Log.Warn("bid step: balance lookup failed", "agent", ag.ID, "err", err)
 		return nil
 	}
+	obs := Observation{Phase: PhaseBid, Round: round, Bounties: views}
+	if stay != nil {
+		obs.Place, obs.StayPrice, obs.StayTicksLeft = stay.Place, stay.Price, stay.TicksLeft
+	}
 	input, err := json.Marshal(StepInput{
-		Observation: Observation{Phase: PhaseBid, Round: round, Bounties: views},
+		Observation: obs,
 		Wallet:      WalletView{ID: ag.ID, Balance: bal},
 	})
 	if err != nil {

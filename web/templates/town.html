@@ -12,7 +12,8 @@
     {{.View.Town.Utterances}} things said, {{.View.Town.Reflections}} evening
     reflections — every word from the offline stub.{{end}}{{if .View.Town.Bounties}}
     {{.View.Town.Bounties}} bounties posted at the office, {{.View.Town.Awards}} won
-    at the board — you had to be standing there.{{end}}</p>
+    at the board — you had to be standing there.{{if .View.Town.Stays}}
+    Somebody paid to go on standing there {{.View.Town.Stays}} times.{{end}}{{end}}</p>
 </header>
 
 <noscript>

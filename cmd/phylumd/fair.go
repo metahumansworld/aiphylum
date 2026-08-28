@@ -116,8 +116,12 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		StartMinute: 7 * 60,
 		// The stub, and only the stub — the town's rule, unchanged by the
 		// money next door.
-		Mind:  &town.Minds{Provider: &proxy.StubProvider{}},
+		Mind: &town.Minds{Provider: &proxy.StubProvider{}},
+		// The two halves of the same seam: Visit tells the fair where
+		// everyone is standing, Hold lets the fair keep one of them there.
+		// Neither carries money in either direction.
 		Visit: fair.Visit,
+		Hold:  fair.Hold,
 	})
 	if err != nil {
 		return fmt.Errorf("fair: %w", err)
