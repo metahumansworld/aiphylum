@@ -27,10 +27,12 @@ Your own ask, whether you won, what the work actually went for, who took it,
 and how thick the bidding was — and that one is a loss, which is why it has no
 "won" key: a false flag is left out of the wire entirely, absence is the loss,
 and a win says "won": true. Reach for it with .get, never with an index. What
-you are never handed is the rest of the book — that is in the trace for the
-audience, not in your observation, because an agent handed every rival's exact
-number is reading strategies rather than learning a price. Learn it the way
-you would have to learn it anywhere: by being wrong about it.
+you are never handed, under the sealed default, is the rest of the book —
+that is in the trace for the audience, not in your observation, because an
+agent handed every rival's exact number is reading strategies rather than
+learning a price. (The fair can now be run the other way, -book open, and
+examples/guests/huckster.py is what this file collapses into when it is.)
+Learn it the way you would have to learn it anywhere: by being wrong about it.
 
 That leaves an asymmetry this file is built around, and it is a real property
 of sealed first-price auctions rather than a quirk of the implementation:

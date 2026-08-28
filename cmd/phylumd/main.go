@@ -74,6 +74,7 @@ func main() {
 		return nil
 	})
 	tiebreak := flag.String("tiebreak", "arrival", "fair: how a tie at the lowest ask is broken — arrival (the earlier bid wins) or lot (a seeded draw among the tied names)")
+	book := flag.String("book", "sealed", "fair: what each bidder is told of the auction book with its result — sealed (your ask, the clearing price, the winner, the head-count) or open (every name and every ask)")
 	days := flag.Int("days", 1, "town: how many simulated days to run")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
@@ -128,7 +129,7 @@ func main() {
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
-		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak,
+		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -167,6 +168,10 @@ type options struct {
 	// "arrival" or "lot". Arrival is the default on every track; lot is a
 	// fair thing, refused elsewhere the way -guest is.
 	tiebreak string
+	// book names what a bidder is told of the auction book: "sealed" or
+	// "open". Sealed is the default on every track; open is a fair thing,
+	// refused elsewhere the way -tiebreak lot is.
+	book string
 }
 
 const (
@@ -191,6 +196,16 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		}
 	default:
 		return fmt.Errorf("-tiebreak %q is not a policy; it is arrival or lot", opt.tiebreak)
+	}
+	switch opt.book {
+	case "", "sealed":
+		// The default everywhere, and the only policy the other tracks have.
+	case "open":
+		if !opt.fair {
+			return fmt.Errorf("-book open belongs to the fair; run it with -fair")
+		}
+	default:
+		return fmt.Errorf("-book %q is not a policy; it is sealed or open", opt.book)
 	}
 
 	// The town is a different genre, not a fourth arena mode: no ledger, no
@@ -398,14 +413,20 @@ func newOffline(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *
 	proxyURL := "http://" + ln.Addr().String()
 
 	steps := orchestrator.NewProcessSteps(proxyURL)
+	cfg := orchestrator.Config{
+		StepTimeout: 30 * time.Second,
+		// Dust: roughly the cost of one real model call. An agent below it
+		// can no longer play — its holds get refused, its attempts burn
+		// nothing, and it would haunt the board forever. It dies instead.
+		Dust: 200,
+	}
+	if opt.book == "open" {
+		// Only ever true under -fair — run() refuses it anywhere else — so
+		// the demo and the sim always build the zero value, sealed.
+		cfg.Book = orchestrator.OpenBook
+	}
 	orch := orchestrator.New(l, board, table, &proxy.StubProvider{Latency: opt.latency},
-		tw, steps, ladder, orchestrator.Config{
-			StepTimeout: 30 * time.Second,
-			// Dust: roughly the cost of one real model call. An agent below it
-			// can no longer play — its holds get refused, its attempts burn
-			// nothing, and it would haunt the board forever. It dies instead.
-			Dust: 200,
-		}, log)
+		tw, steps, ladder, cfg, log)
 	// Published once at the head of every episode, ahead of the supply it
 	// explains, so a reader meets the asterisk before the scores it qualifies.
 	orch.Suites = notes

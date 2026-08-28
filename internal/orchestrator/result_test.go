@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -115,10 +116,12 @@ func TestWinningTeachesNothingButThatYouWon(t *testing.T) {
 	}
 }
 
-// The seal, in the one place it still has to hold. The whole book goes into
-// the trace at award, because the trace is the audit record; it must not go
-// back to the bidders, because a repeated auction in which everyone reads
-// everyone's ask is one that walks straight down to the reserve floor.
+// The seal, in the one place it still has to hold: under the sealed default
+// this zero Config keeps. The whole book goes into the trace at award,
+// because the trace is the audit record; it must not go back to the bidders,
+// because a repeated auction in which everyone reads everyone's ask is one
+// that walks the price toward the reserve — the prediction -book open exists
+// to run, and the open twin of this test watches the other arm.
 //
 // Three asks make the property checkable: each loser must learn the clearing
 // price and its own number, and neither must learn the other's.
@@ -160,6 +163,12 @@ func TestResultsNeverCarryTheLosingBook(t *testing.T) {
 		// docs say so in three places; this is the one that checks it.
 		if strings.Contains(string(blob), `"won"`) {
 			t.Errorf("%s's loss carried a won key: %s", tc.who, blob)
+		}
+		// Since the book became a policy, the seal is this world's chosen one
+		// — Config's zero value — and it must hold the way it always did: no
+		// "book" key at all, absence to the byte, not an empty list.
+		if strings.Contains(string(blob), `"book"`) {
+			t.Errorf("%s's sealed result carried a book key: %s", tc.who, blob)
 		}
 	}
 }
@@ -360,7 +369,172 @@ func TestResultsAreDerivableFromTheTraceAlone(t *testing.T) {
 			t.Fatalf("%s was told %d results but the trace explains only %d", agent, len(got), len(want))
 		}
 		for i := range got {
-			if got[i] != want[i] {
+			if !reflect.DeepEqual(got[i], want[i]) {
+				t.Errorf("%s result %d: told %+v, trace says %+v", agent, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// The other policy, and the reason it is a policy: run -book open and the
+// seal above is off, deliberately, by a choice recorded on the episode's
+// start line. Every bidder is handed every name and every ask, its own line
+// included, in the order the bids arrived.
+//
+// The same three asks as the sealed test, so the two read as the pair they
+// are: there, 90 must not learn 95; here, it must.
+func TestOpenBookHandsEveryBidderTheWholeBook(t *testing.T) {
+	// The middle bidder registers first, so arrival order and price order
+	// disagree on purpose: a book that came out sorted by price would pass a
+	// fixture whose queue happens to be sorted already.
+	w := newWorld(t, &proxy.StubProvider{}, nil, Config{Book: OpenBook})
+	for _, id := range []string{"middle", "cheap", "dear"} {
+		w.add(t, id, 4000)
+	}
+	var cheapSaw, middleSaw, dearSaw [][]AuctionResult
+	w.steps.fns["cheap"] = script(collect(40, &cheapSaw), solve)
+	w.steps.fns["middle"] = script(collect(90, &middleSaw), solve)
+	w.steps.fns["dear"] = script(collect(95, &dearSaw), solve)
+
+	if err := w.orch.RunEpisode(w.ctx, twoRounds()); err != nil {
+		t.Fatal(err)
+	}
+	// Registration order is bid order is book order, and the book is not
+	// sorted by price on its way out: what an agent reads is the queue, which
+	// is exactly what the audience's trace records.
+	want := []BookEntry{{Agent: "middle", Asked: 90}, {Agent: "cheap", Asked: 40}, {Agent: "dear", Asked: 95}}
+	for _, tc := range []struct {
+		who string
+		saw [][]AuctionResult
+	}{{"cheap", cheapSaw}, {"middle", middleSaw}, {"dear", dearSaw}} {
+		if len(tc.saw) != 2 || len(tc.saw[1]) != 1 {
+			t.Fatalf("%s saw %v, want one result at its second step", tc.who, tc.saw)
+		}
+		got := tc.saw[1][0]
+		if !reflect.DeepEqual(got.Book, want) {
+			t.Errorf("%s was handed %+v, want the whole book %+v", tc.who, got.Book, want)
+		}
+		// The winner's margin is the thing a sealed auction refuses to say and
+		// this one says outright — the point of the whole milestone, so it is
+		// checked on the wire, where a mis-tagged field could drop it, rather
+		// than assumed from the struct match above.
+		blob, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ask := range []string{"40", "90", "95"} {
+			if !strings.Contains(string(blob), ask) {
+				t.Errorf("%s's open result is missing the ask %s: %s", tc.who, ask, blob)
+			}
+		}
+	}
+}
+
+// Opening the book must not widen the record by a byte, and this is the test
+// that says so: the whole book has been on the awarded event since milestone
+// 7, so an open result is still a function of the trace plus the reader's
+// identity. Nothing new is traced; the viewer's only change is a label.
+func TestOpenBooksAreDerivableFromTheTraceAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "open.jsonl")
+	tw, err := trace.NewWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := newWorld(t, &proxy.StubProvider{}, tw, Config{Book: OpenBook})
+	for _, id := range []string{"cheap", "middle", "dear"} {
+		w.add(t, id, 6000)
+	}
+	told := map[string][]AuctionResult{}
+	for id, price := range map[string]ledger.Credits{"cheap": 40, "middle": 90, "dear": 95} {
+		id, inner := id, bidFixed(price)
+		w.steps.fns[id] = script(func(req StepRequest, in StepInput) StepResult {
+			told[id] = append(told[id], in.Observation.Results...)
+			return inner(req, in)
+		}, solve)
+	}
+	three := Episode{Rounds: [][]Posting{{post(1, 1)}, {post(2, 1)}, {post(3, 1)}}}
+	if err := w.orch.RunEpisode(w.ctx, three); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := map[string][]AuctionResult{}
+	round := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var ev struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Action string         `json:"action"`
+				ID     string         `json:"id"`
+				Round  int            `json:"round"`
+				Winner string         `json:"winner"`
+				Price  ledger.Credits `json:"price"`
+				// auction.Bid has no json tags, so the traced book carries Go
+				// field names; the wire form an agent reads is lowercase. The
+				// mapping below is the whole of the difference.
+				Book []struct {
+					Agent string
+					Price ledger.Credits
+				} `json:"book"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue // model_call events carry a different payload shape
+		}
+		if ev.Type == string(trace.EventEpisode) && ev.Payload.Action == "round" {
+			round = ev.Payload.Round
+		}
+		if ev.Type != string(trace.EventBounty) || ev.Payload.Action != "awarded" {
+			continue
+		}
+		open := make([]BookEntry, len(ev.Payload.Book))
+		for i, b := range ev.Payload.Book {
+			open[i] = BookEntry{Agent: b.Agent, Asked: b.Price}
+		}
+		for _, b := range ev.Payload.Book {
+			rebuilt[b.Agent] = append(rebuilt[b.Agent], AuctionResult{
+				Bounty: ev.Payload.ID, Round: round, Asked: b.Price,
+				Won:      b.Agent == ev.Payload.Winner,
+				Clearing: ev.Payload.Price, Winner: ev.Payload.Winner,
+				Bidders: len(ev.Payload.Book), Book: open,
+			})
+		}
+	}
+	if len(rebuilt) == 0 {
+		t.Fatal("no awards in the trace; the test proves nothing")
+	}
+	delivered, withBook := 0, 0
+	for _, rs := range told {
+		delivered += len(rs)
+		for _, r := range rs {
+			if len(r.Book) > 0 {
+				withBook++
+			}
+		}
+	}
+	if delivered == 0 {
+		t.Fatal("nobody was told anything; a comparison against the trace proves nothing")
+	}
+	if withBook == 0 {
+		t.Fatal("no result carried a book; this is meant to be the open policy")
+	}
+	for agent, want := range rebuilt {
+		// As in the sealed twin: the last round's outcome is never delivered,
+		// because the episode ends before there is a bid step to deliver it.
+		got := told[agent]
+		if len(got) > len(want) {
+			t.Fatalf("%s was told %d results but the trace explains only %d", agent, len(got), len(want))
+		}
+		for i := range got {
+			// DeepEqual and not ==: the book is a slice, and its order is
+			// part of what has to match.
+			if !reflect.DeepEqual(got[i], want[i]) {
 				t.Errorf("%s result %d: told %+v, trace says %+v", agent, i, got[i], want[i])
 			}
 		}

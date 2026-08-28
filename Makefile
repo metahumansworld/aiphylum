@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -103,6 +103,29 @@ fair-rivals:
 fair-lots:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/rival.py -tiebreak lot -trace fair-lots-trace.jsonl
 
+## fair-hucksters: the rivals' fair with the book handed over. Two copies of
+## one program again — examples/guests/hawker.py imports huckster.py's act the
+## way rival.py imports haggler.py's — but this fair runs -book open, so every
+## auction result carries every name and every ask. The huckster has one rule
+## where the haggler needed two: price just under the cheapest number in the
+## book that is not yours. This is the README's oldest prediction run instead
+## of argued, which is why the target exists and why -book open does not
+## default. fair-rivals keeps the sealed reference, but these guests are not
+## those guests: the strict control is this same command without "-book open",
+## which differs from an open day by one flag and, in the trace, one key on
+## the start line.
+fair-hucksters:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/hawker.py -trace fair-hucksters-trace.jsonl
+
+## fair-hucksters-lot: the open book and the lot at once. If two readers of
+## the same book converge on the same number every round — the prediction —
+## then the price stops deciding anything and the tie-break decides
+## everything, and under arrival order that is the roster deciding. The lot
+## replaces the roster with a seeded draw, so this day shows what the open
+## book does when the queue is not allowed to launder its results.
+fair-hucksters-lot:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/hawker.py -tiebreak lot -trace fair-hucksters-lot-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -117,4 +140,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl

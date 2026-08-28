@@ -100,6 +100,12 @@ type EpisodeInfo struct {
 	Conservation string
 	Start        time.Time
 	End          time.Time
+
+	// OpenBook marks an episode run with -book open: every bidder was handed
+	// the whole book at announce. The trace looks the same either way — the
+	// book has been on the awarded event since milestone 7 — but the pages
+	// must not caption an opened book "sealed".
+	OpenBook bool
 }
 
 // AgentView is one agent's whole arc.
@@ -132,7 +138,8 @@ type AttemptView struct {
 	Burned  ledger.Credits
 }
 
-// BidView is one sealed bid, from this agent's side.
+// BidView is one bid, from this agent's side — sealed from the other bidders
+// on every track except an open-book fair.
 type BidView struct {
 	Seq    int64
 	Round  int
@@ -310,6 +317,7 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					v.Episode.Track = TrackBenchmark
 				}
 				v.Episode.Rounds = int(num("rounds"))
+				v.Episode.OpenBook = str("book") == "open"
 			case "round":
 				round = int(num("round"))
 				// A real-time world does not know its length in advance, so

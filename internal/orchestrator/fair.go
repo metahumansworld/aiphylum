@@ -160,6 +160,11 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		// accident this field exists to end.
 		return nil, fmt.Errorf("orchestrator: unknown tie-break policy %d", cfg.Tie)
 	}
+	if o.Cfg.Book != SealedBook && o.Cfg.Book != OpenBook {
+		// The tie-break's rule again, on the announcer's policy: a book
+		// that silently sealed itself would be a default nobody chose.
+		return nil, fmt.Errorf("orchestrator: unknown book policy %d", o.Cfg.Book)
+	}
 	f := &Fair{
 		o:         o,
 		cfg:       cfg,
@@ -202,6 +207,15 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	if cfg.Tie == auction.ByLot {
 		start["tiebreak"] = "lot"
 		start["lot_salt"] = strconv.FormatUint(cfg.LotSalt, 10)
+	}
+	if o.Cfg.Book == OpenBook {
+		// The book policy is an input for the tie-break's reason: no line
+		// of the day records what the bidders were told, because results
+		// are never traced, so a reader who was not told up front could
+		// replay every award and still not know what kind of market this
+		// was. A sealed day carries no key at all — a policy that was not
+		// in force should not be in the record.
+		start["book"] = "open"
 	}
 	o.traceEvent(trace.EventEpisode, start)
 	return f, nil

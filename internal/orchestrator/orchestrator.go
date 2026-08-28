@@ -53,6 +53,30 @@ type StepRunner interface {
 	RunStep(ctx context.Context, req StepRequest) (StepResult, error)
 }
 
+// BookPolicy is what the platform tells an auction's bidders about the rest
+// of the book when it announces the outcome. Sealed is the zero value and the
+// default on every track: each bidder learns its own ask, the clearing price,
+// the winner and the head-count, never a rival's number. OpenBook hands every
+// bidder the whole book — every name and every ask — and exists so the
+// protocol's oldest prediction could be run instead of only argued: that
+// agents reading each other's exact asks stop pricing the work and walk the
+// price to the reserve. The README keeps what happened.
+//
+// The policy is the announcer's, not the auction's — the book is public in
+// the trace either way, and what varies is what the crier repeats to the
+// people it was sealed against — which is why it lives here on Config rather
+// than beside TieBreak: Award never reads it. Only the fair's command line
+// ever sets it, and only the fair's start line declares it — announce honors
+// the field wherever Config carries it, so setting it anywhere else would
+// run the experiment undeclared. The arena and the sim leave the zero value
+// untouched and announce exactly as they always have.
+type BookPolicy int
+
+const (
+	SealedBook BookPolicy = iota
+	OpenBook
+)
+
 // Config sets the orchestrator's policies.
 type Config struct {
 	// ReserveFraction sets each auction's reserve price as this fraction of
@@ -67,6 +91,11 @@ type Config struct {
 	// an exactly empty wallet bankrupts; operators set it to the cost of the
 	// cheapest possible call so broke agents die instead of haunting the board.
 	Dust ledger.Credits
+	// Book is what announce repeats of the auction book. The zero value is
+	// SealedBook, which is every track's behaviour before the policy had a
+	// name; NewFair refuses a value it does not know rather than falling
+	// back, for the tie-break's reason.
+	Book BookPolicy
 }
 
 // Agent is one competitor's lifecycle record. Its wallet shares its ID.
@@ -266,13 +295,23 @@ func (c *crier) take(agent string) []AuctionResult {
 //
 // Nothing is traced: every field of every result is derivable from the
 // "awarded" event the caller has just written, so a line per bidder would say,
-// fifteen times over, what one line already said.
+// fifteen times over, what one line already said. That stays true under an
+// open book — the whole book is on that same awarded line, so opening it
+// widens what each bidder is told without widening the record by a byte.
 func (o *Orchestrator) announce(bountyID string, round int, winner auction.Bid, book []auction.Bid) {
+	var open []BookEntry
+	if o.Cfg.Book == OpenBook {
+		open = make([]BookEntry, len(book))
+		for i, b := range book {
+			open[i] = BookEntry{Agent: b.Agent, Asked: b.Price}
+		}
+	}
 	for _, b := range book {
 		o.crier.file(b.Agent, AuctionResult{
 			Bounty: bountyID, Round: round, Asked: b.Price,
 			Won:      b.Agent == winner.Agent,
 			Clearing: winner.Price, Winner: winner.Agent, Bidders: len(book),
+			Book: open,
 		})
 	}
 }
