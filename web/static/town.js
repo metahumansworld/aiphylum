@@ -757,7 +757,10 @@ function stepWalkers(dt) {
 }
 
 function drawWalkers() {
-  // Anyone sharing a cell would stand inside somebody else; fan them out.
+  // Anyone sharing a cell would stand inside somebody else; fan them out. The
+  // step of that fan is narrower than a name plate, though, so the plates alone
+  // would still land on top of one another: they climb instead, one above the
+  // next, each left over the head it names.
   const byCell = new Map();
   for (const [id, w] of walkers) {
     const k = Math.round(w.gx - 0.5) + "," + Math.round(w.gy - 0.5);
@@ -772,9 +775,11 @@ function drawWalkers() {
         w.node = document.getElementById("w-" + id);
         if (!w.node) return;
         w.flip = w.node.querySelector(".flip");
+        w.tag = w.node.querySelector(".tag");
         w.limbs = [...w.node.querySelectorAll(".limb")];
       }
       const off = ids.length > 1 ? (i - (ids.length - 1) / 2) * 12 : 0;
+      const tagY = ids.length > 1 ? -i * 16 : 0;
       const [px, py] = C(w.gx, w.gy);
       // Indoors the ground is the floorboards on top of the footing, so a
       // resident who steps through a door steps up onto it.
@@ -790,6 +795,7 @@ function drawWalkers() {
         const s = (swing * Number(l.dataset.dir)).toFixed(1);
         l.setAttribute("transform", `rotate(${s},0,${l.dataset.pivot})`);
       }
+      if (tagY !== w.tagY) { w.tag.setAttribute("transform", `translate(0,${tagY})`); w.tagY = tagY; }
       const d = inside ? frontRow.get(inside) : Math.round(w.gx - 0.5) + Math.round(w.gy - 0.5);
       if (d !== w.row) {
         const row = document.getElementById("row-" + d);
