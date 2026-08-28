@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -49,6 +49,13 @@ town-mind:
 fair:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -trace fair-trace.jsonl
 
+## fair-guest: the fair with a guest — a user-authored agent (the worked
+## example in examples/guests/pilgrim.py) takes lodgings and bids against the
+## cast on the same money. Its own trace file, because fair-trace.jsonl is a
+## pinned artefact and a fair with a stranger in it is a different day.
+fair-guest:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/pilgrim.py -trace fair-guest-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -63,4 +70,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl

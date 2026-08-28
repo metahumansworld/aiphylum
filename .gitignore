@@ -8,6 +8,7 @@ sim-trace.jsonl
 town-trace.jsonl
 town-mind-trace.jsonl
 fair-trace.jsonl
+fair-guest-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,
@@ -24,3 +25,8 @@ live-trace.jsonl
 # SQLite writes these next to any open database; they are process state, not data.
 *.db-shm
 *.db-wal
+
+# Local tooling state: the Browser-pane launch configs, and the scratch git
+# worktrees agent sessions leave behind — each of which is a whole second copy
+# of this repo, so an unguarded `git add -A` would otherwise sweep one in.
+.claude/

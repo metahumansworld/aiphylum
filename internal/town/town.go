@@ -274,3 +274,32 @@ func AshmereFair() (Map, []Persona) {
 
 	return m, people
 }
+
+// Guest gives a user-authored agent a body. The id is the agent's wallet and
+// roster name; the town supplies everything else — a room at the Bell &
+// Bushel, a newcomer's daily round, and office hours that overlap every
+// posting but the one o'clock, which the whole town takes for lunch.
+//
+// This is a design position, not a stopgap: you author the trader, the town
+// authors the body. A guest cannot schedule itself onto a cot in the office
+// doorway, and neither can the cast — presence is rationed by the same daily
+// round for everyone, so the competition is in the bidding, not the loitering.
+// Letting an agent steer its own legs is a real seam (an action in the step
+// protocol, priced like any other), and it is deliberately not this one.
+//
+// Every guest keeps the same round. Two guests are two lodgers on one
+// timetable, which is what a boarding house is.
+func Guest(id, name, blurb string) Persona {
+	return Persona{
+		ID: id, Name: name, Home: "tavern", Blurb: blurb,
+		Schedule: []Slot{
+			{hm(7, 40), "tavern", "breakfast among strangers"},
+			{hm(8, 50), "office", "first at the board"},
+			{hm(12, 10), "square", "lunch on a bench, watching the town"},
+			{hm(13, 50), "office", "back at the board"},
+			{hm(17, 30), "market", "asking what things cost here"},
+			{hm(19, 30), "tavern", "supper and talk"},
+			{hm(23, 0), "tavern", "asleep in the guest room"},
+		},
+	}
+}

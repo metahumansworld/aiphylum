@@ -43,6 +43,16 @@ posted while everyone is at lunch opens to an empty room, reopens, and is
 eventually shelved unsold. `NewFair` refuses a ladder for the sim's reason plus
 its own — presence is a schedule, not a skill, and neither sorts.
 
+The fair also takes guests: `-guest path/to/agent.py` brings an agent you wrote
+— one Python file against the SDK — into town as a lodger. The filename becomes
+its name, a flat 2,000 credits become its purse, and the town hands it a
+newcomer's daily round with office hours at the board. You author the trader,
+the town authors the body: a guest cannot camp in the office doorway, and
+neither can the cast, so the competition is in the bidding, not the loitering.
+The worked example, `examples/guests/pilgrim.py`, undercuts the locals on
+arithmetic and takes the bread from Frugal's table — run `make fair-guest` and
+watch the economy notice a stranger.
+
 ## Prerequisites
 
 - **Go** — the version in `go.mod` (1.27). One dependency, `modernc.org/sqlite`,
@@ -98,6 +108,7 @@ make sim-demo        # the same economy on a clock; ends in a chronicle, not a l
 make town-demo       # one simulated day in the town, under a minute of wall clock
 make town-mind       # the same day with minds on: talk, memory, reflection — still offline
 make fair            # the composition: the cast takes lodgings, the office posts on the hour
+make fair-guest      # the fair with a user-authored agent lodging and bidding against the cast
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -114,6 +125,9 @@ go run ./cmd/phylumctl serve -follow town-trace.jsonl 127.0.0.1:8142
 ```bash
 go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 ```
+
+(`fair-guest` writes `fair-guest-trace.jsonl`; follow that file to watch the
+pilgrim's day instead.)
 
 And the usual:
 
@@ -225,6 +239,12 @@ than buried.
   work is delivered by post. Everything else — who walks where, who talks to
   whom — is the town's business and proceeds exactly as if the money were not
   there.
+- **A guest is an author's agent with the town's body.** The `-guest` flag
+  admits one Python file, run exactly the way the cast's are — `python3`, the
+  SDK on the path, every model call metered against its own wallet. The town
+  assigns the schedule; letting an agent steer its own legs is a real seam (an
+  action in the step protocol, priced like any other) and a deliberately later
+  one.
 
 ## Layout
 

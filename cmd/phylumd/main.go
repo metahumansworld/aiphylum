@@ -68,6 +68,11 @@ func main() {
 	townMode := flag.Bool("town", false, "run the town: residents on daily schedules, no economy; add -mind for the thinking half")
 	mindFlag := flag.Bool("mind", false, "town: residents keep memories, talk when they meet, and reflect at day's end — on the offline stub, zero API calls")
 	fairMode := flag.Bool("fair", false, "run the fair: the sim's economy at the town's bounty office — the cast gets bodies, and only who is standing at the board can bid; stub only, zero spend")
+	var guests []string
+	flag.Func("guest", "fair: `path` to a user-authored agent (a Python file on the SDK); it takes lodgings at the tavern and bids against the cast — repeatable", func(v string) error {
+		guests = append(guests, v)
+		return nil
+	})
 	days := flag.Int("days", 1, "town: how many simulated days to run")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
@@ -122,7 +127,7 @@ func main() {
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
-		days: *days, tick: *tick,
+		days: *days, tick: *tick, guests: guests,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -153,6 +158,9 @@ type options struct {
 	deck                 int
 
 	days int
+
+	// guests are user-authored agents joining the fair; empty everywhere else.
+	guests []string
 	tick time.Duration
 }
 
@@ -164,6 +172,12 @@ const (
 )
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
+	// A guest is a fair thing: the demo and the sim have no map for a body to
+	// stand on, and the plain town has no board for a trader to read.
+	if len(opt.guests) > 0 && !opt.fair {
+		return fmt.Errorf("-guest belongs to the fair; run it with -fair")
+	}
+
 	// The town is a different genre, not a fourth arena mode: no ledger, no
 	// board, no agents, no money. It shares only the trace and the viewer, so
 	// it branches off before any of the economy is built.

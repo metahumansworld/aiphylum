@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
 	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
 	"github.com/singhtushant3-hub/aiphylum/internal/judge"
@@ -51,6 +53,43 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}
 	fmt.Printf("  + %-8s %5d credits — grades the open-ended briefs, spends its own money\n",
 		"judge", judgeEndowment)
+
+	// Guest intake. The flag brought the trader; town.Guest brings the body.
+	// A guest's file runs exactly the way the cast's do — python3, the SDK on
+	// the path, every model call through the metering proxy — so the only
+	// difference between a guest and the cast is who wrote it.
+	taken := map[string]bool{"judge": true}
+	for _, a := range cast {
+		taken[a.id] = true
+	}
+	for _, p := range people {
+		taken[p.ID] = true
+	}
+	guests, err := guestRoster(opt.guests, taken)
+	if err != nil {
+		return err
+	}
+	sdkDir, err := filepath.Abs(filepath.Join("sdk", "python"))
+	if err != nil {
+		return err
+	}
+	for _, g := range guests {
+		w.steps.Register(g.id, orchestrator.ProcessAgent{
+			Cmd: []string{"python3", g.path},
+			// The guest's own directory joins the path so it can split
+			// itself into modules; the SDK joins it because the SDK is
+			// the platform's half of the bargain.
+			Env: map[string]string{"PYTHONPATH": sdkDir + ":" + filepath.Dir(g.path)},
+		})
+		if err := w.orch.AddAgent(ctx, g.id, guestGrant); err != nil {
+			return err
+		}
+		name := strings.ToUpper(g.id[:1]) + g.id[1:]
+		people = append(people, town.Guest(g.id, name,
+			"a guest at the Bell & Bushel; not of the cast — brought to the fair by its author"))
+		fmt.Printf("  + %-8s %5d credits — a guest, come for the board (yours: %s)\n",
+			g.id, guestGrant, filepath.Base(g.path))
+	}
 
 	// One card per posting hour per day: the deck is sized by the calendar,
 	// not by a flag, because the office cannot post more often than it opens.
