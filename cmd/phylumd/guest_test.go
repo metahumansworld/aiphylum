@@ -56,6 +56,23 @@ func TestGuestRoster(t *testing.T) {
 		}
 	})
 
+	// Roster order is the order the -guest flags were written, and it survives
+	// all the way to the auction: the fair walks the town's standings in roster
+	// order, so the first flag is shown each board first and takes the earlier
+	// arrival — which is how the auction breaks a tie. `make fair-rivals` runs
+	// two copies of one strategy and the first flag wins every tie between
+	// them, so a sort quietly introduced here would not fail anything loudly.
+	// It would just hand the win to whichever name came first in the alphabet.
+	t.Run("the flags keep the order they were written in", func(t *testing.T) {
+		gs, err := guestRoster([]string{mk("zeta.py"), mk("alpha.py")}, map[string]bool{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(gs) != 2 || gs[0].id != "zeta" || gs[1].id != "alpha" {
+			t.Fatalf("roster is not in flag order: %+v", gs)
+		}
+	})
+
 	t.Run("two guests, one filename, refused", func(t *testing.T) {
 		p := mk("twin.py")
 		if _, err := guestRoster([]string{p, p}, map[string]bool{}); err == nil {
