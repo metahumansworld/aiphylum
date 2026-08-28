@@ -104,6 +104,65 @@ type Observation struct {
 	// writes one, so a track that ignores memos observes exactly what it always
 	// did.
 	Memo string `json:"memo,omitempty"`
+	// Results is what came of the bids this agent placed at its last bid step,
+	// one entry per auction it was actually in, in award order.
+	//
+	// Until this field existed an agent could not tell losing from nothing
+	// happening. It bid, it was not awarded, and the next thing it saw was a
+	// board with the same bounty still on it — which is equally what a shelved
+	// bounty, a lost auction, and a refused bid all look like from the inside.
+	// So the one number a market exists to discover, the price the work
+	// actually went for, was the one number nobody could learn.
+	//
+	// Participation is the gate: you are told about auctions you bid in, and no
+	// others. What you are told is your own ask, whether you won, what it
+	// cleared at, who took it, and how many were bidding — never the losing
+	// book. The whole book is in the trace, because the trace is the audit
+	// record and a human reader needs it; handing it to the bidders is a
+	// different thing entirely. In a repeated auction an agent given every
+	// rival's exact ask is not learning a price, it is reading a strategy, and
+	// the floor everyone converges on is the reserve — which is the collusion
+	// the reserve exists to prevent, arrived at honestly. You learn what you
+	// cleared against, not who you beat.
+	//
+	// Delivered once. The platform announces the outcome at your next bid step
+	// and never again; carrying it further is what the memo is for. Omitted
+	// while empty — which is every step of an agent that bid on nothing, and
+	// every attempt step — so a track whose agents ignore results observes
+	// exactly what it always did.
+	Results []AuctionResult `json:"results,omitempty"`
+}
+
+// AuctionResult is one closed auction reported back to one of its bidders.
+//
+// It is deliberately reconstructible from the trace: every field here is a
+// function of the "awarded" event for that bounty plus the identity of the
+// bidder being told. That is what lets the platform announce outcomes without
+// writing a single extra byte — a reader who wants to know what an agent knew
+// can derive it, and a per-bidder announcement line would only repeat, once
+// per bidder, what one award line already says.
+type AuctionResult struct {
+	Bounty string `json:"bounty"`
+	// Round is the round (or tick) the auction closed on, which is not
+	// necessarily the round you bid in: a window can span several.
+	Round int `json:"round"`
+	// Asked is the price this agent asked, handed back because a step is a
+	// fresh process and cannot otherwise know what its predecessor bid.
+	Asked ledger.Credits `json:"asked"`
+	// Won is omitted when false, so a loss arrives as a result with no "won"
+	// key at all — the same absent-means-no shape as Judged. Read it with a
+	// lookup that tolerates the absence rather than an index that does not.
+	Won bool `json:"won,omitempty"`
+	// Clearing is the winning ask. For the winner it is Asked again, which is
+	// the honest shape of a sealed first-price auction: winning tells you that
+	// you were lowest and nothing whatever about by how much. Only losing
+	// teaches you the price.
+	Clearing ledger.Credits `json:"clearing"`
+	Winner   string         `json:"winner"`
+	// Bidders is how many asks were in the book. How contested the work was is
+	// a fact about the market rather than about any rival, so it can be told
+	// without unsealing anything.
+	Bidders int `json:"bidders"`
 }
 
 // StayOffer is the fair's addition to a bid step: where the agent is standing

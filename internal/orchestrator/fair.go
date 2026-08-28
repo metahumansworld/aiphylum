@@ -290,6 +290,7 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		f.o.traceEvent(trace.EventBounty, map[string]any{
 			"action": "awarded", "id": w.b.ID, "winner": winner.Agent, "price": winner.Price, "book": book,
 		})
+		f.o.announce(w.b.ID, f.tick, winner, book)
 		delete(f.reopens, w.b.ID)
 		if err := f.attempt(w.b, winner.Agent); err != nil {
 			return err

@@ -115,6 +115,7 @@ type Orchestrator struct {
 	tw     *trace.Writer
 	faults *faultTracker
 	memos  *notebook
+	crier  *crier
 	// epoch namespaces attempt wallets across episodes. A bounty that failed
 	// in one episode re-enters auction in the next with its ID intact; if it
 	// is re-awarded at the same round number, the attempt wallet name repeats
@@ -169,6 +170,7 @@ func New(l *ledger.Ledger, board *bounty.Board, table *proxy.PriceTable, provide
 		tw:     tw,
 		faults: ft,
 		memos:  &notebook{memos: map[string]string{}},
+		crier:  &crier{pending: map[string][]AuctionResult{}},
 	}
 }
 
@@ -221,6 +223,58 @@ func (n *notebook) write(agent, text string) bool {
 	}
 	n.memos[agent] = text
 	return true
+}
+
+// crier holds auction outcomes between the award that produced them and the
+// bid step that hears them. Keyed by agent for the reason the notebook is: an
+// outcome is a fact about the bidder, and the attempt wallet a bidder spends
+// from is retired long before the next observation is built.
+//
+// The sim awards on its actor goroutine while bid steps run in workers, so
+// this is mutex-guarded like everything else two goroutines touch.
+type crier struct {
+	mu      sync.Mutex
+	pending map[string][]AuctionResult
+}
+
+func (c *crier) file(agent string, r AuctionResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending[agent] = append(c.pending[agent], r)
+}
+
+// take hands over an agent's undelivered outcomes and forgets them. Announced
+// once, by a platform that then stops repeating itself: a market tells you the
+// price when it closes, and remembering it is your job — which is precisely
+// the job the memo exists to do.
+//
+// Draining here rather than after the step succeeds is deliberate. An agent
+// whose process dies before it reads its own stdin has missed the
+// announcement, the way it also misses the round's bidding; the platform is
+// not obliged to keep shouting at a container that is not listening.
+func (c *crier) take(agent string) []AuctionResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rs := c.pending[agent]
+	delete(c.pending, agent)
+	return rs
+}
+
+// announce files the outcome of one closed auction with every agent that bid
+// in it. All three tracks award through here, so a result means the same thing
+// whether it came from a round, a sim window, or a bid window at the fair.
+//
+// Nothing is traced: every field of every result is derivable from the
+// "awarded" event the caller has just written, so a line per bidder would say,
+// fifteen times over, what one line already said.
+func (o *Orchestrator) announce(bountyID string, round int, winner auction.Bid, book []auction.Bid) {
+	for _, b := range book {
+		o.crier.file(b.Agent, AuctionResult{
+			Bounty: bountyID, Round: round, Asked: b.Price,
+			Won:      b.Agent == winner.Agent,
+			Clearing: winner.Price, Winner: winner.Agent, Bidders: len(book),
+		})
+	}
 }
 
 // faultTracker tees proxy events into the trace and remembers, per wallet,
@@ -421,6 +475,7 @@ func (o *Orchestrator) runRound(ctx context.Context, round int, postings []Posti
 		o.traceEvent(trace.EventBounty, map[string]any{
 			"action": "awarded", "id": b.ID, "winner": winner.Agent, "price": winner.Price, "book": book,
 		})
+		o.announce(b.ID, round, winner, book)
 		awarded = append(awarded, byID[b.ID])
 	}
 
@@ -514,7 +569,10 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 		o.Log.Warn("bid step: balance lookup failed", "agent", ag.ID, "err", err)
 		return nil
 	}
-	obs := Observation{Phase: PhaseBid, Round: round, Bounties: views, Memo: o.memos.get(ag.ID)}
+	obs := Observation{
+		Phase: PhaseBid, Round: round, Bounties: views,
+		Memo: o.memos.get(ag.ID), Results: o.crier.take(ag.ID),
+	}
 	if stay != nil {
 		obs.Place, obs.StayPrice, obs.StayTicksLeft = stay.Place, stay.Price, stay.TicksLeft
 	}

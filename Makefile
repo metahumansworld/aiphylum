@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -73,6 +73,15 @@ fair-vigil:
 fair-scribe:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/scribe.py -trace fair-scribe-trace.jsonl
 
+## fair-haggle: the same fair again, with a guest who learns what things go for.
+## examples/guests/haggler.py is examples/guests/pilgrim.py plus exactly one
+## behaviour — it reads observation["results"], the outcome of every auction it
+## bid in, and walks its ask up after a win and under the clearing price after a
+## loss — so the difference between this trace and fair-guest-trace.jsonl is the
+## haggling and nothing else.
+fair-haggle:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -guest examples/guests/haggler.py -trace fair-haggle-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -87,4 +96,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl

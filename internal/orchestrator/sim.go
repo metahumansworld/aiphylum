@@ -408,6 +408,7 @@ func (r *simRun) closeDue(ctx context.Context) error {
 		r.o.traceEvent(trace.EventBounty, map[string]any{
 			"action": "awarded", "id": sa.b.ID, "winner": winner.Agent, "price": winner.Price, "book": book,
 		})
+		r.o.announce(sa.b.ID, r.tickNo, winner, book)
 		delete(r.reopens, sa.b.ID)
 
 		wa := r.simAgent(winner.Agent)

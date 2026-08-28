@@ -60,16 +60,16 @@ const (
 // of replay. Request and response are stored verbatim: replay is exact because
 // this is the byte stream that actually happened.
 type Event struct {
-	Time     time.Time      `json:"time"`
-	Wallet   string         `json:"wallet"`
-	Model    string         `json:"model"`
+	Time     time.Time       `json:"time"`
+	Wallet   string          `json:"wallet"`
+	Model    string          `json:"model"`
 	Request  json.RawMessage `json:"request"`
 	Response json.RawMessage `json:"response,omitempty"`
-	Usage    Usage          `json:"usage"`
-	Cost     ledger.Credits `json:"cost"`
-	Balance  ledger.Credits `json:"balance"` // wallet balance after the call
-	Outcome  Outcome        `json:"outcome"`
-	Error    string         `json:"error,omitempty"`
+	Usage    Usage           `json:"usage"`
+	Cost     ledger.Credits  `json:"cost"`
+	Balance  ledger.Credits  `json:"balance"` // wallet balance after the call
+	Outcome  Outcome         `json:"outcome"`
+	Error    string          `json:"error,omitempty"`
 }
 
 // Recorder receives every proxy event. The trace package implements it with a

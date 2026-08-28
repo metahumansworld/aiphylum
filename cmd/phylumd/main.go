@@ -142,10 +142,10 @@ type options struct {
 	fair, mind      bool
 	rounds          int
 	seed            int64
-	tracePath string
-	dbPath    string
-	genDir    string
-	latency   time.Duration
+	tracePath       string
+	dbPath          string
+	genDir          string
+	latency         time.Duration
 	// imported gates the whole imported path at once — load, register,
 	// declare, and deal. One switch, because a world that declares a suite it
 	// never posts from would print a provenance note explaining nothing, and a
@@ -161,7 +161,7 @@ type options struct {
 
 	// guests are user-authored agents joining the fair; empty everywhere else.
 	guests []string
-	tick time.Duration
+	tick   time.Duration
 }
 
 const (

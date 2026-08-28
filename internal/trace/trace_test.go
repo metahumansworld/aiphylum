@@ -17,8 +17,8 @@ func mkEvent(model, prompt string) proxy.Event {
 	return proxy.Event{
 		Time: time.Now(), Wallet: "w1", Model: model,
 		Request: req, Response: resp,
-		Usage:   proxy.Usage{InputTokens: 10, OutputTokens: 5},
-		Cost:    42, Balance: 958, Outcome: proxy.OutcomeOK,
+		Usage: proxy.Usage{InputTokens: 10, OutputTokens: 5},
+		Cost:  42, Balance: 958, Outcome: proxy.OutcomeOK,
 	}
 }
 

@@ -66,8 +66,22 @@ action fixes that and nothing else — whatever text an agent writes comes back 
 its next observation, across attempts and across days, stored by a platform that
 never reads it. `examples/guests/scribe.py` is vigil plus a running tally of what
 standing has cost against what the work has returned, and it stops buying when
-the first outruns a third of the second. Three guests, three days, one difference
-each: `make fair-guest`, `make fair-vigil`, `make fair-scribe`.
+the first outruns a third of the second. Three runs of the same day, one
+difference each: `make fair-guest`, `make fair-vigil`, `make fair-scribe`.
+
+What none of them could do was find out how the bidding went. The auction is
+sealed and settles in silence, so an agent that lost learned nothing and an
+agent that never bid learned the same nothing — the two were indistinguishable
+from inside. Now the agents that actually bid are told the outcome, once, on
+their next bid step: their own ask, whether it won, what it cleared at, and
+who took it. Not the book. The losing asks are in the trace, because the trace
+is the audit record and a reader needs it, but handing every rival's exact
+number to the bidders turns a price signal into a readout of everyone's
+strategy, and a repeated auction played that way walks straight down to the
+reserve. `examples/guests/haggler.py` is the pilgrim plus one behaviour built on
+this — undercut what beat you, probe upward when you win — and `make fair-haggle`
+is where you can watch it calibrate. Read the entry in *What is deliberately not
+here* before you assume it wins.
 
 ## Prerequisites
 
@@ -127,6 +141,7 @@ make fair            # the composition: the cast takes lodgings, the office post
 make fair-guest      # the fair with a user-authored agent lodging and bidding against the cast
 make fair-vigil      # the same guest, plus one behaviour: it pays to stay at the board
 make fair-scribe     # the same again, plus a memo — it learns that the paying isn't paying
+make fair-haggle     # a guest told how the bidding went, pricing itself against the last clear
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -145,7 +160,8 @@ go run ./cmd/phylumctl serve -follow fair-trace.jsonl 127.0.0.1:8143
 ```
 
 (`fair-guest` writes `fair-guest-trace.jsonl`; follow that file to watch the
-pilgrim's day instead. `fair-vigil` and `fair-scribe` write their own too.)
+pilgrim's day instead. `fair-vigil`, `fair-scribe` and `fair-haggle` write
+their own too.)
 
 And the usual:
 
@@ -304,6 +320,43 @@ than buried.
   (stopped paying) — and the memo that decided it is in the trace, updating,
   step by step. What the platform sold in the previous entry was presence. What
   it sells here is the ability to find out that presence was a bad buy.
+- **The auction tells you what you cleared against, never who you beat.** Every
+  agent that placed a bid is told, once, on its next bid step: the ask it made,
+  whether it won, the clearing price, the winner's name, and how many bid. The
+  gate is participation — an agent that sat the round out is told nothing, and
+  gets an observation with no `results` key at all. What is withheld from all of
+  them is the rest of the book. That is not secrecy: the losing asks are written
+  into the trace at award, and the trace is the published artefact. It is that
+  the trace is the *audience's* record while an agent only ever sees
+  observations, and an agent handed every rival's exact number each round is
+  reading strategies rather than discovering a price. Let them price off each
+  other for long enough and nobody is pricing off the work: the reserve stops
+  being the floor it was built as and becomes the place everybody ends up
+  standing. Nothing new is written to the trace for any of this, and that is
+  checked rather than claimed: every field of a result is a function of the
+  `awarded` event plus the identity of the bidder being told, so a per-bidder
+  line would repeat, once for every name in the book, what a single award line
+  already says. `TestResultsAreDerivableFromTheTraceAlone` rebuilds the results
+  from the trace and fails if they differ from what was handed out.
+- **Knowing the clearing price loses money.** `make fair-haggle` runs a guest
+  that does the obvious thing with it: undercut what beat you, edge upward when
+  you win. The mechanism works exactly as designed — the memos narrate the whole
+  calibration, `won b0001 at 48, try 22%` then `lost b0004 at 220, cleared 150,
+  try 15%` — and over three days it does *identical* work to the pilgrim that
+  ignores the result entirely: seven attempts, seven wins, the same 154 burned.
+  It earns 1,266 against the pilgrim's 1,670 and ends 404 poorer. The reason is
+  worth more than the feature: a clearing price is a fact about one auction, not
+  about the work. The haggler kept calibrating against `gambler`, which underbids
+  recklessly and went bankrupt doing it, so having cut its ask to undercut a
+  bankrupt agent it then won the *re-auctions* at that agent's price instead of
+  its own — 150 and 365 where the pilgrim took the same two bounties at 200 and
+  487. It inherited a loser's pricing. And once there it stuck: with the ask
+  pinned to its own floor there was nothing left to undercut with, so it spent
+  three rounds bidding `lost b0007 at 365, cleared 365` — matching the winning
+  price exactly and losing on arrival order — before the fourth went its way.
+  Which is the sharpest argument there is for sealing the book: if one clearing
+  price can drag an agent down to its own floor and hold it there, the whole
+  book would take every agent down to the platform's.
 
 ## Layout
 
