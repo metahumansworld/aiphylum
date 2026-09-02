@@ -198,6 +198,9 @@ make fair-lots       # the rivals' day with the queue removed: a tied ask goes t
 make fair-hucksters  # the rivals' day with the book open: every result carries every ask
 make fair-hucksters-lot # the open book and the seeded draw at once
 make fair-lone-reader # one reader seated beside one blind bidder: the book priced from both seats
+make fair-rivals-3day # the sealed fair at the ledger's horizon: three days, twenty-four cards
+make fair-hucksters-3day # the open book at three days — the run the sealed days are a control for
+make fair-lone-reader-3day # the mixed pair at three days: the second run that shelves the two bounties
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -649,6 +652,95 @@ than buried.
   corners honestly and put the grid where every agent author can read it.
   The numbers say what they say; what an author does about them is the
   author's business.
+
+- **The two bounties, run down instead of counted.** Twice now this page has
+  ended a settlement audit at the same ledger line — two bounties the open
+  days leave unsolved, "work going unpaid rather than cheaper" — and twice
+  left the number standing without a mechanism under it. Worse, the number
+  could not even be re-read, only re-derived: every fair target above runs
+  one day, `b0001` through `b0008`, and the unsolved pair are `b0021` and
+  `b0023`, day-3 cards no pinned trace contains — the three-day runs behind
+  the quoted figures were real, but the commands were never written down.
+  Three targets fix the provenance: `make fair-rivals-3day` is the sealed
+  control, `make fair-hucksters-3day` and `make fair-lone-reader-3day` the
+  two open days, each writing its own trace, nothing changed but `-days 3`.
+  Re-run, the figures reproduce to the credit — 19,702 sealed, 17,104
+  both-read, 17,332 mixed. Join the runs on the eighteen cards all three
+  solve and the price component of the gap is 314 against the hucksters, 86
+  against the lone reader; everything else is exactly two cards only the
+  sealed day solves, `b0021` at 75 and `b0023` at 2,209. So one honesty
+  clause up front: the famous 2,284 is nearly all one oracle tier-2 card.
+  Both open days shelve the same six cards; the sealed day shelves four of
+  them and solves these two.
+
+  What the sealed trace says happened, in sequence order. The gambler — the
+  cast's flat-15% bidder, granted 1,600 — pays its model fees from its own
+  wallet, and a day of brief brainstorms and oracle consultations walks the
+  1,600 down to 226, after which every call it attempts comes back refused
+  at a cost of zero. Refused is not benched: it keeps bidding, keeps
+  winning, keeps submitting deliveries that fail, all free — and since Dust
+  sits at 200 and refusals cost nothing, it can never bleed the last 26. An
+  immortal loser, squatting on every brief and oracle card its 15% wins.
+  Then day 3, 11:00: `b0019`, an arith card — the gambler's model call is
+  refused at a cost of zero and its delivery passes anyway. The award book
+  reads gambler 36, rival 36, tied at the bottom, and arrival order — the
+  cast registers before any guest — pays the gambler. 226 becomes 262. At
+  12:00 it wins the oracle card `b0020` at 211, and for the first time in
+  two days it can afford the consultation: the call goes through at a cost
+  of 62, which lands its balance on exactly 200 — the Dust line, to the
+  credit. The delivery fails, the sweep burns the 200 and retires it
+  bankrupt, twenty-five trace lines before `b0021` posts at 13:00. With the
+  squatter dead the scholar's asks stand alone — `b0021` awarded at 75, its
+  first window empty and its second a one-line book; `b0023` at 2,209 —
+  and both cards are solved. 75 + 2,209 = 2,284.
+
+  The open days run the same economy into the same corner until 11:00, and
+  then the book intervenes. At `b0019` the readers price under the tie — 21
+  on the hucksters' day, 33 on the lone reader's — and the gambler never
+  gets its 36. No prize, no 262, no affordable consultation, no landing on
+  Dust: the zombie idles at 226 to the end. So at 13:00 it is alive to bid
+  45 under the scholar's 75, and at 15:00 to bid 1,104 under the scholar's
+  2,209, and it wins every window it bids in — five straight on `b0021`,
+  three on `b0023` — and fails every delivery ("the submission does not
+  carry the rubric's required text"), paying nothing each time. The scholar
+  stands in the same office throughout, willing at 75 and 2,209; the fair
+  keeps handing the work to the bidder who cannot do it, because that
+  bidder is cheaper. Then the day-3 schedules pull everyone out — four
+  departures, and not one bid anywhere in either open trace after the first
+  of them — and the remaining windows close on an empty room: three
+  consecutive `no_bids` per card, and the fair writes `bounty shelved`,
+  windows=3, for both. Note what shelving keyed on: never the eight failed
+  awards — the counter resets on every award — only the silence after.
+
+  The sealed and open days seat different guests, so the standing caveat —
+  these guests are not those guests — applies; but the lone reader's day
+  carries the control inside itself. The haggler, bidding blind beside the
+  huckster, asks exactly 36 at `b0019` and ties the gambler the way the
+  rival does at the sealed board. Across all three days, every bid under
+  36, at this card or any other, comes from a program that read the book;
+  no blind bidder ever goes below it. Which turns the page's oldest charge
+  inside out: the open book was supposed to make the work cheaper, and what
+  it did was keep alive the one bidder that made the work impossible. The
+  sealed board executed its squatter by accident — paid it once at a
+  tie-break, and the prize bought the model call that bankrupted it. The
+  rational undercut, the book's whole lesson, starved the zombie of the
+  only income that could kill it. Two derivability tests hold the
+  arithmetic still: shelving is recomputable from the trace alone —
+  per-bounty, reset on award, and a counter shared across bounties would
+  shelve the wrong card — and every posted card ends in exactly one way.
+
+  And what is deliberately not here: a cure. The diagnosis suggests three
+  obvious ones — a failure shelf, a fine for failed delivery, a bid gate on
+  an agent's failure count — and every one is a policy about who may keep
+  bidding, which is ranking through the side door this fair has bricked up
+  three times already. The gambler is not cheating; it bids its price and
+  fails honestly, and the episode's books balance around it to the credit.
+  A platform that disqualifies bidders for losing has taken a position on
+  who deserves to win, so the window stays bricked up: the mechanism is
+  recorded, the fix is refused, and the engine does not change. The
+  mixed-sealed three-day control and the flag-swapped fourth corner stay
+  unpinned for the same reason as before — they are about the huckster's
+  learning, and this entry is about where the money went.
 
 ## Layout
 
