@@ -1008,3 +1008,168 @@ func TestFairEveryCardEndsExactlyOneWay(t *testing.T) {
 		}
 	}
 }
+
+// The floor is the platform's, and the trace says so without help.
+//
+// Every open-book entry on the README walks toward the same number — the
+// card's reserve, the place the walk is said to be walking to — and every
+// fair bidder that exists, the python guests and this file's Go casts alike,
+// clamps its own ask to b.Reserve before bidding. So no fair test has ever
+// asked the question the walk turns on: is the floor the guests' manners or
+// the platform's rule? This one removes the clamp. The sinker bids a sliding
+// percentage of the maximum with no floor of its own — the huckster's gait
+// minus its one act of politeness — and crosses under the reserve within the
+// run. The floorer bids exactly the reserve on every card: the destination
+// as a standing policy. The scholar is the room. The trace is then read back
+// cold, using nothing but each card's posted reserve:
+//
+//  1. every bid on record is at or above its card's reserve, and every ask
+//     under it appears only as a refusal note carrying the auction's own
+//     error — the platform said no; the guest never said anything;
+//  2. no award clears below the reserve, and a refused ask leaves no trace
+//     in any book;
+//  3. a reserve-priced ask is a legal winning ask, paid at exactly the
+//     reserve — the destination is a place a bidder can stand;
+//  4. the posted reserve is the documented fraction of the posted maximum on
+//     every card — the number the guests clamp to is derivable, not
+//     decorative;
+//  5. and none of it was checked against silence: the sinker did sink, and
+//     it sank on a card the floorer then won at the floor.
+//
+// Nothing here pins a price or a total: the property is who holds the floor,
+// not where it is.
+func TestFairReserveIsTheFloorAndIsDerivableFromTheTraceAlone(t *testing.T) {
+	var mu sync.Mutex
+	pct := 6 // one point above the reserve's five: two lessons to the floor, a third to cross it
+	sinker := func(_ StepRequest, in StepInput) StepResult {
+		mu.Lock()
+		defer mu.Unlock()
+		var acts []Action
+		for _, b := range in.Observation.Bounties {
+			price := ledger.Credits(float64(b.MaxPayout) * float64(pct) / 100)
+			if price < 1 {
+				price = 1 // the only floor it has: a bid of nothing is not a bid
+			}
+			acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+		}
+		if len(acts) > 0 && pct > 1 {
+			pct-- // a lesson per auction bid in, and no reserve in the rule
+		}
+		return out(acts...)
+	}
+	floorer := func(_ StepRequest, in StepInput) StepResult {
+		var acts []Action
+		for _, b := range in.Observation.Bounties {
+			acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: b.Reserve})
+		}
+		return out(acts...)
+	}
+	steps := map[string]stepFunc{
+		"scholar": script(bidAll(0.4), solve),
+		"frugal":  script(floorer, solve),
+		"gambler": script(sinker, solve),
+	}
+	lines := fairDays(t, filepath.Join(t.TempDir(), "floor.jsonl"), 2, steps, false)
+
+	const sinkerID, floorerID = "gambler", "frugal"
+	reserve := map[string]ledger.Credits{}
+	sunk := map[string]int{}                 // sub-reserve refusals per card
+	floorWins := map[string]int{}            // awards to the floorer at exactly the reserve, per card
+	floorPaid := map[string]ledger.Credits{} // payout credits to the floorer, per card
+	for _, l := range lines {
+		var p struct {
+			Action string         `json:"action"`
+			Note   string         `json:"note"`
+			ID     string         `json:"id"`
+			Bounty string         `json:"bounty"`
+			Agent  string         `json:"agent"`
+			Price  ledger.Credits `json:"price"`
+			Max    ledger.Credits `json:"max_payout"`
+			Res    ledger.Credits `json:"reserve"`
+			Err    string         `json:"err"`
+			Winner string         `json:"winner"`
+			Amount ledger.Credits `json:"amount"`
+			Book   []struct {
+				Agent string
+				Price ledger.Credits
+			} `json:"book"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventBounty && p.Action == "posted":
+			reserve[p.ID] = p.Res
+			// 4. Derivable: the same arithmetic reserveFor does, from the
+			// posted maximum and the documented default fraction alone.
+			want := ledger.Credits(float64(p.Max) * 0.05)
+			if want < 1 {
+				want = 1
+			}
+			if p.Res != want {
+				t.Errorf("%s posted with reserve %d on a maximum of %d, want %d (5%%, floor 1)", p.ID, p.Res, p.Max, want)
+			}
+		case l.Type == trace.EventBid:
+			// 1. Nothing under the reserve ever entered a book.
+			r, ok := reserve[p.Bounty]
+			if !ok {
+				t.Fatalf("%s bid on %s before it was posted", p.Agent, p.Bounty)
+			}
+			if p.Price < r {
+				t.Errorf("%s's ask of %d on %s entered the book under the reserve %d", p.Agent, p.Price, p.Bounty, r)
+			}
+		case l.Type == trace.EventNote && p.Note == "bid refused" && strings.Contains(p.Err, auction.ErrBelowReserve.Error()):
+			// 1. Every ask under the reserve is on record as a refusal, in
+			// the auction's own words, and every one of them is the sinker's.
+			r := reserve[p.Bounty]
+			if p.Price >= r {
+				t.Errorf("%s's ask of %d on %s was refused as below the reserve, but the reserve is %d", p.Agent, p.Price, p.Bounty, r)
+			}
+			if p.Agent != sinkerID {
+				t.Errorf("%s was refused under the reserve on %s at %d, and only the sinker bids without a clamp", p.Agent, p.Bounty, p.Price)
+			}
+			sunk[p.Bounty]++
+		case l.Type == trace.EventBounty && p.Action == "awarded":
+			// 2. No award below the reserve, and no refused ask in any book.
+			r := reserve[p.ID]
+			if p.Price < r {
+				t.Errorf("%s awarded to %s at %d, under the reserve %d", p.ID, p.Winner, p.Price, r)
+			}
+			for _, b := range p.Book {
+				if b.Price < r {
+					t.Errorf("%s's ask of %d sits in %s's book under the reserve %d: a refused ask left a trace", b.Agent, b.Price, p.ID, r)
+				}
+			}
+			if p.Winner == floorerID && p.Price == r {
+				floorWins[p.ID]++
+			}
+		case l.Type == trace.EventCredit && p.Action == "payout" && p.Agent == floorerID:
+			floorPaid[p.Bounty] += p.Amount
+		}
+	}
+
+	// 3. The destination is a legal place to stand, and it pays what it says.
+	if len(floorWins) == 0 {
+		t.Fatal("the floorer never won at the reserve: a reserve-priced ask was never shown to be a legal winning ask")
+	}
+	for id := range floorWins {
+		if got := floorPaid[id]; got != reserve[id] {
+			t.Errorf("%s: the floorer won at the reserve %d and was paid %d", id, reserve[id], got)
+		}
+	}
+
+	// 5. Vacuity guards: the sinker sank, and on a card the floorer won at
+	// the floor — the refusal and the legal floor bid seen on the same card.
+	if len(sunk) == 0 {
+		t.Fatal("the sinker never sank: no ask went under the reserve, and every guard above was checked against silence")
+	}
+	both := 0
+	for id := range sunk {
+		if floorWins[id] > 0 {
+			both++
+		}
+	}
+	if both == 0 {
+		t.Fatal("no card carried both a sub-reserve refusal and a floor-priced award: the refusal and the floor were never seen together")
+	}
+}
