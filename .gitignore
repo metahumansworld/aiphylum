@@ -17,6 +17,9 @@ fair-lots-trace.jsonl
 fair-hucksters-trace.jsonl
 fair-hucksters-lot-trace.jsonl
 fair-lone-reader-trace.jsonl
+fair-rivals-3day-trace.jsonl
+fair-hucksters-3day-trace.jsonl
+fair-lone-reader-3day-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,

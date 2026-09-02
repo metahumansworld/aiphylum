@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -142,6 +142,26 @@ fair-hucksters-lot:
 fair-lone-reader:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -book open -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-trace.jsonl
 
+## fair-rivals-3day: the sealed control at the horizon the ledger settles at.
+## The README's last two entries quote a three-day sealed settlement that no
+## target ever pinned — the numbers were real, the command was not written
+## down. This is that day made repeatable: fair-rivals with -days 3 and its
+## own trace file, nothing else changed.
+fair-rivals-3day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/rival.py -trace fair-rivals-3day-trace.jsonl
+
+## fair-hucksters-3day: the open book at the same horizon — fair-hucksters
+## with -days 3 and nothing else. The run the sealed three days are a control
+## for, and the first of the two days whose unsolved bounties the README's
+## closing entry runs down.
+fair-hucksters-3day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/hawker.py -trace fair-hucksters-3day-trace.jsonl
+
+## fair-lone-reader-3day: the mixed pair at the same horizon — fair-lone-reader
+## with -days 3 and nothing else. The second of the two.
+fair-lone-reader-3day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -book open -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-3day-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -156,4 +176,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl

@@ -210,6 +210,16 @@ func TestFairEmptyOfficeReopensThenShelves(t *testing.T) {
 // built in here, so a test that wants either has to be given both.
 func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
 	t.Helper()
+	return fairDays(t, path, 1, steps, holding, tweak...)
+}
+
+// fairDays is fairDay at any horizon: the same cast, the same money, the
+// same posting hours, run for days consecutive days. The default deck grows
+// with the horizon — one card per posting slot per day, which is exactly how
+// cmd/phylumd sizes a -days run — so a longer fair is a longer supply, not
+// the same eight cards posted again.
+func fairDays(t *testing.T, path string, days int, steps map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
+	t.Helper()
 	tw, err := trace.NewWriter(path)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +240,7 @@ func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool,
 	}
 
 	if fcfg.Deck == nil {
-		deck := make([]Posting, 8)
+		deck := make([]Posting, len(fcfg.PostMinutes)*days)
 		for i := range deck {
 			deck[i] = post(int64(i+1), 1)
 		}
@@ -241,7 +251,7 @@ func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool,
 		t.Fatal(err)
 	}
 	cfg := town.Config{
-		TickMinutes: 10, Interval: time.Microsecond, Days: 1, StartMinute: 7 * 60,
+		TickMinutes: 10, Interval: time.Microsecond, Days: days, StartMinute: 7 * 60,
 		Mind:  &town.Minds{Provider: &proxy.StubProvider{}},
 		Visit: f.Visit,
 	}
@@ -726,5 +736,275 @@ func TestFairOpenBookChangesOnlyTheStartLine(t *testing.T) {
 	// would say nothing at all about what bidders were told.
 	if n := count(sealed, trace.EventBounty, "awarded"); n == 0 {
 		t.Error("no awards all day; the diff proves nothing about the book")
+	}
+}
+
+// The shelf's arithmetic is derivable from the trace alone, the same right
+// the auction results and the lot draws bought in their milestones: the
+// counter a shelving note reports is per bounty, grows only on that bounty's
+// own empty windows, and is deleted — not decremented — the moment that
+// bounty is awarded. A reader replaying no_bids and awarded events therefore
+// predicts every shelving note in the stream, with its windows count, to the
+// line. Failure is deliberately absent from the replay: a won-and-flubbed
+// delivery goes back on the board with its counter gone, which is why the
+// zombie card below can be failed all day and never shelved.
+func TestFairShelvingIsDerivableFromTheTraceAlone(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+
+	// One agent, four cards, four fates. b0001 is worked and solved. b0002 is
+	// shunned outright. b0003 is shunned twice, won on its third window,
+	// flubbed, then shunned for good — the card that catches a counter that
+	// resets globally, or never resets at all. b0004 is won and flubbed every
+	// time it comes up.
+	sight := map[string]int{}
+	bid := func(_ StepRequest, in StepInput) StepResult {
+		var acts []Action
+		for _, b := range in.Observation.Bounties {
+			sight[b.ID]++
+			switch b.ID {
+			case "b0002":
+				continue
+			case "b0003":
+				if sight[b.ID] != 3 {
+					continue
+				}
+			}
+			acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: b.MaxPayout / 2})
+		}
+		return out(acts...)
+	}
+	attempt := func(req StepRequest, in StepInput) StepResult {
+		if id := in.Observation.Task.BountyID; id == "b0003" || id == "b0004" {
+			return out(Action{Type: ActionSubmit, Bounty: id, Answer: "not it"})
+		}
+		return solve(req, in)
+	}
+	w.steps.fns["pat"] = script(bid, attempt)
+
+	const maxReopens = 3
+	f, err := NewFair(w.ctx, w.orch, FairConfig{
+		Deck:        []Posting{post(1, 1), post(2, 1), post(3, 1), post(4, 1)},
+		PostMinutes: []int{540, 550, 560, 570},
+		WindowTicks: 1, MaxReopens: maxReopens, Office: "office",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		mod := 540 + 10*i
+		st := []town.Standing{{ID: "pat", Place: "office"}}
+		if err := f.Visit(1, mod, town.HHMM(mod), st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Conservation.Holds() {
+		t.Fatalf("conservation broken: %s", rep.Conservation)
+	}
+	lines := read()
+
+	// The replay: per-bounty counter up on no_bids, gone on awarded, a note
+	// predicted the moment a counter reaches MaxReopens — and alongside it,
+	// the counts the prediction is only meaningful against.
+	type shelf struct {
+		Bounty  string
+		Windows int
+	}
+	var want, got []shelf
+	reopens := map[string]int{}
+	shelved := map[string]bool{}
+	empties := map[string]int{}  // lifetime empty windows per bounty
+	preAward := map[string]int{} // empty windows before the first award
+	awards := map[string]int{}
+	failed := map[string]int{}
+	beforeFirstNote := map[string]bool{}
+	for _, l := range lines {
+		var p struct {
+			Action  string `json:"action"`
+			ID      string `json:"id"`
+			Note    string `json:"note"`
+			Bounty  string `json:"bounty"`
+			Windows int    `json:"windows"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventBounty && p.Action == "no_bids":
+			if shelved[p.ID] {
+				t.Errorf("%s got a window after its shelving note", p.ID)
+			}
+			if len(got) == 0 {
+				beforeFirstNote[p.ID] = true
+			}
+			empties[p.ID]++
+			if awards[p.ID] == 0 {
+				preAward[p.ID]++
+			}
+			reopens[p.ID]++
+			if reopens[p.ID] >= maxReopens {
+				want = append(want, shelf{p.ID, reopens[p.ID]})
+			}
+		case l.Type == trace.EventBounty && p.Action == "awarded":
+			if shelved[p.ID] {
+				t.Errorf("%s was awarded after its shelving note", p.ID)
+			}
+			awards[p.ID]++
+			delete(reopens, p.ID)
+		case l.Type == trace.EventBounty && p.Action == "failed":
+			failed[p.ID]++
+		case l.Type == trace.EventNote && p.Note == "bounty shelved":
+			got = append(got, shelf{p.Bounty, p.Windows})
+			shelved[p.Bounty] = true
+		}
+	}
+	if !reflect.DeepEqual(want, got) {
+		t.Errorf("replayed shelvings %v, trace says %v", want, got)
+	}
+	if rep.Shelved != len(got) {
+		t.Errorf("report says %d shelved, the stream holds %d notes", rep.Shelved, len(got))
+	}
+
+	// Vacuity guards, each one a wrong counter this day would otherwise let
+	// agree by accident.
+	if len(got) == 0 {
+		t.Fatal("nothing was shelved: the replay predicted nothing")
+	}
+	if len(beforeFirstNote) < 2 {
+		t.Fatal("no two bounties' empty windows interleaved before the first note: a counter shared across bounties would have agreed anyway")
+	}
+	if awards["b0003"] == 0 || preAward["b0003"] < 2 || !shelved["b0003"] {
+		t.Fatalf("b0003 (awards %d, empty windows before %d, shelved %v) never exercised the reset",
+			awards["b0003"], preAward["b0003"], shelved["b0003"])
+	}
+	if empties["b0003"] <= maxReopens {
+		t.Fatalf("b0003 shelved on %d lifetime empty windows: a counter that never resets would have agreed", empties["b0003"])
+	}
+	if failed["b0004"] < 3 {
+		t.Fatalf("b0004 failed %d deliveries, want at least 3 to say failure never shelves", failed["b0004"])
+	}
+	if shelved["b0004"] {
+		t.Error("b0004 was shelved: failure is not supposed to count against the shelf")
+	}
+}
+
+// Three days, twenty-four cards, and the rule the fair inherited from the
+// sim: every bounty the office posts ends exactly one way. Solved, shelved,
+// and voided are the ends the stream can name; a card still open when the
+// run stops is the fourth, named by silence. The same pass audits the money
+// — every payout credit belongs to a solved bounty and matches its recorded
+// payout, the identity the README's three-day ledgers rest on. Nothing here
+// pins a credit total: this cast is Go, not the fair's python guests, and
+// the property is the partition, not the price.
+func TestFairEveryCardEndsExactlyOneWay(t *testing.T) {
+	// Everyone bids the same fraction on everything — except two cards the
+	// whole room refuses, which the shelf must catch, and one the winner can
+	// only flub, which failure must put back on the board rather than end.
+	shun := map[string]bool{"b0010": true, "b0021": true}
+	const zombie = "b0017"
+	bid := func(_ StepRequest, in StepInput) StepResult {
+		var acts []Action
+		for _, b := range in.Observation.Bounties {
+			if shun[b.ID] {
+				continue
+			}
+			price := ledger.Credits(float64(b.MaxPayout) * 0.4)
+			if price < b.Reserve {
+				price = b.Reserve
+			}
+			acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+		}
+		return out(acts...)
+	}
+	attempt := func(req StepRequest, in StepInput) StepResult {
+		if in.Observation.Task.BountyID == zombie {
+			return out(Action{Type: ActionSubmit, Bounty: zombie, Answer: "not it"})
+		}
+		return solve(req, in)
+	}
+	steps := map[string]stepFunc{
+		"scholar": script(bid, attempt),
+		"frugal":  script(bid, attempt),
+		"gambler": script(bid, attempt),
+	}
+	lines := fairDays(t, filepath.Join(t.TempDir(), "three.jsonl"), 3, steps, false)
+
+	posted := map[string]bool{}
+	ends := map[string][]string{}
+	paid := map[string]ledger.Credits{}
+	solvedPay := map[string]ledger.Credits{}
+	zombieFails := 0
+	for _, l := range lines {
+		var p struct {
+			Action string         `json:"action"`
+			ID     string         `json:"id"`
+			Note   string         `json:"note"`
+			Bounty string         `json:"bounty"`
+			Payout ledger.Credits `json:"payout"`
+			Amount ledger.Credits `json:"amount"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventBounty && p.Action == "posted":
+			posted[p.ID] = true
+		case l.Type == trace.EventBounty && p.Action == "solved":
+			ends[p.ID] = append(ends[p.ID], "solved")
+			solvedPay[p.ID] = p.Payout
+		case l.Type == trace.EventBounty && p.Action == "voided":
+			ends[p.ID] = append(ends[p.ID], "voided")
+		case l.Type == trace.EventBounty && p.Action == "failed" && p.ID == zombie:
+			zombieFails++
+		case l.Type == trace.EventNote && p.Note == "bounty shelved":
+			ends[p.Bounty] = append(ends[p.Bounty], "shelved")
+		case l.Type == trace.EventCredit && p.Action == "payout":
+			paid[p.Bounty] += p.Amount
+		}
+	}
+
+	// The partition. Exactly the full deck was posted; nothing ended twice;
+	// nothing ended without having been posted.
+	if len(posted) != 24 {
+		t.Fatalf("%d cards posted, want the full 3-day deck of 24", len(posted))
+	}
+	for id := range posted {
+		if n := len(ends[id]); n > 1 {
+			t.Errorf("%s ended %d ways: %v", id, n, ends[id])
+		}
+	}
+	for id := range ends {
+		if !posted[id] {
+			t.Errorf("%s ended without ever being posted", id)
+		}
+	}
+
+	// The money. One payout credit per solved bounty, at its recorded price,
+	// and not a credit anywhere else.
+	if !reflect.DeepEqual(paid, solvedPay) {
+		t.Errorf("payout credits %v, solved payouts %v", paid, solvedPay)
+	}
+
+	// Vacuity guards: each engineered fate actually happened.
+	if len(solvedPay) == 0 {
+		t.Fatal("nothing was solved: the payout identity was checked against silence")
+	}
+	for id := range shun {
+		if len(ends[id]) != 1 || ends[id][0] != "shelved" {
+			t.Errorf("%s, which the whole room shuns, ended %v, want exactly one shelving", id, ends[id])
+		}
+	}
+	if zombieFails == 0 {
+		t.Fatal("the zombie never failed a delivery: nothing walked the road back to the board")
+	}
+	for _, end := range ends[zombie] {
+		if end == "solved" {
+			t.Errorf("%s was solved, but its every delivery was a flub", zombie)
+		}
 	}
 }
