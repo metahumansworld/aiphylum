@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-rivals-7day fair-hucksters-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -162,6 +162,20 @@ fair-hucksters-3day:
 fair-lone-reader-3day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -book open -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-3day-trace.jsonl
 
+## fair-rivals-7day: the sealed control at seven days — fair-rivals-3day with
+## -days 7 and nothing else. Fifty-six cards. The three-day sealed pair ended
+## converged and parked at its own floor; this is the same pair given the
+## room the open walk is given below, so the two can be read side by side.
+fair-rivals-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/rival.py -trace fair-rivals-7day-trace.jsonl
+
+## fair-hucksters-7day: the open book at seven days — fair-hucksters-3day with
+## -days 7 and nothing else. The three-day walk ended still descending, no
+## floor in sight. This is the same walk given the days the README's oldest
+## prediction needs to either reach the platform reserve or be seen not to.
+fair-hucksters-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/hawker.py -trace fair-hucksters-7day-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -176,4 +190,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl

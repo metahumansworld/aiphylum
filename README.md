@@ -201,6 +201,8 @@ make fair-lone-reader # one reader seated beside one blind bidder: the book pric
 make fair-rivals-3day # the sealed fair at the ledger's horizon: three days, twenty-four cards
 make fair-hucksters-3day # the open book at three days — the run the sealed days are a control for
 make fair-lone-reader-3day # the mixed pair at three days: the second run that shelves the two bounties
+make fair-rivals-7day # the sealed pair at seven days, fifty-six cards: the control for the walk below
+make fair-hucksters-7day # the open book at seven days: the walk run to the platform's floor, reached on day four
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -741,6 +743,139 @@ than buried.
   mixed-sealed three-day control and the flag-swapped fourth corner stay
   unpinned for the same reason as before — they are about the huckster's
   learning, and this entry is about where the money went.
+
+- **The destination, run to instead of predicted.** The open-book entry above
+  ends its three days on a sentence no run had checked: "The destination
+  never arrives: zero of the three days' awards clear at the platform
+  reserve. 'Walks toward' is confirmed; 'straight down' was the argument
+  overshooting, because each step down waits for a re-auction and re-auctions
+  have to be earned by failures." The pinned three-day trace refutes one
+  clause of that and leaves the rest standing. The huckster takes one lesson
+  per auction it bids in, and its memo names the teacher every time — "read
+  b0001: cheapest rival 48, try 19%" — and on every lesson but one the
+  cheapest rival is the hawker's identical ask on a card the huckster had
+  just won. 48 to 28 to 21 on the 240-max card crossed three clean deliveries
+  with nothing re-auctioned between them: each step down waits for the next
+  card, not for a failure. `b0004`'s 150 to 140 was a failure-earned
+  re-auction, so re-auctions are still earned by failures; they are just not
+  what the walk runs on. And the walk had a destination its own source
+  predicted and no run had reached. The huckster's docstring says that once
+  the reserve clamp binds, "the note's percentage keeps sliding after the
+  price cannot" — written from the rule, never from a trace, because no
+  pinned day was long enough to get there.
+
+  `make fair-hucksters-7day` is `fair-hucksters-3day` with `-days 7` and
+  nothing else: fifty-six cards, nineteen of them arith, the only kind the
+  readers bid on. `make fair-rivals-7day` is the sealed pair given the same
+  room. Neither touches the engine, and the traces say so the way the
+  three-day pair did: the open run's first 2,238 lines are the pinned
+  three-day trace through its last tick, timestamps aside and one number
+  aside — the deck count on the episode's start line, 56 where the pinned
+  trace says 24 — and the sealed run's first 2,174 are the pinned sealed
+  three days the same way. Day four begins where the pinned trace stopped,
+  with the readers' shared note at 7%.
+
+  The arrival is two events, a day apart. On day four the third arith card,
+  `b0031`, is awarded at 50, which is its posted reserve, with the note at 5%
+  — and 5% of the maximum is the reserve on every tier, because 5% is the
+  fraction the platform posts as its floor. The ask met the reserve by
+  arithmetic, unclamped, and the card's tier is incidental: the same lesson
+  would have landed on 12 or on 121. Day four's other two cards had cleared
+  at 170 and 14, above their floors by 49 and 2. On day five `b0034` asked 4%
+  of 2,435, which is 97, under the card's 121, and the guest's own clamp
+  raised the ask to the floor: the first award the clamp makes. From there
+  every arith award is at the posted reserve — 12, 50, 121, in deck order,
+  eight awards across days five to seven, nine of the run's twenty in all.
+  Neither trace holds a single refused bid: the engine's floor never has to
+  fire, because both guests clamp before it can, which is why one
+  derivability test takes the clamp away. A bidder that keeps sinking is
+  refused by the platform, and the refusal is in the trace naming the price
+  and the reserve; a bidder standing exactly on the reserve is awarded and
+  paid it; and the reserve on every card is recomputable from its maximum.
+  The floor is the platform's. The clamp only keeps the guest from being told
+  so.
+
+  The memo confirms the docstring's caveat from the trace alone, and measures
+  it. The note stepped one point per lesson from 20 — 19, then 14 off the
+  gambler's 150, then one a lesson — and kept stepping after the price
+  stopped: 4 at the clamp, 3, 2, 1, and then 1 for the last five lessons of
+  the week. Three lessons of sliding after the price could not, and then the
+  rule's own floor takes over, not the platform's: the huckster clamps its
+  note to one, and one percent of the maximum is under the reserve on every
+  tier. So the readers' walk ends against two floors that bind on different
+  things — the platform's on the price, from `b0034`, and the guest's on the
+  note, from `b0040` — and once both hold, nothing in the rule and nothing in
+  the reserve can move the ask again. The open pair is parked as surely as
+  the sealed pair was at 365, at a number it did not choose.
+
+  The money. The open board's seven days pay out 38,833 across forty-two
+  solved cards. The nineteen arith cards, every one solved and every one by
+  the huckster, cost the posters 1,719 — 504, 381, 101, 234, 183, 133, 183 by
+  day — against reserves that sum to 1,110 and maxima that sum to 22,290. The
+  whole premium the readers extracted over the platform's floor is 609, all
+  of it paid in the first four days; days five to seven pay 499, which is the
+  sum of the reserves of the cards solved in them, to the credit. The sealed
+  pair's seven days solve the same nineteen cards for 3,354 — 563, 551, 186,
+  551, 551, 401, 551 — and the number is the pair's own floor and nothing
+  else: from the second arith card of day one to the last card of day seven,
+  every arith award is 36, 150 or 365, the 15% the open-book entry above
+  found the pair parked at, and the 12 that 3,354 exceeds 3,342 by is
+  `b0001`'s 48 on the one card priced before either copy had learned
+  anything. So the walk to the platform's floor is worth 1,635 over seven
+  days, the difference between 3,354 and 1,719, on a board whose weeks paid
+  50,248 sealed and 38,833 open — because the readers bid on nothing but
+  arith, and the scholar's brief and oracle work is where the money goes:
+  46,894 of the sealed week, 37,114 of the open one. Every card ends exactly
+  one way in both runs — open, fifty-six posted, forty-two solved, fourteen
+  shelved; sealed, fifty solved, six shelved; nothing voided, nothing twice —
+  and of the 209,757 the fifty-six cards were posted at, the open board paid
+  38,833 and left 60,642 of face on the shelf, the sealed board paid 50,248
+  and left 27,196. The open book made the work it touched 1,635 cheaper and
+  left 33,446 more of it unpaid.
+
+  The floor changed what the posters pay and nothing about who is paid. Of
+  the open run's twenty arith awards, nineteen are the huckster and the
+  hawker tied at the identical ask — above the floor, at it, and pinned — and
+  arrival order hands all nineteen to the huckster: 1,719 to the front of the
+  queue and 0 to the back, the open-book entry above's 986 and 0 carried to
+  seven days. The twentieth is the gambler's 150 on `b0004`, the loss that
+  taught the second lesson and then failed. The sealed pair, which walks up
+  after every win, alternates instead — from day four on the haggler and the
+  rival take the arith cards turn and turn about, the loser one step above
+  the floor — and pays both seats: 2,180 to the front, 1,138 to the back. The
+  tie-break has decided every card between the readers since `b0001`;
+  reaching the reserve gave it more of the same to decide.
+
+  The zombie at seven days: the gambler burns 1,374 of its 1,600 on day one
+  across nineteen failed deliveries and then nothing — 226 at the close of
+  every day from the first to the seventh, never paid, never bankrupt, and
+  never again under the readers' ask. Fourteen cards are shelved, two a day,
+  every one brief or oracle, none arith, and every one by the mechanism the
+  entry above named: awarded to the gambler between three and eight times,
+  failed every time, the scholar bidding beside it throughout, then the
+  silence that shelves it — 123 awards to the gambler in the open week,
+  against 45 on the sealed board, all of those in the three days it lived.
+  The sealed board shelves six: the same four both boards shelve on days one
+  and two, and then, with the gambler bankrupt on day three as the entry
+  above records, two more that are a different thing — `b0036` on day five,
+  `b0044` on day six — posted into three empty windows each, not a bid from
+  anyone. From day three, when the sealed gambler dies, to day seven, the
+  open board shelves ten cards and the sealed board two.
+
+  And what is deliberately not here, again. Not a higher reserve fraction: a
+  platform pricing labour has taken a position on what the work is worth, and
+  5% is a floor against the zero-priced ask, not a wage. Not a minimum
+  percentage for the huckster: the open-book entry found that the missing
+  floor is the brake, and putting one back is the sealed day again under a
+  longer name. And not a rewrite of the sentence this entry started from. It
+  stays where it is, wrong in one clause, beside the run that corrected it,
+  the way the sealing argument stayed above the run that tested it: this page
+  keeps the prediction and adds the number. The lone reader has no walk to
+  run — its arith ask parks at 140 on all three of its days, one undercut
+  under a floor the blind bidder never moves — so there is no seven-day
+  target for it. The flag-swapped corner and the mixed-sealed control stay
+  unpinned for the reason the entry above gave: they are about the huckster's
+  learning, and this entry is about the floor.
 
 ## Layout
 
