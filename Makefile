@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -180,7 +180,7 @@ fair-lone-reader-swapped-3day:
 ## -book open removed. The reader is frozen at its opening here and still
 ## ties the opening card; which seat keeps that card is the target below.
 fair-lone-reader-sealed-3day:
-	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-sealed-3day-trace.jsonl
 
 ## fair-lone-reader-sealed-swapped-3day: the sealed control the other way
 ## round — the frozen reader seated first. The entry's "48 credits in three
@@ -224,7 +224,25 @@ fair-peddlers-7day:
 ## and the open one is the reading and nothing else, which is the same
 ## control fair-hucksters names and this time pins.
 fair-peddlers-sealed-7day:
-	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/peddler.py -guest examples/guests/chapman.py -trace fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/peddler.py -guest examples/guests/chapman.py -trace fair-peddlers-sealed-7day-trace.jsonl
+
+## fair-costermongers-7day: the peddlers' week with the meter read. The
+## costermonger is the peddler with one thing added — after every oracle chain
+## it reads its own wallet, writes what the chain cost beside its note, and
+## never again asks under the dearest chain of that tier it has paid for. The
+## open peddler week was paid to win six tier-one oracles at the reserve; this
+## is the same seed, week and seating with a floor read from the meter, and
+## what the floor costs the posters is what the trace is for.
+fair-costermongers-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/costermonger.py -guest examples/guests/packman.py -trace fair-costermongers-7day-trace.jsonl
+
+## fair-costermongers-sealed-7day: the control — the line above without
+## "-book open". The sealed peddlers asked three times the chain's cost on
+## every tier-one oracle, so a floor at the cost should never bind here; if
+## this trace is the sealed peddler week with two names exchanged, the meter
+## changed nothing that the book had not already left alone.
+fair-costermongers-sealed-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/costermonger.py -guest examples/guests/packman.py -trace fair-costermongers-sealed-7day-trace.jsonl
 
 test:
 	$(GO) test ./...
@@ -240,4 +258,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl

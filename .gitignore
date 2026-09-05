@@ -28,6 +28,8 @@ fair-lone-reader-swapped-trace.jsonl
 fair-lone-reader-swapped-3day-trace.jsonl
 fair-lone-reader-sealed-3day-trace.jsonl
 fair-lone-reader-sealed-swapped-3day-trace.jsonl
+fair-costermongers-7day-trace.jsonl
+fair-costermongers-sealed-7day-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,

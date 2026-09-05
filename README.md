@@ -209,6 +209,8 @@ make fair-rivals-7day # the sealed pair at seven days, fifty-six cards: the cont
 make fair-hucksters-7day # the open book at seven days: the walk run to the platform's floor, reached on day four
 make fair-peddlers-7day # the same rule on every card, judged work included, for seven open days
 make fair-peddlers-sealed-7day # the same pair for the same week with nothing to read: the control
+make fair-costermongers-7day # the peddlers' week with the meter read: a floor at what the last chain cost
+make fair-costermongers-sealed-7day # the same pair with nothing to read: the control the floor should never bind in
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -1138,6 +1140,139 @@ than buried.
   at 140 and has no walk to run, as the reserve entry said. And nothing about
   learning, which is what the two entries that deferred this one were about;
   this one is about the commands.
+
+- **The meter, read.** The entry above ends its tier-one oracles on a
+  sentence — "nothing the platform posts, and nothing in the rule, knows what
+  an answer costs" — and half of it is wrong in a way worth the arithmetic.
+  The platform knows exactly. Every oracle card is generated with the chain's
+  metered cost in hand, `reference_tokens`, because the reference solution is
+  the procedure itself; the board prices that at a nominal five credits a
+  token, and the maximum is that figure times three times the tier to the
+  power 1.6. The stub bills one credit a token. So on every tier-one oracle
+  the posted maximum is fifteen times what the chain will cost, to the credit
+  — 870 on a 58-credit chain, 1,410 on a 94 — and the reserve, a twentieth of
+  the maximum, is three quarters of the cost. On tier two the formula makes
+  the multiple 45.47 and the reserve 2.27 chains, on tier three 86.99 and
+  4.35, and every card lands within a credit of it, the maximum being kept
+  whole. Which is the whole of the entry above's finding in one line of the
+  platform's own source: 5 × 3 × 0.05 is 0.75, under one, and 5 × 3 × 2^1.6 ×
+  0.05 is 2.27, over it. A reader walked to the floor loses on tier one and
+  nowhere else because that is where the constants put the floor. What the
+  platform posts does know what an answer costs; what it posts is a floor
+  under it. The sentence stays where it is, and this is the number beside it.
+
+  `examples/guests/costermonger.py` is the peddler with the one thing added
+  that the peddler's docstring refuses — a floor that knows the chain's price
+  — done the one way that is not the second rule. It is read, not computed.
+  After an oracle chain has run, the costermonger reads its own purse the way
+  anyone reads a meter, the balance the step began with less the balance the
+  chain left, and writes what the chain cost beside the huckster's note under
+  the card's tier; at the next bid step an oracle is never asked under the
+  dearest chain of its tier this agent has paid for. Nothing in the file
+  divides a maximum by fifteen, reads a price table or counts a token; the
+  number it floors at was debited from its own wallet, and the trace's
+  `model_call` lines are where anyone can check it. Two things follow from
+  reading the meter after the work instead of the platform's arithmetic
+  before it, and both are kept: the floor lags, so a chain dearer than any
+  paid for is a delivery paid for once more before the floor rises to it, and
+  the first chain of every tier is bought blind. `packman.py` is the second
+  seat, one import long. `fair-costermongers-7day` is the peddlers' week with
+  the meter read, same seed, same seating, and its sealed twin is the
+  control. Set the town's talk aside — it follows the guests' names, who
+  meets whom and how many tokens the meeting costs — exchange the two names,
+  set the meter's readings aside from the memos, and the open week's fair
+  events are the peddlers' fair events line for line, 366 of 713, down to the
+  ask on `b0029` on day four, the first ask the floor moves. Forty-four lines
+  differ in all: six asks, four awards, four payouts, four deliveries, six
+  memos, the balance on every model-call line from the first moved card on,
+  and the closing line's totals. Both weeks post fifty-six cards, solve
+  fifty-six, shelve none, refuse no bid, pass all eighteen judged briefs,
+  seven days, 504 meetings, 1,008 ticks.
+
+  The meter is read on day one — 58 at `b0002`, 103 at `b0005`, 202 at
+  `b0008` — and the tier-two and tier-three readings never bind all week,
+  because the reserves there are 234 to 384 and 839 to 1,056 and the chains
+  cost 103 to 243; the arithmetic above said so. Tier one is where the floor
+  does its work, and the first two cards show the lag. `b0011` is asked at
+  61, six percent of 1,020, over the floor's 58, and costs 68: seven lost,
+  and the floor reads 68. `b0020` is asked at its reserve of 70, over the 68,
+  and costs 94: twenty-four lost, and the floor reads 94. Then `b0029`,
+  reserve 36, and the costermonger asks 94 where the peddler asked 36 — and
+  the packman, tied with the front seat on every card for three days and more
+  and paid for none of them, has never run a chain, never read its meter, and
+  has no floor. It asks 36, and for the first time in three weeks of this
+  rule at two seats a book has one reader alone at the bottom of it. The
+  packman wins `b0029` at 36, burns 49, loses 13, and reads 49. On `b0038`
+  the costermonger asks 94 and the packman its reserve of 70, wins, burns 94,
+  loses 24, and reads 94. From there the two seats ask the same 94 and the
+  queue hands the tie to the front: `b0047` at 94 against a 57-credit chain,
+  thirty-seven kept; `b0056` at 94 against 94, nothing either way. The week's
+  seven tier-one oracles net 76 where the peddlers' netted exactly zero — 113
+  to the front seat, and 37 lost by the back — and the six deliveries paid
+  for become four: two on the front seat while its floor lagged the chain,
+  and two on the back seat, which took the losses the front seat had just
+  declined, until its own meter had read what the front seat's had. A floor
+  read from a wallet is a floor under that wallet. The seat that is never
+  paid never reads anything, and the book has no way to tell it.
+
+  The money. The open week pays out 12,166 against the peddlers' 12,090, and
+  the 76 is two cards: `b0047` at 94 where the reserve is 42, and `b0056` at
+  94 where it is 70. Days one to five are the peddlers' days to the credit;
+  day six pays 1,622 against 1,570 and day seven 1,810 against 1,786. The
+  costermonger is paid 12,060 on fifty-four cards and the packman 106 on two;
+  the costermonger burns 2,533 and the packman 143, and 2,533 and 143 are the
+  peddler's 2,676. The front seat ends the week 9,527 up against the
+  peddler's 9,414, the back seat 37 down at 1,963. The scholar is paid
+  nothing and attempts nothing, the gambler wins `b0003` and nothing else, as
+  before. Of the fifty-seven awards the pair tie on fifty-four — every arith
+  card, every brief but the one the gambler takes, and seventeen of the
+  nineteen oracles — and of the three they do not, one is the gambler's and
+  two are the cards the floor parted.
+
+  The control is the peddlers' sealed week to the line. Set the town's talk
+  aside and the fair's 1,064 events are the same 1,064 with two names
+  exchanged and the meter's readings set aside from the memos — and the
+  readings are the same numbers the open week read, 58, 68 and 94 on tier
+  one, because a chain costs what it costs whichever book is open. The floor
+  never binds: with nothing to read the costermonger asks its opening 20% all
+  week, 147 to 282 on the tier-one oracles against chains of 49 to 94, three
+  times the cost, and the seven net 1,028. 41,929 to the posters, 41,893 of
+  it to the front seat; the packman paid nothing and reading nothing; the
+  gambler bankrupt on day three: the sealed week above under two new names.
+  The meter changed nothing the book had not already left alone.
+
+  `TestFairAFloorReadFromTheMeterIsDerivableFromTheTraceAlone` is the rule on
+  the harness deck, without python, with the guest's memo made a closure. A
+  floorer asks the reserve or the dearest chain it has paid for, whichever is
+  higher, makes one 64-token call on every card it wins, and reads its purse
+  before and after, as the SDK's `wallet()` lets any guest do. From the trace
+  alone: every one of its asks is recomputed from the events before it — the
+  card's reserve, or the dearest `burned` of its own earlier deliveries — and
+  every delivery's `burned` is the meter's calls on the attempt wallet
+  summed. On this deck sixteen asks, fifteen of them above the reserve, four
+  deliveries, and one of them a chain dearer than any before it, paid for
+  once. The guard is fatal: a floor that never raised an ask above the
+  reserve means the meter was never read. Take the floor out of the floorer
+  and the recomputation fails on the second card's ask. The harness gained
+  `walletBalance`, the SDK's one meter, read the way the SDK reads it.
+
+  What is deliberately not here. Not the constant: a reader that priced an
+  oracle at its maximum over fifteen would never lose a credit on tier one,
+  and would have read the platform's source rather than its meter — the
+  second rule in a costume, and the entry above's refusal stands for it. Not
+  the ceiling: the platform holds the worst case of every call before it
+  makes it, the input and the `max_tokens` at the model's price, and a reader
+  could floor at that number if the price were posted; it is not — the SDK's
+  catalogue lists models and no prices — and a token count is the source
+  again. Not a floor on a brief or an arith card, which cost nothing to
+  answer. Not the packman told the costermonger's readings: a memo is one
+  agent's, the platform stores it without reading it, and two seats sharing a
+  note would be one program with one wallet in two chairs, which is the
+  tie-break's question and not the meter's. Not a rewrite of the sentence
+  this entry started from; it stays, and the arithmetic sits beside it. And
+  not the reserve fraction, refused twice already: 0.75 is what the constants
+  make of tier one, and a platform that moved a constant to put its floor
+  over the cost of the work would be pricing labour again.
 
 ## Layout
 
