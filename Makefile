@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -162,6 +162,33 @@ fair-hucksters-3day:
 fair-lone-reader-3day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -book open -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-3day-trace.jsonl
 
+## fair-lone-reader-swapped: the fourth corner of the grid — fair-lone-reader
+## with the two -guest flags in the other order, and nothing else changed. The
+## README's back-of-the-queue entry quotes this day's 528 and the three-day
+## 1,214 from a run whose command was never written down; the corner is the
+## one the entry says differs from fair-lone-reader by the opening card alone.
+fair-lone-reader-swapped:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 1 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/haggler.py -trace fair-lone-reader-swapped-trace.jsonl
+
+## fair-lone-reader-swapped-3day: the same corner at the ledger's horizon —
+## fair-lone-reader-3day with the flags swapped, nothing else.
+fair-lone-reader-swapped-3day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/haggler.py -trace fair-lone-reader-swapped-3day-trace.jsonl
+
+## fair-lone-reader-sealed-3day: the mixed pair with nothing to read, seated
+## as fair-lone-reader seats it — the fair-lone-reader-3day command with
+## -book open removed. The reader is frozen at its opening here and still
+## ties the opening card; which seat keeps that card is the target below.
+fair-lone-reader-sealed-3day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -guest examples/guests/haggler.py -guest examples/guests/huckster.py -trace fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl
+
+## fair-lone-reader-sealed-swapped-3day: the sealed control the other way
+## round — the frozen reader seated first. The entry's "48 credits in three
+## days" is this seating: a reader that never learns still ties the opening
+## card, and the queue decides who keeps it.
+fair-lone-reader-sealed-swapped-3day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 3 -tick 700ms -guest examples/guests/huckster.py -guest examples/guests/haggler.py -trace fair-lone-reader-sealed-swapped-3day-trace.jsonl
+
 ## fair-rivals-7day: the sealed control at seven days — fair-rivals-3day with
 ## -days 7 and nothing else. Fifty-six cards. The three-day sealed pair ended
 ## converged and parked at its own floor; this is the same pair given the
@@ -197,7 +224,7 @@ fair-peddlers-7day:
 ## and the open one is the reading and nothing else, which is the same
 ## control fair-hucksters names and this time pins.
 fair-peddlers-sealed-7day:
-	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/peddler.py -guest examples/guests/chapman.py -trace fair-peddlers-sealed-7day-trace.jsonl
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/peddler.py -guest examples/guests/chapman.py -trace fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl
 
 test:
 	$(GO) test ./...

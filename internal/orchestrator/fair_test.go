@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -230,6 +231,19 @@ func fairDays(t *testing.T, path string, days int, steps map[string]stepFunc, ho
 // once, after the world and both configs, and installed before the first tick.
 func fairWorldDays(t *testing.T, path string, days int, cast func(*world) map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
 	t.Helper()
+	return fairSeatedDays(t, path, days, nil, cast, holding, tweak...)
+}
+
+// fairSeatedDays is fairWorldDays with guests. The cast sits where it always
+// has; seated is the order the guests join after it, each on the guest
+// lodging's schedule with the newcomer's 2,000, which is what the daemon does
+// with the -guest flags in the order they are written. Two guests keep the
+// same hours, so the order they are seated in is the order their asks reach
+// the board — the seat the queue reads when they tie. Every caller above
+// seats nobody; the seating test seats the same two guests twice, the other
+// way round the second time.
+func fairSeatedDays(t *testing.T, path string, days int, seated []string, cast func(*world) map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
+	t.Helper()
 	tw, err := trace.NewWriter(path)
 	if err != nil {
 		t.Fatal(err)
@@ -248,6 +262,12 @@ func fairWorldDays(t *testing.T, path string, days int, cast func(*world) map[st
 	for _, id := range []string{"scholar", "frugal", "gambler"} {
 		w.add(t, id, map[string]ledger.Credits{"scholar": 3000, "frugal": 2500, "gambler": 1600}[id])
 		w.steps.fns[id] = steps[id]
+	}
+	m, people := town.AshmereFair()
+	for _, id := range seated {
+		w.add(t, id, 2000)
+		w.steps.fns[id] = steps[id]
+		people = append(people, town.Guest(id, id, "a guest, seated by the test"))
 	}
 
 	if fcfg.Deck == nil {
@@ -269,7 +289,6 @@ func fairWorldDays(t *testing.T, path string, days int, cast func(*world) map[st
 	if holding {
 		cfg.Hold = f.Hold
 	}
-	m, people := town.AshmereFair()
 	if _, err := town.Run(context.Background(), tw, m, people, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -1292,5 +1311,162 @@ func TestFairTheReserveFloorsTheAskAndNotTheMargin(t *testing.T) {
 		if len(madeGood[id]) > 0 {
 			t.Errorf("%s: a losing delivery was made good by %v; the reserve floors the ask, and nothing floors the margin", id, madeGood[id])
 		}
+	}
+}
+
+// Who the open book is for, the back of the queue: the README's four-corner
+// grid rests on one sentence — swap the two guests' seats and the whole
+// difference is the opening card crossing the table, because the queue decides
+// a tie and nothing else. Two guests who tie on the first card and never again,
+// seated both ways round. From the trace alone: every card the pair tie on goes
+// to the seat that spawned first, every other card is awarded to the same name
+// at the same price in both seatings, the fair pays out the same total either
+// way, and each guest's earnings move by exactly the tied cards' payouts.
+func TestFairSwappingTheSeatsMovesOnlyTheTies(t *testing.T) {
+	const reader, blind = "reader", "blind"
+	cast := func(*world) map[string]stepFunc {
+		// Both open at 20% of the maximum. From the second card on the
+		// reader asks a point under, so the pair tie once and the price,
+		// not the queue, decides everything after.
+		undercut := func(_ StepRequest, in StepInput) StepResult {
+			var acts []Action
+			for _, b := range in.Observation.Bounties {
+				frac := 0.19
+				if b.ID == "b0001" {
+					frac = 0.2
+				}
+				price := ledger.Credits(float64(b.MaxPayout) * frac)
+				if price < b.Reserve {
+					price = b.Reserve
+				}
+				acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+			}
+			return out(acts...)
+		}
+		return map[string]stepFunc{
+			"scholar": script(bidAll(0.5), solve),
+			"frugal":  script(bidAll(0.5), solve),
+			"gambler": script(bidAll(0.5), solve),
+			reader:    script(undercut, solve),
+			blind:     script(bidAll(0.2), solve),
+		}
+	}
+
+	type award struct {
+		price  ledger.Credits
+		winner string
+		tied   bool // the pair both at the winning price
+	}
+	type seating struct {
+		spawned map[string]int // seq of each agent's spawned line
+		awards  map[string]award
+		payout  map[string]ledger.Credits // per bounty
+		earned  map[string]ledger.Credits // per agent
+		total   ledger.Credits
+	}
+	read := func(lines []trace.Line) seating {
+		s := seating{map[string]int{}, map[string]award{}, map[string]ledger.Credits{}, map[string]ledger.Credits{}, 0}
+		for _, l := range lines {
+			var p struct {
+				Action string         `json:"action"`
+				ID     string         `json:"id"`
+				Bounty string         `json:"bounty"`
+				Agent  string         `json:"agent"`
+				Winner string         `json:"winner"`
+				Price  ledger.Credits `json:"price"`
+				Amount ledger.Credits `json:"amount"`
+				Book   []struct {
+					Agent string
+					Price ledger.Credits
+				} `json:"book"`
+			}
+			if err := json.Unmarshal(l.Payload, &p); err != nil {
+				continue
+			}
+			switch {
+			case l.Type == trace.EventAgent && p.Action == "spawned":
+				s.spawned[p.Agent] = int(l.Seq)
+			case l.Type == trace.EventBounty && p.Action == "awarded":
+				a := award{price: p.Price, winner: p.Winner}
+				at := map[string]bool{}
+				for _, b := range p.Book {
+					if b.Price == p.Price {
+						at[b.Agent] = true
+					}
+				}
+				a.tied = at[reader] && at[blind]
+				s.awards[p.ID] = a
+			case l.Type == trace.EventCredit && p.Action == "payout":
+				s.payout[p.Bounty] += p.Amount
+				s.earned[p.Agent] += p.Amount
+				s.total += p.Amount
+			}
+		}
+		return s
+	}
+	dir := t.TempDir()
+	front := read(fairSeatedDays(t, filepath.Join(dir, "reader-first.jsonl"), 1, []string{reader, blind}, cast, false))
+	back := read(fairSeatedDays(t, filepath.Join(dir, "blind-first.jsonl"), 1, []string{blind, reader}, cast, false))
+
+	// The guards. The pair have to tie somewhere, on the same cards in both
+	// seatings, or nothing below is about the queue; and the swap has to
+	// move at least one of those cards, or the seat was never read.
+	var tied []string
+	moved := false
+	for id, a := range front.awards {
+		b, ok := back.awards[id]
+		if !ok {
+			t.Fatalf("%s: awarded with the reader in front and never with it behind", id)
+		}
+		if a.tied != b.tied {
+			t.Fatalf("%s: the pair tie at the winning price in one seating and not the other", id)
+		}
+		if a.tied {
+			tied = append(tied, id)
+			moved = moved || a.winner != b.winner
+		}
+	}
+	if len(tied) == 0 {
+		t.Fatal("the pair never tied at a winning price: the queue decided nothing, and the test measured nothing")
+	}
+	if !moved {
+		t.Fatal("the pair tied and the same name won both ways round: the seat was not read, and the test measured nothing")
+	}
+	sort.Strings(tied)
+
+	for name, s := range map[string]seating{"reader in front": front, "blind in front": back} {
+		first := reader
+		if s.spawned[blind] < s.spawned[reader] {
+			first = blind
+		}
+		for id, a := range s.awards {
+			if a.tied && a.winner != first {
+				t.Errorf("%s: %s tied and went to %s; the seat that spawned first was %s", name, id, a.winner, first)
+			}
+		}
+	}
+	var crossed ledger.Credits
+	for _, id := range tied {
+		crossed += front.payout[id]
+		if front.payout[id] != back.payout[id] {
+			t.Errorf("%s: a tied card paid %d one way round and %d the other", id, front.payout[id], back.payout[id])
+		}
+	}
+	for id, a := range front.awards {
+		if b := back.awards[id]; !a.tied && (a.winner != b.winner || a.price != b.price) {
+			t.Errorf("%s: not a tie, and the swap moved it — %s at %d against %s at %d", id, a.winner, a.price, b.winner, b.price)
+		}
+	}
+	if front.total != back.total {
+		t.Errorf("the fair paid out %d with the reader in front and %d with it behind; the seat is not a price", front.total, back.total)
+	}
+	if got := front.earned[reader] - back.earned[reader]; got != crossed {
+		t.Errorf("the reader earned %d more in front than behind; the tied cards %v paid %d", got, tied, crossed)
+	}
+	if got := back.earned[blind] - front.earned[blind]; got != crossed {
+		t.Errorf("the blind seat earned %d more in front than behind; the tied cards %v paid %d", got, tied, crossed)
+	}
+	if crossed == 0 {
+		t.Errorf("the tied cards %v paid nothing: nothing crossed the table", tied)
 	}
 }
