@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-rivals-7day fair-hucksters-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -176,6 +176,29 @@ fair-rivals-7day:
 fair-hucksters-7day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/huckster.py -guest examples/guests/hawker.py -trace fair-hucksters-7day-trace.jsonl
 
+## fair-peddlers-7day: the open book on the whole board. Two copies of one
+## program again — examples/guests/chapman.py imports peddler.py's act the
+## way hawker.py imports huckster.py's — and peddler.py is huckster.py with
+## its one filter removed: it imports the huckster's pricing rule unchanged
+## and bids on every card, brief and oracle included, doing the work each
+## card describes. The open week above walked nineteen arith cards to the
+## platform's floor while the scholar took 37,114 of the board's 38,833 on
+## the judged work no reader touched; this is the same rule sent where the
+## money is, for the same seven days, with no ping, no floor of its own and
+## one note across every kind. It differs from fair-hucksters-7day in the two
+## guest files and nothing else.
+fair-peddlers-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/peddler.py -guest examples/guests/chapman.py -trace fair-peddlers-7day-trace.jsonl
+
+## fair-peddlers-sealed-7day: the strict control — the line above without
+## "-book open". Same pair, same seed, same seven days; no result ever
+## carries a book, so neither peddler learns anything and both bid their
+## opening 20% on every card all week. The difference between this trace
+## and the open one is the reading and nothing else, which is the same
+## control fair-hucksters names and this time pins.
+fair-peddlers-sealed-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/peddler.py -guest examples/guests/chapman.py -trace fair-peddlers-sealed-7day-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -190,4 +213,4 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl

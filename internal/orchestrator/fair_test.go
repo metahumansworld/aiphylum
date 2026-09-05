@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -220,6 +221,15 @@ func fairDay(t *testing.T, path string, steps map[string]stepFunc, holding bool,
 // the same eight cards posted again.
 func fairDays(t *testing.T, path string, days int, steps map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
 	t.Helper()
+	return fairWorldDays(t, path, days, func(*world) map[string]stepFunc { return steps }, holding, tweak...)
+}
+
+// fairWorldDays is fairDays for a cast that cannot be written until the world
+// exists: an agent that spends through the proxy has to be told where the
+// proxy is, and there is no proxy before there is a world. The cast is built
+// once, after the world and both configs, and installed before the first tick.
+func fairWorldDays(t *testing.T, path string, days int, cast func(*world) map[string]stepFunc, holding bool, tweak ...func(*Config, *FairConfig)) []trace.Line {
+	t.Helper()
 	tw, err := trace.NewWriter(path)
 	if err != nil {
 		t.Fatal(err)
@@ -234,6 +244,7 @@ func fairDays(t *testing.T, path string, days int, steps map[string]stepFunc, ho
 		tk(&ocfg, &fcfg)
 	}
 	w := newSim(t, tw, ocfg)
+	steps := cast(w)
 	for _, id := range []string{"scholar", "frugal", "gambler"} {
 		w.add(t, id, map[string]ledger.Credits{"scholar": 3000, "frugal": 2500, "gambler": 1600}[id])
 		w.steps.fns[id] = steps[id]
@@ -1171,5 +1182,115 @@ func TestFairReserveIsTheFloorAndIsDerivableFromTheTraceAlone(t *testing.T) {
 	}
 	if both == 0 {
 		t.Fatal("no card carried both a sub-reserve refusal and a floor-priced award: the refusal and the floor were never seen together")
+	}
+}
+
+// The reserve floors the ask, and nothing floors the margin. A guest that
+// bids the platform's floor on a card whose work costs more than the floor is
+// awarded the card, does the work, is paid the floor and keeps the loss: the
+// engine settles a losing delivery exactly as it settles a winning one, and
+// every number the loss is made of is on the trace — the ask, the payout that
+// equals it, the meter's calls that exceed it, and the absence of any refund
+// or void. The fair-peddlers week's tier-one oracles are this at seven days;
+// this is the shape of it on a deck that fits in CI, without python.
+func TestFairTheReserveFloorsTheAskAndNotTheMargin(t *testing.T) {
+	const floorerID = "frugal"
+	lines := fairWorldDays(t, filepath.Join(t.TempDir(), "margin.jsonl"), 2, func(w *world) map[string]stepFunc {
+		floorer := func(_ StepRequest, in StepInput) StepResult {
+			var acts []Action
+			for _, b := range in.Observation.Bounties {
+				acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: b.Reserve})
+			}
+			return out(acts...)
+		}
+		// One consultation before answering, long enough to cost more than
+		// any floor on this deck: work priced under what it costs, which is
+		// the peddler's tier-one oracle with the numbers made small.
+		spender := func(req StepRequest, in StepInput) StepResult {
+			if code := callModel(t, w.base, req.Token, in.Observation.Task.Prompt, 64); code != http.StatusOK {
+				t.Errorf("the floorer's one model call on %s returned %d", in.Observation.Task.BountyID, code)
+			}
+			return solve(req, in)
+		}
+		return map[string]stepFunc{
+			"scholar": script(bidAll(0.4), solve),
+			"frugal":  script(floorer, spender),
+			"gambler": script(bidAll(0.25), solve),
+		}
+	}, false)
+
+	type ending struct{ payout, burned ledger.Credits }
+	reserve := map[string]ledger.Credits{}
+	ask := map[string]ledger.Credits{}     // the floorer's winning ask, per card
+	metered := map[string]ledger.Credits{} // the meter's cost per card, from the attempt wallet's name
+	paid := map[string]ledger.Credits{}    // payout credits to the floorer, per card
+	solved := map[string]ending{}
+	madeGood := map[string][]string{} // anything that gives a loss back: refunds, voids
+	for _, l := range lines {
+		var p struct {
+			Action string         `json:"action"`
+			ID     string         `json:"id"`
+			Bounty string         `json:"bounty"`
+			Agent  string         `json:"agent"`
+			Winner string         `json:"winner"`
+			Wallet string         `json:"wallet"`
+			Price  ledger.Credits `json:"price"`
+			Res    ledger.Credits `json:"reserve"`
+			Payout ledger.Credits `json:"payout"`
+			Burned ledger.Credits `json:"burned"`
+			Amount ledger.Credits `json:"amount"`
+			Cost   ledger.Credits `json:"cost"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventBounty && p.Action == "posted":
+			reserve[p.ID] = p.Res
+		case l.Type == trace.EventBounty && p.Action == "awarded" && p.Winner == floorerID:
+			ask[p.ID] = p.Price
+		case l.Type == trace.EventModelCall:
+			// A metered call is billed to an attempt wallet, and the wallet
+			// is named for its card: "att:<bounty>:r<round>".
+			if parts := strings.Split(p.Wallet, ":"); len(parts) == 3 && parts[0] == "att" {
+				metered[parts[1]] += p.Cost
+			}
+		case l.Type == trace.EventBounty && p.Action == "solved" && p.Agent == floorerID:
+			solved[p.ID] = ending{p.Payout, p.Burned}
+		case l.Type == trace.EventCredit && p.Action == "payout" && p.Agent == floorerID:
+			paid[p.Bounty] += p.Amount
+		case l.Type == trace.EventCredit && p.Action == "refund" && p.Agent == floorerID:
+			madeGood[p.Bounty] = append(madeGood[p.Bounty], "refund")
+		case l.Type == trace.EventBounty && p.Action == "voided":
+			madeGood[p.ID] = append(madeGood[p.ID], "voided")
+		}
+	}
+
+	if len(solved) == 0 {
+		t.Fatal("the floorer never delivered: nothing below was checked against anything")
+	}
+	for id, e := range solved {
+		// The vacuity guard first: every delivery here has to be a loss, or
+		// this is the reserve test above under a longer name.
+		if e.burned <= e.payout {
+			t.Fatalf("%s: the floorer burned %d to be paid %d; the work cost less than the floor, and the test measured nothing", id, e.burned, e.payout)
+		}
+		// 1. Paid its ask, and its ask was the floor: not the loss made up,
+		// not the maximum.
+		if e.payout != ask[id] || ask[id] != reserve[id] {
+			t.Errorf("%s: awarded at %d on a reserve of %d and paid %d; a losing delivery is paid its ask, and its ask was the floor", id, ask[id], reserve[id], e.payout)
+		}
+		// 2. The ledger says what the settlement says.
+		if paid[id] != e.payout {
+			t.Errorf("%s: solved with payout %d, credited %d", id, e.payout, paid[id])
+		}
+		// 3. The loss is the meter's sum, call by call, on the trace.
+		if metered[id] != e.burned {
+			t.Errorf("%s: solved with burned %d, and the metered calls on its attempt wallet sum to %d", id, e.burned, metered[id])
+		}
+		// 4. Nothing gave it back.
+		if len(madeGood[id]) > 0 {
+			t.Errorf("%s: a losing delivery was made good by %v; the reserve floors the ask, and nothing floors the margin", id, madeGood[id])
+		}
 	}
 }

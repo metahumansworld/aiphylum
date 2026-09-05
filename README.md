@@ -203,6 +203,8 @@ make fair-hucksters-3day # the open book at three days — the run the sealed da
 make fair-lone-reader-3day # the mixed pair at three days: the second run that shelves the two bounties
 make fair-rivals-7day # the sealed pair at seven days, fifty-six cards: the control for the walk below
 make fair-hucksters-7day # the open book at seven days: the walk run to the platform's floor, reached on day four
+make fair-peddlers-7day # the same rule on every card, judged work included, for seven open days
+make fair-peddlers-sealed-7day # the same pair for the same week with nothing to read: the control
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -876,6 +878,157 @@ than buried.
   target for it. The flag-swapped corner and the mixed-sealed control stay
   unpinned for the reason the entry above gave: they are about the huckster's
   learning, and this entry is about the floor.
+
+- **The open book where the money is.** Three entries of the open book's walk
+  — the day, the three days, the week run to the platform's floor — happened
+  on nineteen of a week's fifty-six cards, and the cheapest nineteen. The
+  huckster bids on arithmetic and nothing else, by its own line: "a stranger
+  doesn't pay for oracles it can't vouch for." So the open week above paid
+  out 38,833 and 37,114 of it went to the scholar, for brief and oracle work
+  no reader ever priced; the floor the readers walked to was the floor under
+  1,719. And the pinned week says one more thing about that 1,719 which no
+  entry said. The huckster pings the meter once on every arith card, to feel
+  the price of a token, and the ping costs 22 credits — the same 22 on all
+  nineteen cards, 418 in the week — so the 1,719 the huckster was paid is
+  1,301 kept, and five of its tier-one awards are losses, three of them at
+  the floor: `b0019`'s 21 against 22 burned, `b0028`'s 14 against 22, and 12
+  against 22 on `b0037`, `b0046` and `b0055`. The reserve floors the ask.
+  Nothing floors the margin, and on a tier-one arith card the floor sits 10
+  under the huckster's own ping. That is the sentence this entry runs on the
+  cards where the money is.
+
+  `examples/guests/peddler.py` is the huckster with one line removed — the
+  `continue` that skips every card that is not arithmetic — and its pricing
+  rule is imported from `huckster.py`, not copied: the same `read_book`, the
+  same undercut, probe, ceiling and missing floor, now read on every kind.
+  Three things had to be decided, and each was decided the way that adds no
+  second rule. One note for every kind, because a fraction of the maximum is
+  a ratio and a ratio travels, from a 240 card to a 21,139 one and from an
+  arith to an oracle alike; a note per kind would be three walks under one
+  name. No ping, because the ping is the one model call the card does not
+  require: the peddler's only calls are the work — none on arithmetic, none
+  on a brief, on an oracle the chain the card states, at the card's own model
+  and max_tokens through the same metered proxy the scholar uses — so
+  burned-against-payout is measured on the work alone. And no floor of its
+  own beyond the card's reserve, because a floor that knew what the chain
+  would cost is the second rule the file exists not to have. `chapman.py` is
+  the peddler's second seat, one import long, the way the hawker is the
+  huckster's. `make fair-peddlers-7day` seats the pair for seven open days;
+  `make fair-peddlers-sealed-7day` is the same pair, seed and week with
+  `-book open` removed: the control. The two traces are identical, timestamps
+  aside, through their first seventy-five lines but one — the start line's
+  `book` — and part at line seventy-six, the peddler's first memo: 19% off
+  `b0001`'s book on the open board, 20% and no lesson on the sealed one.
+  Nothing differs before the book does. Both weeks post fifty-six cards,
+  solve fifty-six, shelve none, void none, refuse no bid, pass every one of
+  the peddler's eighteen judged briefs, and close on the same line — seven
+  days, 504 meetings, 1,008 ticks.
+
+  The walk is the one above, taking eight lessons a day instead of three. Day
+  one's cards take the note from 20 to 8 — one lesson a card, and two on
+  `b0003`, which the gambler wins at 45, fails, and the re-auction hands to
+  the peddler at 42 — and day two's first three take it to 5. Then `b0012`, a
+  brief with a maximum of 300, is asked at 5% of 300, which is 15, which is
+  its reserve: the arrival, unclamped, on day two, for the reason the entry
+  above gave, that 5% is the fraction the platform posts as its floor.
+  `b0012`'s lesson says 4, and 4% of `b0013`'s 1,000 is 40, under its 50, and
+  the clamp raises it — the first award the clamp makes, one card after the
+  arrival: the two events the entry above found a day apart, here a card
+  apart. The note reaches 1 at its sixteenth lesson, read off `b0015` on day
+  two, and says 1 for the forty lessons after. Every one of the forty-five
+  awards from `b0012` to `b0056` is at the posted reserve — 12, 50 and 121 on
+  the arith cards as above, 15, 63 and 156 on the briefs, and on the oracles
+  whatever 5% of that card's maximum came to, 36 to 1,056 — and the
+  forty-five sum to 8,831. The entry above arrived on day four, on the third
+  arith card of the day; this pair arrives on day two, on the twelfth card of
+  the week, and the difference is the calendar and not the rule.
+
+  The tier-one oracles are where the ping's arithmetic comes back with the
+  ping removed. An oracle is the one kind whose work costs credits — the
+  chain runs through the proxy and the meter charges for it — and on every
+  tier-one oracle of the week the chain costs more than the card's reserve:
+  58 on `b0002` against a reserve of 43, and 49 to 94 on the six after
+  against reserves of 36 to 70. `b0002` is priced on day one, at 165, before
+  the walk has gone anywhere, and nets 107. The other six are priced from day
+  two on, at the reserve, and every one is a delivery paid for: `b0011`'s 61
+  against 68 burned, `b0020`'s 70 against 94, `b0029`'s 36 against 49,
+  `b0038`'s 70 against 94, `b0047`'s 42 against 57, `b0056`'s 70 against 94 —
+  107 lost across the six, so the week's seven tier-one oracles net exactly
+  zero, the one won on day one paying for the six won at the floor. Every
+  other card nets to the peddler's credit: the tier-two chains cost 103 to
+  169 against reserves of 234 to 384, the tier-three 193 to 243 against 839
+  to 1,056, and a brief or an arith card costs nothing to answer. The engine
+  settles the six exactly as it settles the fifty: awarded at the ask, the
+  work done and checked, the ask paid, the loss kept. No event says anything
+  went wrong, because nothing did — the reserve was met. Nothing the platform
+  posts, and nothing in the rule, knows what an answer costs.
+
+  The money. The open week pays out 12,090 across its fifty-six cards —
+  2,932, 903, 1,721, 1,809, 1,369, 1,570, 1,786 by day — of which 1,362 is
+  the nineteen arith cards, 9,114 the nineteen oracles and 1,614 the eighteen
+  briefs. The board's floor, the fifty-six posted reserves summed, is 10,466,
+  so the whole premium the pair extracted over it in seven days is 1,624, and
+  all of it is in the eleven awards before `b0012`: 3,259 paid on cards whose
+  reserves sum to 1,635. The sealed week pays 41,929 — 5,673, 3,188, 6,880,
+  7,250, 5,488, 6,294, 7,156 by day; 4,446, 31,843 and 5,640 by kind — and
+  41,893 of it is the peddler's fifty-five awards at exactly 20% of the
+  maximum, its opening, which without a book it never leaves; the other 36 is
+  the gambler's one card. The book is worth 29,839 to the posters over the
+  week. Of the 209,757 the fifty-six cards were posted at, the sealed board
+  paid 41,929 and the open board 12,090, and neither left a card unsolved,
+  where the entry above's weeks paid 50,248 and 38,833 and left six and
+  fourteen on the shelf. And the work costs the same in both weeks: the
+  peddler burns 2,676 open and 2,676 sealed, on the same nineteen chains,
+  because the book changes what a delivery is paid and nothing about what it
+  costs. Open, the peddler ends the week 9,414 up; sealed, 39,217.
+
+  Who is paid is the back-of-the-queue entry's finding, on every kind. The
+  scholar, paid 37,114 of the open week above and 46,894 of the sealed one,
+  is paid nothing in either of these: its asks are 40% of the maximum on
+  arithmetic, 30% on an oracle and 25% on a brief, above the peddler's 20%
+  opening on every kind, so it goes without work from `b0001`, sealed or
+  open, and ends both weeks at its 3,000 grant with no attempt made. The
+  chapman ends both weeks at its 2,000 the same way. Every one of the
+  peddler's fifty-six open awards is the pair tied at the identical ask —
+  nineteen arith, eighteen brief, nineteen oracle — and so are its fifty-five
+  sealed ones, and arrival order hands every tie to the front seat: 12,090 to
+  the front and nothing to the back on the open board, 41,893 and nothing on
+  the sealed. The gambler is the only other name on either board. Open, it
+  wins `b0003` on day one at 45, fails it, burns 207, and is never under the
+  readers' ask again once `b0003`'s lesson takes the note beneath its 15%:
+  one award, 1,393 at the close of every day, never bankrupt. Sealed, with
+  the pair parked at 20%, its 15% wins every card it bids on until it cannot
+  — forty-six awards, forty-five failures, one solved, `b0019` at 36 — and it
+  is bankrupt on day three with 200 dust-burned, the death the two-bounties
+  entry recorded; and where that death left the entry above's sealed board
+  shelving six, this one shelves none, because a reader is on every card.
+
+  `TestFairTheReserveFloorsTheAskAndNotTheMargin` is the tier-one oracle with
+  the numbers made small: two direct-driven days, a floorer that bids the
+  posted reserve on every card and makes one metered call through the test's
+  own proxy before answering, on cards whose reserve is 15 and whose one call
+  costs more than that. From the trace alone: every delivery is paid its ask,
+  the ask is the reserve, the payout credit says the same amount, the burn
+  equals the metered calls on the card's attempt wallet summed, and no refund
+  and no void touch the card. The first check is the guard: every delivery
+  has to be a loss, or the test fails as having measured nothing — take the
+  model call out and it does. The harness gained `fairWorldDays`, which is
+  `fairDays` for a cast that cannot be written before the world exists,
+  because a guest that spends through the proxy has to be told where the
+  proxy is; every existing caller is unchanged.
+
+  And what is deliberately not here. Not a floor that knows the cost: a note
+  that read the meter before bidding would price the tier-one oracles above
+  their reserve, and the six losses would vanish along with the finding — the
+  peddler's docstring calls it the second rule the file exists not to have,
+  and the sealed control is the file with one thing removed, not two. Not a
+  note per kind, for the reason above. Not a change to the reserve fraction,
+  refused in the entry above for a platform pricing labour. Not a cure for
+  the sealed gambler, refused twice already. Not the ping taken out of the
+  huckster: the pinned week keeps its 418, and this entry is where its
+  arithmetic is said. And not the seeded draw for the pair — it would split
+  the 12,090 between two seats that asked the same number and change nothing
+  about what the posters paid, which is what this entry is about.
 
 ## Layout
 
