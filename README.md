@@ -201,6 +201,10 @@ make fair-lone-reader # one reader seated beside one blind bidder: the book pric
 make fair-rivals-3day # the sealed fair at the ledger's horizon: three days, twenty-four cards
 make fair-hucksters-3day # the open book at three days — the run the sealed days are a control for
 make fair-lone-reader-3day # the mixed pair at three days: the second run that shelves the two bounties
+make fair-lone-reader-swapped # the mixed pair with the flags the other way round: the grid's fourth corner
+make fair-lone-reader-swapped-3day # the fourth corner at three days: the opening card crossing the table
+make fair-lone-reader-sealed-3day # the mixed pair with nothing to read: the reader frozen at its opening
+make fair-lone-reader-sealed-swapped-3day # the sealed control the other way round: the frozen reader seated first
 make fair-rivals-7day # the sealed pair at seven days, fifty-six cards: the control for the walk below
 make fair-hucksters-7day # the open book at seven days: the walk run to the platform's floor, reached on day four
 make fair-peddlers-7day # the same rule on every card, judged work included, for seven open days
@@ -1029,6 +1033,111 @@ than buried.
   arithmetic is said. And not the seeded draw for the pair — it would split
   the 12,090 between two seats that asked the same number and change nothing
   about what the posters paid, which is what this entry is about.
+
+- **The four corners, with the commands written down.** Two entries running
+  have ended on the same sentence — the flag-swapped corner and the
+  mixed-sealed control "stay unpinned" — and each time the reason given was
+  scope: they were about the huckster's learning, and the entry at hand was
+  about something else. The reason was true and the debt was still a debt.
+  The back-of-the-queue entry's grid stands on those two runs: 528 against
+  480 on the day and 1,214 against 1,166 across three, the claim that the
+  whole difference is the opening card crossing the table, 17,332 to the fair
+  in both mixed corners, and a sealed control in which the reader "never
+  learns at all — frozen at its 20% opening, 48 credits in three days, the
+  fair settling within 2 credits of the blind board's 19,702." Every one of
+  those numbers was real. Half of them have had a command since the grid was
+  written — 480, 1,166 and the reader-in-back 17,332 come out of
+  `fair-lone-reader` and its three days — and the other half, the swapped
+  seating's and the sealed control's, never did. This page has repaired that
+  before — three targets for the three-day figures the two-bounties entry
+  needed — and this entry does it for the last of them. Four targets, nothing
+  else changed. `fair-lone-reader-swapped` and its three-day twin are the
+  lone-reader commands with the two `-guest` flags in the other order;
+  `fair-lone-reader-sealed-3day` and `fair-lone-reader-sealed-swapped-3day`
+  are the mixed pair's three days with `-book open` removed, both ways round
+  — because the control's seating was the one thing the quoted sentence did
+  not say, and it turns out to matter.
+
+  The fourth corner reproduces to the credit. On the day the reader in front
+  is paid 528, the blind seat nothing, the fair 6,378; across three days
+  1,214, nothing, 17,332, with the same six cards shelved. The day's trace is
+  the three-day trace's first 765 lines, timestamps aside, with one number
+  differing — the deck count on the start line — which is the identity the
+  week-long entries used, here at a day. Join the swapped three days to the
+  pinned lone-reader three days card by card and every award but one is the
+  same name at the same price: `b0001`, tied at 48, goes to whoever the
+  roster lists first. That is the sentence the grid runs on, and the trace
+  says what else moved when the seats did. Sort each tick's roster and 74
+  lines of the day differ, 200 of the three days, and almost all of them are
+  the two names in the other order — every book, every departure, every
+  arrival, the town's evening reflections. Set the names aside and the
+  reader's every ask and every lesson is the same string in both seatings:
+  its memo after the opening card reads "read b0001: cheapest rival 48, try
+  19%" whether it won that card or lost it, and its next ask is 190 either
+  way, which is the line the grid entry wrote without a command and this
+  entry reads from both traces. In front it writes its opening memo once
+  more, at the attempt it now has. The blind agent differs for exactly one
+  ask: 220 after its win, 190 after its loss, on `b0004`'s first auction,
+  which the gambler takes at 150 in both seatings, and from that card's
+  re-auction on its sequence is identical too. And on every model-call line
+  the reader makes for the rest of the run its balance is 26 higher in front
+  — the 48 it was paid less the 22 its ping cost. Nothing else is different,
+  and the posters cannot tell the seatings apart.
+
+  The sealed control settles at 19,704: the 2 above the blind board's 19,702
+  that the entry bracketed, and the 2 is one card. On the blind board the
+  rival, parked at its 15% floor, took `b0010` at 36 under the haggler's 38;
+  beside a reader frozen at 20% nothing undercuts a walk-up after a win, so
+  the haggler keeps `b0010` at 38, learns 17%, asks 170 on `b0013`, loses it
+  to the gambler, and wins the same card at the same 150 on its sixth
+  auction, after the gambler has taken and failed the five before it. Day
+  totals 6,413, 3,374, 9,917 against the blind board's 6,413, 3,372, 9,917;
+  the same four cards shelved; the gambler dead on day three and `b0021` and
+  `b0023` solved by the scholar at 75 and 2,209, as the two-bounties entry
+  recorded. The reader is frozen as the entry said: forty memo lines in three
+  days, every one of them 20% and no lesson, eighteen asks at 48, 200 and 487
+  — a fifth of every arith maximum — and no award. No award, not 48: seated
+  behind the haggler it ties the opening card and the queue hands the card to
+  the front. The 48 the entry quoted is the other seating. Seated first, the
+  reader wins the tie and is paid 48 — its one award in three days, on a card
+  it priced at its opening — the haggler 1,218 instead of 1,266, and the fair
+  19,704 again, the same three numbers day by day. Join the two sealed
+  seatings and `b0001` is the only award that moves; the reader's forty-one
+  memo lines say 20% and no lesson, the extra one written at the attempt it
+  now has; the blind agent's one differing ask is the same 220 against 190 on
+  `b0004` that the open seatings showed, lost to the gambler at 150 either
+  way. The 48 crosses the table on the sealed board exactly as it does on the
+  open one, which is the grid's sentence with the book shut: the queue
+  decides a tie, and the book decides everything else.
+
+  `TestFairSwappingTheSeatsMovesOnlyTheTies` is the grid's sentence on the
+  harness deck, without python. Two guests who tie on the first card and
+  never again — both open at 20%, the reader asks a point under from the
+  second card — are seated after the cast both ways round, and from the two
+  traces alone: every card the pair tie on goes to the seat whose `spawned`
+  line came first, every other card goes to the same name at the same price
+  in both seatings, the fair pays out the same total either way, and each
+  guest's earnings move by exactly the tied cards' payouts. On this deck the
+  tie is `b0001` at 60, and 60 is what crosses; the total is 459 both ways.
+  Two guards, both fatal: a pair that never tied at a winning price, and a
+  tied card that went to the same name both ways round — the first says the
+  queue decided nothing, the second that the seat was never read. Seating the
+  harness's cast in a different order is the second guard's failure, and it
+  was the first draft: the cast walk their own schedules, and the queue reads
+  who is at the board and in what order, not who was registered first. The
+  seat is the guest lodging's — one schedule, two names, the order the flags
+  are written — so the harness gained `fairSeatedDays`, which is
+  `fairWorldDays` with guests seated after the cast the way the daemon seats
+  them; every existing caller seats nobody and is unchanged.
+
+  What is deliberately not here. Not a rewrite of the grid entry's sentence:
+  "48 credits in three days" stays as written, and this entry says which
+  seating it is. Not a change to the tie-break — the seeded draw is the other
+  policy, it has its own flag and its own targets, and the queue is the
+  policy under test here. Not a seven-day mixed corner: the lone reader parks
+  at 140 and has no walk to run, as the reserve entry said. And nothing about
+  learning, which is what the two entries that deferred this one were about;
+  this one is about the commands.
 
 ## Layout
 
