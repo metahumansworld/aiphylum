@@ -1470,3 +1470,136 @@ func TestFairSwappingTheSeatsMovesOnlyTheTies(t *testing.T) {
 		t.Errorf("the tied cards %v paid nothing: nothing crossed the table", tied)
 	}
 }
+
+// A floor read from the meter is derivable from the trace alone. A guest that
+// prices an answer at what its last answer cost has one rule — never ask under
+// the dearest chain paid for so far — and every number that rule acts on is on
+// the trace before the rule acts: the meter's cost per call on the attempt
+// wallet, the delivery's burned that equals their sum, and the ask that
+// follows. So every ask the guest ever makes is recomputable from the events
+// before it: the card's reserve, or the dearest burned of its own earlier
+// deliveries, whichever is higher. The costermonger's week is this rule on a
+// board; this is the rule on a deck that fits in CI, without python, with the
+// guest's memo made a closure.
+func TestFairAFloorReadFromTheMeterIsDerivableFromTheTraceAlone(t *testing.T) {
+	const readerID = "frugal"
+	lines := fairWorldDays(t, filepath.Join(t.TempDir(), "meter.jsonl"), 2, func(w *world) map[string]stepFunc {
+		var dearest ledger.Credits // the memo: the dearest reading so far
+		floored := func(_ StepRequest, in StepInput) StepResult {
+			var acts []Action
+			for _, b := range in.Observation.Bounties {
+				price := b.Reserve
+				if dearest > price {
+					price = dearest
+				}
+				acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+			}
+			return out(acts...)
+		}
+		// One call, then the meter: the purse opened the step at
+		// in.Wallet.Balance, and the call is the only thing that drew on it.
+		metered := func(req StepRequest, in StepInput) StepResult {
+			before := in.Wallet.Balance
+			if code := callModel(t, w.base, req.Token, in.Observation.Task.Prompt, 64); code != http.StatusOK {
+				t.Errorf("the reader's one model call on %s returned %d", in.Observation.Task.BountyID, code)
+			}
+			if spent := before - walletBalance(t, w.base, req.Token); spent > dearest {
+				dearest = spent
+			}
+			return solve(req, in)
+		}
+		return map[string]stepFunc{
+			"scholar": script(bidAll(0.4), solve),
+			readerID:  script(floored, metered),
+			"gambler": script(bidAll(0.25), solve),
+		}
+	}, false)
+
+	type ask struct {
+		seq    int64
+		bounty string
+		price  ledger.Credits
+	}
+	type delivery struct {
+		seq    int64
+		burned ledger.Credits
+		payout ledger.Credits
+	}
+	reserve := map[string]ledger.Credits{}
+	metered := map[string]ledger.Credits{} // the meter's calls summed per card, from the attempt wallet's name
+	var asks []ask
+	var deliveries []delivery
+	for _, l := range lines {
+		var p struct {
+			Action string         `json:"action"`
+			ID     string         `json:"id"`
+			Bounty string         `json:"bounty"`
+			Agent  string         `json:"agent"`
+			Wallet string         `json:"wallet"`
+			Price  ledger.Credits `json:"price"`
+			Res    ledger.Credits `json:"reserve"`
+			Payout ledger.Credits `json:"payout"`
+			Burned ledger.Credits `json:"burned"`
+			Cost   ledger.Credits `json:"cost"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventBounty && p.Action == "posted":
+			reserve[p.ID] = p.Res
+		case l.Type == trace.EventBid && p.Agent == readerID:
+			asks = append(asks, ask{l.Seq, p.Bounty, p.Price})
+		case l.Type == trace.EventModelCall:
+			if parts := strings.Split(p.Wallet, ":"); len(parts) == 3 && parts[0] == "att" {
+				metered[parts[1]] += p.Cost
+			}
+		case l.Type == trace.EventBounty && p.Action == "solved" && p.Agent == readerID:
+			if metered[p.ID] != p.Burned {
+				t.Errorf("%s: solved with burned %d, and the meter's calls on its attempt wallet sum to %d", p.ID, p.Burned, metered[p.ID])
+			}
+			deliveries = append(deliveries, delivery{l.Seq, p.Burned, p.Payout})
+		}
+	}
+	if len(asks) == 0 || len(deliveries) == 0 {
+		t.Fatalf("the reader asked %d times and delivered %d times: nothing below was checked against anything", len(asks), len(deliveries))
+	}
+
+	// Every ask, recomputed from the events before it.
+	raised, lagged := 0, 0
+	for _, a := range asks {
+		var dearest ledger.Credits
+		for _, d := range deliveries {
+			if d.seq < a.seq && d.burned > dearest {
+				dearest = d.burned
+			}
+		}
+		want := reserve[a.bounty]
+		if dearest > want {
+			want = dearest
+			raised++
+		}
+		if a.price != want {
+			t.Errorf("%s at seq %d: asked %d; the reserve is %d and the dearest delivery before it burned %d", a.bounty, a.seq, a.price, reserve[a.bounty], dearest)
+		}
+	}
+	// The floor lags: a chain dearer than any paid for so far is a delivery
+	// paid for, once. Counted, because it is the finding and not a fault.
+	for i, d := range deliveries {
+		var before ledger.Credits
+		for _, e := range deliveries[:i] {
+			if e.burned > before {
+				before = e.burned
+			}
+		}
+		if d.burned > before && d.burned > d.payout {
+			lagged++
+		}
+	}
+	// The guard: the floor has to have raised at least one ask above the
+	// reserve, or the meter was never read and the test measured nothing.
+	if raised == 0 {
+		t.Fatal("no ask was ever above the reserve: the meter was never read, and the test measured nothing")
+	}
+	t.Logf("asks %d, raised above the reserve %d; deliveries %d, paid to win while the floor lagged %d", len(asks), raised, len(deliveries), lagged)
+}

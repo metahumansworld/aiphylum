@@ -217,6 +217,33 @@ func callModel(t *testing.T, base, token, prompt string, maxTokens int) int {
 	return resp.StatusCode
 }
 
+// walletBalance reads the token's wallet through the real proxy, the way the
+// SDK's Model.wallet does: the one number an agent can read about its own
+// spend mid-step.
+func walletBalance(t *testing.T, base, token string) ledger.Credits {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, base+"/v1/wallet", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Balance ledger.Credits `json:"balance"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("wallet lookup returned %d", resp.StatusCode)
+	}
+	return body.Balance
+}
+
 func oneRound(postings ...Posting) Episode {
 	return Episode{Rounds: [][]Posting{postings}}
 }
