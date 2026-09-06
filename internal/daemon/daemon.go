@@ -35,9 +35,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
-	"github.com/singhtushant3-hub/aiphylum/internal/runner"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/orchestrator"
+	"github.com/metahumansworld/aiphylum/internal/runner"
 )
 
 // Config wires a Server. Orch, Bind, and TracePath are required.

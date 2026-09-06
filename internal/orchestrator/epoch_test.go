@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/bounty"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
 )
 
 // A bounty that fails in one episode stays on the board and re-enters auction

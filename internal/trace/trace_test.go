@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
 )
 
 func mkEvent(model, prompt string) proxy.Event {

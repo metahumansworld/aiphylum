@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
 )
 
 var (

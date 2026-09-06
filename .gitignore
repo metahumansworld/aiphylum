@@ -36,6 +36,9 @@ demo-stderr.log
 # not regenerated, and not recoverable once gone. Ignored so it is never
 # committed, and deliberately absent from `make clean`.
 live-trace.jsonl
+# the service's trace is the same kind of record — the conversations strangers
+# had with a built agent, word for word — and on top of that not public.
+service-trace.jsonl
 
 # episode state
 *.db
