@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat</title>
+<style>
+  /* The builder's palette, the chat's layout. White, glass, one gold. */
+  :root {
+    color-scheme: light;
+    --surface-page: #ffffff; --surface-raised: #fbfaf7; --surface-sunken: #f4f2ec;
+    --ink: #35302a; --ink-secondary: #5b544a; --ink-muted: #6a655a;
+    --line: #e7e3da; --line-firm: #cdc7ba; --edge: #948c7e;
+    --accent: #7a5d10; --accent-bright: #cf9a24; --accent-wash: #fbf3de; --danger: #b3261e;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font: 15px/1.45 var(--font); color: var(--ink); background: var(--surface-page); display: flex; flex-direction: column; }
+  header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); background: var(--surface-raised); }
+  header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+  ol { list-style: none; margin: 0; padding: 0.75rem 1rem; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+  li { padding: 0.5rem 0.7rem; border-radius: 8px; background: var(--surface-raised); border: 1px solid var(--line); max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  li.you { align-self: flex-end; background: var(--surface-page); border-color: var(--line-firm); }
+  li.refused { border-color: var(--danger); color: var(--ink-secondary); }
+  form { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--line); }
+  input { flex: 1; font: inherit; color: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--edge); border-radius: 8px; background: var(--surface-page); }
+  button { font: inherit; font-weight: 600; color: var(--ink); background: var(--accent-bright); border: 1px solid var(--accent-bright); border-radius: 8px; padding: 0.45rem 0.9rem; cursor: pointer; }
+  button:disabled, input:disabled { opacity: 0.5; cursor: default; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
+  p.status { margin: 0; padding: 0 1rem 0.5rem; color: var(--ink-muted); font-size: 0.8125rem; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<header><h1 id="name">…</h1></header>
+<ol id="log" aria-live="polite"></ol>
+<p class="status" id="status"></p>
+<form id="form">
+  <input id="input" type="text" placeholder="Say something" autocomplete="off" maxlength="4096" disabled>
+  <button id="send" type="submit" disabled>Send</button>
+</form>
+<script>
+(function () {
+  // /a/{id}/embed → the agent is the second segment. Everything rendered
+  // from the agent goes in as text: its name and its replies are the
+  // owner's words, not the platform's.
+  var id = location.pathname.split("/")[2];
+  var base = "/a/" + encodeURIComponent(id);
+  var conversation = "";
+  var log = document.getElementById("log"), input = document.getElementById("input"),
+      send = document.getElementById("send"), status = document.getElementById("status");
+
+  function line(text, cls) {
+    var li = document.createElement("li");
+    if (cls) li.className = cls;
+    li.textContent = text;
+    log.append(li);
+    log.scrollTop = log.scrollHeight;
+  }
+  function enable(on) { input.disabled = send.disabled = !on; if (on) input.focus(); }
+
+  fetch(base).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }).then(function (card) {
+    document.getElementById("name").textContent = card.name;
+    document.title = card.name;
+    if (card.greeting) line(card.greeting);
+    enable(true);
+  }).catch(function () {
+    document.getElementById("name").textContent = "Not here";
+    line("This agent is not reachable any more.", "refused");
+  });
+
+  document.getElementById("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var text = input.value.trim();
+    if (!text) return;
+    line(text, "you");
+    input.value = "";
+    status.textContent = "";
+    enable(false);
+    fetch(base + "/messages", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation: conversation, text: text }),
+    }).then(function (r) {
+      return r.text().then(function (body) {
+        var data = {}; try { data = JSON.parse(body); } catch (_) {}
+        if (r.ok) { conversation = data.conversation; line(data.reply); return; }
+        if (r.status === 429) { status.textContent = "Too fast. Try again in " + (r.headers.get("Retry-After") || "a few") + "s."; }
+        else if (r.status === 402) { line("This agent is out of credits for now.", "refused"); }
+        else if (r.status === 404) { conversation = ""; line("That conversation ended. Say it again to start a new one.", "refused"); }
+        else { line(data.error || "The agent could not answer.", "refused"); }
+      });
+    }).catch(function () { line("Could not reach the agent.", "refused"); }).then(function () { enable(true); });
+  });
+})();
+</script>
+</body>
+</html>

@@ -18,6 +18,7 @@ import (
 	"github.com/metahumansworld/aiphylum/internal/service"
 	"github.com/metahumansworld/aiphylum/internal/spec"
 	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/widget"
 )
 
 // openRouterKeyEnv names the platform's OpenRouter key. It is read from the
@@ -134,6 +135,8 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	mux.Handle("/waitlist", accounts.Handler())
 	mux.Handle("/v1/", svc.Control(auth))
 	mux.Handle("/a/", svc.Public())
+	mux.Handle("GET /a/{id}/embed", widget.Handler())
+	mux.Handle("GET /widget.js", widget.Handler())
 	mux.Handle("/", builder.Handler())
 	srv := &http.Server{Addr: opt.serveListen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -142,7 +145,7 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 		defer cancel()
 		srv.Shutdown(shutdownCtx)
 	}()
-	log.Info("service listening", "addr", opt.serveListen, "builder", "http://"+opt.serveListen+"/", "control", "/v1/agents", "public", "/a/{id}")
+	log.Info("service listening", "addr", opt.serveListen, "builder", "http://"+opt.serveListen+"/", "control", "/v1/agents", "public", "/a/{id}", "widget", "/widget.js")
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

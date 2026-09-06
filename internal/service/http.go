@@ -186,8 +186,16 @@ func (s *Service) owner(w http.ResponseWriter, r *http.Request, auth Authenticat
 //	                                              → 402 when the owner's grant is spent
 //	                                              → 429 + Retry-After when the agent is being flooded
 //	                                              → 502 when the model is unreachable (nothing charged)
+//
+// The surface answers any origin. There is no session to leak and nothing a
+// cross-site request could do that a curl could not, so a page anywhere may
+// call an agent from its own script; the widget does not need this, being a
+// frame on this origin, but a site that would rather not frame does.
 func (s *Service) Public() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("OPTIONS /a/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /a/{id}", func(w http.ResponseWriter, r *http.Request) {
 		ag, ok := s.Get(r.PathValue("id"))
 		if !ok {
@@ -222,7 +230,22 @@ func (s *Service) Public() http.Handler {
 			"conversation": turn.Conversation, "reply": turn.Reply,
 		})
 	})
-	return mux
+	return cors(mux)
+}
+
+// cors opens a handler to every origin: any page may read what it answers,
+// and a JSON POST's preflight passes. Retry-After is exposed so a page can
+// show a 429's wait, and no credentials are ever allowed.
+func cors(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hd := w.Header()
+		hd.Set("Access-Control-Allow-Origin", "*")
+		hd.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		hd.Set("Access-Control-Allow-Headers", "Content-Type")
+		hd.Set("Access-Control-Expose-Headers", "Retry-After")
+		hd.Set("Access-Control-Max-Age", "600")
+		h.ServeHTTP(w, r)
+	})
 }
 
 // statusFor maps the service's refusals onto the codes the SDK already

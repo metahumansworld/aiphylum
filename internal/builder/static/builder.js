@@ -269,7 +269,23 @@
     p.append("Reachable at ");
     const code = document.createElement("code");
     code.textContent = location.origin + "/a/" + state.current.id;
-    p.append(code, " — a POST of {\"text\": …} to /messages on it gets a reply.");
+    p.append(code, " — a POST of {\"text\": …} to /messages on it gets a reply. ");
+    // The widget: one line for a page, and the chat page it opens.
+    const snippet = `<script src="${location.origin}/widget.js" data-agent="${state.current.id}" async></script>`;
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet";
+    copy.textContent = "Copy the embed snippet";
+    copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(snippet); toast("Copied. Paste it into any page's HTML."); }
+      catch { window.prompt("Copy this into any page's HTML:", snippet); }
+    });
+    const open = document.createElement("a");
+    open.href = "/a/" + state.current.id + "/embed";
+    open.target = "_blank";
+    open.rel = "noopener";
+    open.textContent = "Open the chat page";
+    p.append(copy, " · ", open);
   }
 
   function renderDirty() {
