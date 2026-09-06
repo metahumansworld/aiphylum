@@ -53,8 +53,8 @@ func (l *Ledger) Conservation(ctx context.Context) (Conservation, error) {
 	}
 
 	err = l.db.QueryRowContext(ctx,
-		`SELECT coalesce(sum(balance), 0) FROM accounts WHERE kind IN (?, ?)`,
-		string(KindAgent), string(KindExperiment)).Scan(&c.Wallets)
+		`SELECT coalesce(sum(balance), 0) FROM accounts WHERE kind IN (?, ?, ?)`,
+		string(KindAgent), string(KindExperiment), string(KindUser)).Scan(&c.Wallets)
 	if err != nil {
 		return c, fmt.Errorf("sum wallets: %w", err)
 	}

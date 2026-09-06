@@ -156,3 +156,32 @@ func TestCompareAcceptsIdenticalContentAndRejectsDrift(t *testing.T) {
 		t.Error("drifted response compared equal; the replay check would pass vacuously")
 	}
 }
+
+// A service restarts over its own trace. OpenWriter carries the sequence on
+// from the last line, so a reader sees one record and not two runs that both
+// begin at one.
+func TestOpenWriterAppendsAndContinuesTheSequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "service-trace.jsonl")
+	w, err := OpenWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Append(EventType("boot"), map[string]int{"run": 1})
+	w.Append(EventType("boot"), map[string]int{"run": 1})
+	w.Close()
+
+	w, err = OpenWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Append(EventType("boot"), map[string]int{"run": 2})
+	w.Close()
+
+	lines, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 3 || lines[2].Seq != 3 {
+		t.Errorf("after a restart: %d lines, last seq %d; want 3 and 3", len(lines), lines[len(lines)-1].Seq)
+	}
+}

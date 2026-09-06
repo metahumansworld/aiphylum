@@ -262,7 +262,12 @@ clean:
 
 ## serve: the service — one built agent, from examples/agents, answering on
 ## 127.0.0.1:8151. On the stub, zero API calls; set OPENROUTER_API_KEY and the
-## same command spends real money behind each agent's $1 grant. Talk to it:
+## same command spends real money behind each user's $1 grant, keeping its
+## books (phylum-service.db, phylum-accounts.db) across restarts. Sign in —
+## offline the link lands in the log — then build, then talk:
+##   curl -s localhost:8151/auth/request -d '{"email":"you@example.com"}'
+##   curl -s localhost:8151/auth/verify -d '{"token":"<from the log>"}'
+##   curl -s localhost:8151/v1/agents -H 'Authorization: Bearer <session>' -d @examples/agents/steward.json
 ##   curl -s localhost:8151/a/<id>/messages -d '{"text":"any jasmine tea?"}'
 serve:
 	$(GO) run ./cmd/phylumd -serve -agent examples/agents/steward.json

@@ -12,12 +12,12 @@
 // as a bankrupt bidder is.
 //
 // Two HTTP surfaces, kept apart from the start. Control creates agents and
-// lists them; it is the operator's, and later the builder's. Public is the
-// endpoint each agent is reachable on, and it is meant for strangers: it names
-// the agent, hands out its greeting, and takes messages. Nothing on the public
-// surface can create, fund or inspect an agent, so that when accounts, rate
-// limits and the widget arrive they attach to one surface each without a
-// refactor.
+// lists them; it belongs to whoever is signed in, and shows each person only
+// their own. Public is the endpoint each agent is reachable on, and it is
+// meant for strangers: it names the agent, hands out its greeting, and takes
+// messages, at a rate. Nothing on the public surface can create, fund or
+// inspect an agent, so that the widget, when it arrives, attaches to Public
+// alone without a refactor.
 //
 // Every model call is recorded by the proxy's Recorder, request and response
 // verbatim, as every arena call is. For a service agent that record is the
@@ -25,7 +25,17 @@
 // record for the operator and not a publishable artefact: the arena's traces
 // are public by design, a service trace must not be treated the same way.
 //
-// Conversations live in memory and end with the process. A built agent has
+// Agents belong to people. An agent's wallet is its owner's wallet: one grant
+// per person, and every agent they build draws on it, so two agents of one
+// user run dry together. The proxy does not know this — it sees a token and
+// the wallet behind it, as it always has — which is why the cap on a person
+// costs the proxy nothing to enforce.
+//
+// The public endpoint is the one place a stranger can make an owner spend,
+// so it is the one place with a rate limit: a token bucket per agent, sized
+// so a conversation feels unthrottled and a loop does not empty a dollar in
+// a minute. Conversations live in memory, capped per agent with the least
+// recently used forgotten first, and end with the process. A built agent has
 // no memory across conversations yet; that is a later addition, and so are
 // tools.
 package service
@@ -58,13 +68,28 @@ var (
 	ErrModelNotOffered = errors.New("service: model is not offered")
 	// ErrOutOfCredits is the proxy's 402, said the service's way. It is the
 	// one refusal a person talking to an agent will meet on purpose: the
-	// agent's grant is spent, and nothing more was charged.
+	// owner's grant is spent, and nothing more was charged.
 	ErrOutOfCredits = errors.New("service: agent is out of credits")
 	// ErrProviderDown is the proxy's 502. Nothing was charged.
 	ErrProviderDown   = errors.New("service: model unavailable")
 	ErrEmptyMessage   = errors.New("service: message is empty")
 	ErrMessageTooLong = errors.New("service: message is too long")
+	// ErrRateLimited is the public endpoint's 429: this agent is being
+	// messaged faster than its bucket refills. Nothing was charged. The error
+	// returned is a *RateLimitError, which says how long to wait.
+	ErrRateLimited = errors.New("service: too many messages")
+	// ErrUnauthenticated is the control surface's 401: no session, or one
+	// that has ended.
+	ErrUnauthenticated = errors.New("service: not signed in")
 )
+
+// RateLimitError carries the wait. errors.Is(err, ErrRateLimited) holds.
+type RateLimitError struct{ RetryAfter time.Duration }
+
+func (e *RateLimitError) Error() string {
+	return fmt.Sprintf("%v; retry in %s", ErrRateLimited, e.RetryAfter.Round(time.Second))
+}
+func (e *RateLimitError) Is(target error) bool { return target == ErrRateLimited }
 
 // MaxMessageBytes bounds one incoming message. It bounds the worst case the
 // proxy has to hold for it too, since input is priced by the byte.
@@ -75,26 +100,71 @@ const MaxMessageBytes = 4096
 // again on every call, so the window is short.
 const DefaultHistory = 12
 
+// DefaultConversations is how many open conversations one agent keeps before
+// the least recently used is forgotten to make room.
+const DefaultConversations = 1000
+
+// Rate is the public endpoint's token bucket, per agent. Burst is how many
+// messages an agent answers back-to-back from a standing start; PerMinute is
+// the steady rate once the burst is spent.
+//
+// The two numbers trade a stranger's experience against how fast one stranger
+// can spend the owner's dollar. A person in a chat sends a message every ten
+// seconds or so, and never ten in a row; a script does. At the default a
+// script can make an agent answer at most twenty times a minute, which on the
+// launch model and a full history window is a few cents — slow enough that an
+// owner sees the balance move before it is gone.
+type Rate struct {
+	Burst     int
+	PerMinute int
+}
+
+// DefaultRate is the rate an agent gets when its Config names none.
+var DefaultRate = Rate{Burst: 10, PerMinute: 20}
+
 // Config assembles a Service. Proxy and Ledger are required.
 type Config struct {
 	Proxy  *proxy.Proxy
 	Ledger *ledger.Ledger
-	// Grant is minted into every new agent's wallet at creation. It is the
-	// whole of what the agent can ever spend until something mints more.
-	Grant ledger.Credits
 	// History is the number of exchanges kept per conversation; zero means
 	// DefaultHistory.
 	History int
-	Log     *slog.Logger
+	// Conversations caps the open conversations per agent; zero means
+	// DefaultConversations.
+	Conversations int
+	// Rate is the public endpoint's limit per agent; a zero Rate means
+	// DefaultRate.
+	Rate Rate
+	// Locked are the models the catalogue shows and does not offer. Naming
+	// one in a spec is refused like any model off the price table; the
+	// builder shows them with a lock, and the lock joins the waitlist.
+	Locked []string
+	Log    *slog.Logger
+	// Now is the clock the rate limit and the conversation cap read; nil
+	// means time.Now.
+	Now func() time.Time
+}
+
+// Owner is who an agent belongs to and whose wallet it spends: a signed-in
+// user, or the operator for agents loaded at boot.
+type Owner struct {
+	ID     string
+	Wallet string
 }
 
 // Agent is a built agent the service is running.
 type Agent struct {
 	ID      string     `json:"id"`
+	Owner   string     `json:"owner"`
 	Spec    spec.Agent `json:"spec"`
 	Wallet  string     `json:"wallet"`
 	Created time.Time  `json:"created"`
 	token   string
+
+	// The bucket and the agent's own conversations, guarded by Service.mu.
+	tokens float64
+	filled time.Time
+	convs  map[string]*conversation
 }
 
 // Turn is one exchange: what the agent said, and what it cost.
@@ -110,9 +180,14 @@ type message struct {
 	Content string `json:"content"`
 }
 
+// conversation is one thread with one agent. Its mutex serialises the calls
+// made on it, so two messages arriving together are answered one after the
+// other and each sees the one before; Service.mu guards the rest.
 type conversation struct {
 	agent    string
+	mu       sync.Mutex
 	messages []message
+	last     time.Time
 }
 
 // Service runs built agents. It is safe for concurrent use.
@@ -120,6 +195,7 @@ type Service struct {
 	cfg    Config
 	log    *slog.Logger
 	client *http.Client
+	now    func() time.Time
 
 	mu     sync.Mutex
 	agents map[string]*Agent
@@ -130,24 +206,38 @@ func New(cfg Config) *Service {
 	if cfg.History <= 0 {
 		cfg.History = DefaultHistory
 	}
+	if cfg.Conversations <= 0 {
+		cfg.Conversations = DefaultConversations
+	}
+	if cfg.Rate == (Rate{}) {
+		cfg.Rate = DefaultRate
+	}
 	log := cfg.Log
 	if log == nil {
 		log = slog.Default()
+	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
 	}
 	return &Service{
 		cfg:    cfg,
 		log:    log,
 		client: &http.Client{Transport: inProcess{cfg.Proxy}},
+		now:    now,
 		agents: map[string]*Agent{},
 		convs:  map[string]*conversation{},
 	}
 }
 
-// Create validates a spec, funds a wallet for it, and starts running it. The
-// model is checked against the price table here, so a spec naming a model the
-// platform does not offer is refused before it has a wallet, not on its first
-// message.
-func (s *Service) Create(ctx context.Context, a spec.Agent) (*Agent, error) {
+// Create validates a spec and starts running it on its owner's wallet. The
+// model is checked against the price table here, so a spec naming a model
+// the platform does not offer is refused at creation, not on its first
+// message. The wallet must already exist: the service mints nothing.
+func (s *Service) Create(ctx context.Context, owner Owner, a spec.Agent) (*Agent, error) {
+	if owner.ID == "" || owner.Wallet == "" {
+		return nil, errors.New("service: an agent needs an owner with a wallet")
+	}
 	if a.MaxReplyTokens == 0 {
 		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
 	}
@@ -157,25 +247,22 @@ func (s *Service) Create(ctx context.Context, a spec.Agent) (*Agent, error) {
 	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
 	}
-
-	id := "a_" + randomHex(8)
-	wallet := "svc:" + id
-	if err := s.cfg.Ledger.CreateAccount(ctx, wallet, ledger.KindExperiment, id); err != nil {
-		return nil, fmt.Errorf("create wallet: %w", err)
-	}
-	if s.cfg.Grant > 0 {
-		if _, err := s.cfg.Ledger.Mint(ctx, wallet, s.cfg.Grant, "grant", id); err != nil {
-			return nil, fmt.Errorf("fund wallet: %w", err)
-		}
+	if _, err := s.cfg.Ledger.Get(ctx, owner.Wallet); err != nil {
+		return nil, fmt.Errorf("owner's wallet: %w", err)
 	}
 
-	ag := &Agent{ID: id, Spec: a, Wallet: wallet, Created: time.Now(), token: randomHex(32)}
-	s.cfg.Proxy.Authorize(ag.token, wallet)
+	now := s.now()
+	ag := &Agent{
+		ID: "a_" + randomHex(8), Owner: owner.ID, Spec: a, Wallet: owner.Wallet, Created: now,
+		token: randomHex(32), tokens: float64(s.cfg.Rate.Burst), filled: now,
+		convs: map[string]*conversation{},
+	}
+	s.cfg.Proxy.Authorize(ag.token, owner.Wallet)
 
 	s.mu.Lock()
-	s.agents[id] = ag
+	s.agents[ag.ID] = ag
 	s.mu.Unlock()
-	s.log.Info("agent created", "agent", id, "name", a.Name, "model", a.Model, "grant", s.cfg.Grant)
+	s.log.Info("agent created", "agent", ag.ID, "name", a.Name, "model", a.Model, "owner", owner.ID)
 	return ag, nil
 }
 
@@ -188,15 +275,61 @@ func (s *Service) Get(id string) (*Agent, bool) {
 }
 
 // Agents lists the running agents, oldest first.
-func (s *Service) Agents() []*Agent {
+func (s *Service) Agents() []*Agent { return s.AgentsOf("") }
+
+// AgentsOf lists one owner's agents, oldest first; an empty owner lists all.
+func (s *Service) AgentsOf(owner string) []*Agent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]*Agent, 0, len(s.agents))
 	for _, a := range s.agents {
-		out = append(out, a)
+		if owner == "" || a.Owner == owner {
+			out = append(out, a)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Created.Before(out[j].Created) })
 	return out
+}
+
+// Models is the catalogue: what a spec may name, and what it may not yet.
+func (s *Service) Models() (offered, locked []string) {
+	return s.cfg.Proxy.Table.Models(), append([]string(nil), s.cfg.Locked...)
+}
+
+// take spends one token from the agent's bucket, or says how long until
+// there is one. Called with s.mu held.
+func (s *Service) take(ag *Agent, now time.Time) (time.Duration, bool) {
+	perSec := float64(s.cfg.Rate.PerMinute) / 60
+	ag.tokens = min(float64(s.cfg.Rate.Burst), ag.tokens+now.Sub(ag.filled).Seconds()*perSec)
+	ag.filled = now
+	if ag.tokens >= 1 {
+		ag.tokens--
+		return 0, true
+	}
+	if perSec <= 0 {
+		return time.Hour, false
+	}
+	return time.Duration((1 - ag.tokens) / perSec * float64(time.Second)), false
+}
+
+// open starts a conversation for an agent, forgetting its least recently
+// used one if the agent is at its cap. Called with s.mu held.
+func (s *Service) open(ag *Agent, now time.Time) (string, *conversation) {
+	if len(ag.convs) >= s.cfg.Conversations {
+		var oldest string
+		for id, c := range ag.convs {
+			if oldest == "" || c.last.Before(ag.convs[oldest].last) {
+				oldest = id
+			}
+		}
+		delete(ag.convs, oldest)
+		delete(s.convs, oldest)
+	}
+	id := "c_" + randomHex(16)
+	conv := &conversation{agent: ag.ID, last: now}
+	ag.convs[id] = conv
+	s.convs[id] = conv
+	return id, conv
 }
 
 // Say delivers one message to an agent and returns its reply. An empty
@@ -215,36 +348,42 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 		return Turn{}, ErrMessageTooLong
 	}
 
+	now := s.now()
 	s.mu.Lock()
 	ag, ok := s.agents[agentID]
 	if !ok {
 		s.mu.Unlock()
 		return Turn{}, ErrNoAgent
 	}
+	// The bucket is checked before anything else the message could touch:
+	// a flood of bad conversation ids is still a flood.
+	if wait, ok := s.take(ag, now); !ok {
+		s.mu.Unlock()
+		return Turn{}, &RateLimitError{RetryAfter: wait}
+	}
 	var conv *conversation
 	if convID == "" {
-		convID = "c_" + randomHex(16)
-		conv = &conversation{agent: agentID}
-		s.convs[convID] = conv
+		convID, conv = s.open(ag, now)
 	} else if conv, ok = s.convs[convID]; !ok || conv.agent != agentID {
 		s.mu.Unlock()
 		return Turn{}, ErrNoConversation
 	}
-	history := append(append([]message(nil), conv.messages...), message{"user", text})
+	conv.last = now
 	s.mu.Unlock()
 
+	// One call on a conversation at a time. A second message that arrives
+	// while the first is being answered waits, then sees the answer.
+	conv.mu.Lock()
+	defer conv.mu.Unlock()
+	history := append(append([]message(nil), conv.messages...), message{"user", text})
 	reply, cost, balance, err := s.complete(ctx, ag, history)
 	if err != nil {
 		return Turn{}, err
 	}
-
-	s.mu.Lock()
 	conv.messages = append(history, message{"assistant", reply})
 	if keep := s.cfg.History * 2; len(conv.messages) > keep {
 		conv.messages = conv.messages[len(conv.messages)-keep:]
 	}
-	s.mu.Unlock()
-
 	return Turn{Conversation: convID, Reply: reply, Cost: cost, Balance: balance}, nil
 }
 

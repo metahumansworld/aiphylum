@@ -4,21 +4,39 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/metahumansworld/aiphylum/internal/spec"
 )
 
-// Control is the operator's surface: create and list agents. It carries no
-// authentication of its own; like the daemon's control plane it is bound to
-// loopback by whoever mounts it, and accounts will sit in front of it later.
+// Authenticator turns a request into the owner behind it. It returns
+// ErrUnauthenticated (wrapped or bare) for no session; any other error is
+// the authenticator's own failure and answers as one.
+type Authenticator func(*http.Request) (Owner, error)
+
+// Control is the builder's surface: a signed-in person creates agents and
+// sees their own. Every route but the catalogue needs a session, and an
+// agent that is not the caller's is not there, which is a 404 and not a 403:
+// the surface does not confirm what it does not show.
 //
-//	POST /v1/agents        body: a spec          → 201 {id, spec, wallet, created}
-//	GET  /v1/agents                              → 200 {agents: [...]}
-//	GET  /v1/agents/{id}                         → 200 {id, spec, wallet, created}
-func (s *Service) Control() http.Handler {
+//	GET  /v1/models                              → 200 {offered: [...], locked: [...]}
+//	POST /v1/agents        body: a spec          → 201 {id, owner, spec, wallet, created}
+//	GET  /v1/agents                              → 200 {agents: [...]}   the caller's
+//	GET  /v1/agents/{id}                         → 200 {id, owner, spec, wallet, created}
+//	                                             → 401 without a session
+func (s *Service) Control(auth Authenticator) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+		offered, locked := s.Models()
+		writeJSON(w, http.StatusOK, map[string]any{"offered": offered, "locked": locked})
+	})
 	mux.HandleFunc("POST /v1/agents", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
 		if err != nil {
 			httpError(w, http.StatusBadRequest, "unreadable body")
@@ -29,7 +47,7 @@ func (s *Service) Control() http.Handler {
 			httpError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		ag, err := s.Create(r.Context(), a)
+		ag, err := s.Create(r.Context(), owner, a)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, ErrModelNotOffered) || errors.Is(err, spec.ErrInvalid) {
@@ -41,11 +59,19 @@ func (s *Service) Control() http.Handler {
 		writeJSON(w, http.StatusCreated, ag)
 	})
 	mux.HandleFunc("GET /v1/agents", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"agents": s.Agents()})
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"agents": s.AgentsOf(owner.ID)})
 	})
 	mux.HandleFunc("GET /v1/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
-		ag, ok := s.Get(r.PathValue("id"))
+		owner, ok := s.owner(w, r, auth)
 		if !ok {
+			return
+		}
+		ag, ok := s.Get(r.PathValue("id"))
+		if !ok || ag.Owner != owner.ID {
 			httpError(w, http.StatusNotFound, ErrNoAgent.Error())
 			return
 		}
@@ -54,14 +80,29 @@ func (s *Service) Control() http.Handler {
 	return mux
 }
 
+func (s *Service) owner(w http.ResponseWriter, r *http.Request, auth Authenticator) (Owner, bool) {
+	owner, err := auth(r)
+	switch {
+	case errors.Is(err, ErrUnauthenticated):
+		httpError(w, http.StatusUnauthorized, ErrUnauthenticated.Error())
+		return Owner{}, false
+	case err != nil:
+		s.log.Error("authenticator failed", "err", err)
+		httpError(w, http.StatusInternalServerError, "could not read the session")
+		return Owner{}, false
+	}
+	return owner, true
+}
+
 // Public is the surface each agent is reachable on. It is meant for people
 // who did not build the agent, so it says only what the agent would say to
 // them: a name, a greeting, and replies. The card costs nothing; a message
-// costs whatever the model call costs the agent's wallet, never the caller.
+// costs whatever the model call costs the owner's wallet, never the caller.
 //
 //	GET  /a/{id}                                  → 200 {id, name, greeting}
 //	POST /a/{id}/messages  {conversation?, text}  → 200 {conversation, reply}
-//	                                              → 402 when the agent's credits are spent
+//	                                              → 402 when the owner's grant is spent
+//	                                              → 429 + Retry-After when the agent is being flooded
 //	                                              → 502 when the model is unreachable (nothing charged)
 func (s *Service) Public() http.Handler {
 	mux := http.NewServeMux()
@@ -86,6 +127,10 @@ func (s *Service) Public() http.Handler {
 		}
 		turn, err := s.Say(r.Context(), r.PathValue("id"), in.Conversation, in.Text)
 		if err != nil {
+			var limited *RateLimitError
+			if errors.As(err, &limited) {
+				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(limited.RetryAfter.Seconds()))))
+			}
 			httpError(w, statusFor(err), err.Error())
 			return
 		}
@@ -108,10 +153,14 @@ func statusFor(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrOutOfCredits):
 		return http.StatusPaymentRequired
+	case errors.Is(err, ErrRateLimited):
+		return http.StatusTooManyRequests
 	case errors.Is(err, ErrProviderDown):
 		return http.StatusBadGateway
 	case errors.Is(err, ErrModelNotOffered):
 		return http.StatusForbidden
+	case errors.Is(err, ErrUnauthenticated):
+		return http.StatusUnauthorized
 	}
 	return http.StatusInternalServerError
 }
