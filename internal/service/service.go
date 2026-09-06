@@ -211,6 +211,13 @@ type Agent struct {
 	tokens float64
 	filled time.Time
 	convs  map[string]*conversation
+
+	// The standing event thread, kept apart from convs: it is never at the
+	// cap, never evicted for a person's conversation, and not an id Say
+	// will take, so a person cannot speak into what the owner's systems
+	// said. It ends with the spec, as the others do.
+	events   *conversation
+	eventsID string
 }
 
 // Draft is one chat-to-spec exchange: the revised spec, the builder's note
@@ -545,16 +552,16 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	case len(text) > MaxMessageBytes:
 		return Turn{}, ErrMessageTooLong
 	}
-	return s.say(ctx, agentID, convID, text)
+	return s.say(ctx, agentID, convID, text, false)
 }
 
 // Event delivers an inbound event to an agent whose spec has a webhook and
 // returns what the agent made of it. An event is a message the owner's
-// systems send instead of a person: it opens a conversation of its own,
-// is rate-limited on the same bucket, and costs the owner's wallet what a
-// message does. The body is bounded like a message; the instruction it is
-// framed with is bounded by the spec, so the two together are still one
-// short call.
+// systems send instead of a person: it goes to the model exactly as sent,
+// on the agent's one standing event thread, so the agent sees an event
+// beside the ones before it. It is rate-limited on the same bucket and
+// costs the owner's wallet what a message does. The body is bounded like a
+// message; the instruction the thread runs under is bounded by the spec.
 func (s *Service) Event(ctx context.Context, agentID string, body []byte) (Turn, error) {
 	body = bytes.TrimSpace(body)
 	switch {
@@ -563,40 +570,22 @@ func (s *Service) Event(ctx context.Context, agentID string, body []byte) (Turn,
 	case len(body) > MaxMessageBytes:
 		return Turn{}, ErrMessageTooLong
 	}
-	s.mu.Lock()
-	ag, ok := s.agents[agentID]
-	var hook *spec.Webhook
-	if ok {
-		hook = ag.Spec.Webhook
-	}
-	s.mu.Unlock()
-	switch {
-	case !ok:
-		return Turn{}, ErrNoAgent
-	case hook == nil:
-		return Turn{}, ErrNoWebhook
-	}
-	return s.say(ctx, agentID, "", frameEvent(hook.Instruction, body))
+	return s.say(ctx, agentID, "", string(body), true)
 }
 
-// frameEvent is how an event reaches the model: as one message from the
-// owner's side, the instruction first and the event after it, so the model
-// reads what to do before it reads what happened. The event goes in as it
-// came — JSON stays JSON — since the model reads it better than any
-// flattening would, and the instruction is the owner's to word.
-func frameEvent(instruction string, body []byte) string {
-	return strings.TrimSpace(instruction) + "\n\nEvent:\n" + string(body)
-}
-
-// say is Say once its text has been checked. Called by Say and by Event,
-// whose text is an instruction and an event together.
-func (s *Service) say(ctx context.Context, agentID, convID, text string) (Turn, error) {
+// say is Say once its text has been checked. Called by Say and by Event;
+// an event runs on the agent's standing event thread under EventPrompt.
+func (s *Service) say(ctx context.Context, agentID, convID, text string, event bool) (Turn, error) {
 	now := s.now()
 	s.mu.Lock()
 	ag, ok := s.agents[agentID]
-	if !ok {
+	switch {
+	case !ok:
 		s.mu.Unlock()
 		return Turn{}, ErrNoAgent
+	case event && ag.Spec.Webhook == nil:
+		s.mu.Unlock()
+		return Turn{}, ErrNoWebhook
 	}
 	// The bucket is checked before anything else the message could touch:
 	// a flood of bad conversation ids is still a flood.
@@ -605,17 +594,26 @@ func (s *Service) say(ctx context.Context, agentID, convID, text string) (Turn, 
 		return Turn{}, &RateLimitError{RetryAfter: wait}
 	}
 	var conv *conversation
-	if convID == "" {
+	system := spec.Prompt(ag.Spec)
+	switch {
+	case event:
+		if ag.events == nil {
+			ag.eventsID, ag.events = "c_"+randomHex(16), &conversation{agent: ag.ID}
+		}
+		convID, conv, system = ag.eventsID, ag.events, spec.EventPrompt(ag.Spec)
+	case convID == "":
 		convID, conv = s.open(ag, now)
-	} else if conv, ok = s.convs[convID]; !ok || conv.agent != agentID {
-		s.mu.Unlock()
-		return Turn{}, ErrNoConversation
+	default:
+		if conv, ok = s.convs[convID]; !ok || conv.agent != agentID {
+			s.mu.Unlock()
+			return Turn{}, ErrNoConversation
+		}
 	}
 	conv.last = now
 	// What the call needs is copied out under the lock: an Update landing
 	// mid-call swaps the agent, and this message is answered by the agent
 	// it was sent to.
-	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: spec.Prompt(ag.Spec), token: ag.token,
+	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: system, token: ag.token,
 		agent: ag.ID, tools: ag.Spec.Tools}
 	s.mu.Unlock()
 

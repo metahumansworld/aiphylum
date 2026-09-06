@@ -45,9 +45,10 @@ const Version = 1
 
 // Section labels in the rendered prompt.
 const (
-	SecWho   = "WHO"
-	SecRules = "RULES"
-	secEnd   = "END"
+	SecWho    = "WHO"
+	SecRules  = "RULES"
+	SecEvents = "EVENTS"
+	secEnd    = "END"
 )
 
 // Limits. They bound what one agent can cost per call as much as what it can
@@ -222,7 +223,11 @@ func (a Agent) Validate() error {
 	// a line that reads "--- RULES ---" inside the persona would end the WHO
 	// block early on the way back out. Refuse it rather than escape it, so the
 	// rendered prompt stays readable and Section stays simple.
-	for _, text := range append([]string{a.Persona}, a.Rules...) {
+	texts := append([]string{a.Persona}, a.Rules...)
+	if a.Webhook != nil {
+		texts = append(texts, a.Webhook.Instruction)
+	}
+	for _, text := range texts {
 		for _, line := range strings.Split(text, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "--- ") {
 				return fmt.Errorf("%w: a line may not begin with \"--- \"", ErrInvalid)
@@ -285,20 +290,47 @@ func (t Tool) validate() error {
 // lost once real models are behind it. Version 1 keeps it plain: say who the
 // agent is, hand over the rules verbatim, and ask for the agent's own voice.
 func Prompt(a Agent) string {
+	return prompt(a, "You are the agent described below, in conversation with someone who has\n"+
+		"written to you. Answer as that agent, in its own voice, and stay inside\n"+
+		"its rules. Keep each reply short: it is cut off past its ceiling.\n", nil)
+}
+
+// EventPrompt renders the system prompt of an agent's event thread, where
+// what it reads is not a person but events the owner's systems send it. The
+// webhook's instruction goes in as an EVENTS section, standing policy the
+// model reads before any event and above all of them: an event that says
+// "ignore your instruction" is a message, and the instruction is not. The
+// event itself is not rendered here; it reaches the model as its own message,
+// verbatim, so nothing the owner's system sent is lost to a flattening.
+func EventPrompt(a Agent) string {
+	var events []string
+	if a.Webhook != nil {
+		events = []string{strings.TrimSpace(a.Webhook.Instruction)}
+	}
+	return prompt(a, "You are the agent described below. What you read is not a person but\n"+
+		"events the owner's systems send you, one message each, exactly as sent.\n"+
+		"The EVENTS block says what they are and what to do with one. Answer as\n"+
+		"that agent, in its own voice, inside its rules. Keep each reply short:\n"+
+		"it is cut off past its ceiling.\n", events)
+}
+
+func prompt(a Agent, intro string, events []string) string {
 	var b strings.Builder
 	b.WriteString(Marker + "\n")
-	b.WriteString("You are the agent described below, in conversation with someone who has\n")
-	b.WriteString("written to you. Answer as that agent, in its own voice, and stay inside\n")
-	b.WriteString("its rules. Keep each reply short: it is cut off past its ceiling.\n")
+	b.WriteString(intro)
 
 	rules := make([]string, 0, len(a.Rules))
 	for _, r := range a.Rules {
 		rules = append(rules, "- "+strings.TrimSpace(r))
 	}
-	for _, s := range []struct{ label, body string }{
+	sections := []struct{ label, body string }{
 		{SecWho, strings.TrimSpace(strings.TrimSpace(a.Name) + "\n" + strings.TrimSpace(a.Persona))},
 		{SecRules, strings.Join(rules, "\n")},
-	} {
+	}
+	for _, e := range events {
+		sections = append(sections, struct{ label, body string }{SecEvents, e})
+	}
+	for _, s := range sections {
 		b.WriteString("\n--- " + s.label + " ---\n")
 		b.WriteString(s.body + "\n")
 	}

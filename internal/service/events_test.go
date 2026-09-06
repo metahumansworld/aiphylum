@@ -20,8 +20,8 @@ func withWebhook(instruction string) spec.Agent {
 }
 
 // An event is a message from the owner's side: the agent answers it as
-// itself, about what the event said, on the owner's wallet, and an agent
-// without a webhook has no such endpoint at all.
+// itself, about what the event said, on the owner's wallet, on one thread
+// all events share; and an agent without a webhook has no such endpoint.
 func TestAnEventWakesTheAgentAndAMessageCouldNot(t *testing.T) {
 	s, _, rec, owner := newService(t, &proxy.StubProvider{}, 100_000_000)
 	ctx := context.Background()
@@ -42,9 +42,16 @@ func TestAnEventWakesTheAgentAndAMessageCouldNot(t *testing.T) {
 	if turn.Cost <= 0 || rec.last(t).Wallet != hooked.Wallet {
 		t.Errorf("turn = %+v, event = %+v; want a charge on the agent's wallet", turn, rec.last(t))
 	}
-	// The event opened a conversation a person can continue.
-	if _, err := s.Say(ctx, hooked.ID, turn.Conversation, "and what did Ada order?"); err != nil {
-		t.Errorf("continuing the event's conversation: %v", err)
+	// Events share one standing thread, and a person cannot speak into it.
+	again, err := s.Event(ctx, hooked.ID, []byte(`{"customer":"Bob","tea":"assam"}`))
+	if err != nil || again.Conversation != turn.Conversation {
+		t.Errorf("second event: %v, conversation %q, want the first's %q", err, again.Conversation, turn.Conversation)
+	}
+	if thread := s.agents[hooked.ID].events.messages; len(thread) != 4 || thread[0].Content != string(event) {
+		t.Errorf("event thread = %+v, want both events verbatim with their replies", thread)
+	}
+	if _, err := s.Say(ctx, hooked.ID, turn.Conversation, "and what did Ada order?"); !errors.Is(err, ErrNoConversation) {
+		t.Errorf("a person speaking into the event thread: %v, want ErrNoConversation", err)
 	}
 
 	plain, _ := s.Create(ctx, owner, steward)
