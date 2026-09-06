@@ -18,7 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/metahumansworld/aiphylum/internal/ledger"
@@ -74,6 +76,10 @@ type Config struct {
 	// defaults: fifteen minutes and thirty days.
 	LinkTTL, SessionTTL time.Duration
 
+	// Cooldown is the least time between two links to one address, so the
+	// mail cannot be used to flood a person. Zero means a minute.
+	Cooldown time.Duration
+
 	// Now is the clock, replaceable for tests. Nil means time.Now.
 	Now func() time.Time
 }
@@ -81,7 +87,20 @@ type Config struct {
 const (
 	defaultLinkTTL    = 15 * time.Minute
 	defaultSessionTTL = 30 * 24 * time.Hour
+	defaultCooldown   = time.Minute
 )
+
+// RetryError is Request refusing to mail the same address twice inside the
+// cooldown. It carries how long to wait, for the Retry-After header and for
+// the person reading the message.
+type RetryError struct{ After time.Duration }
+
+func (e *RetryError) Error() string {
+	return fmt.Sprintf("a link was already sent; try again in %d seconds", e.Seconds())
+}
+
+// Seconds is After rounded up and never zero, as Retry-After wants it.
+func (e *RetryError) Seconds() int { return int(math.Ceil(e.After.Seconds())) }
 
 // User is a signed-in person as the rest of the service sees them.
 type User struct {
@@ -105,6 +124,12 @@ type Session struct {
 type Store struct {
 	db  *sql.DB
 	cfg Config
+
+	// asked is when each address last asked for a link. In memory on
+	// purpose: a restart forgiving every cooldown is fine, a table for a
+	// one-minute fact is not.
+	mu    sync.Mutex
+	asked map[string]time.Time
 }
 
 func Open(path string, cfg Config) (*Store, error) {
@@ -123,12 +148,15 @@ func Open(path string, cfg Config) (*Store, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Cooldown == 0 {
+		cfg.Cooldown = defaultCooldown
+	}
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open accounts: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db, cfg: cfg}
+	s := &Store{db: db, cfg: cfg, asked: map[string]time.Time{}}
 	if err := s.migrate(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -178,14 +206,35 @@ func (s *Store) migrate(ctx context.Context) error {
 
 // Request starts a sign-in: a fresh single-use token, good for LinkTTL, is
 // mailed to the address. It says the same thing whether or not the address
-// has signed in before, so nobody can use it to find out who has.
+// has signed in before, so nobody can use it to find out who has; a
+// RetryError inside the cooldown says only that someone just asked.
 func (s *Store) Request(ctx context.Context, email string) error {
 	email, err := normalizeEmail(email)
 	if err != nil {
 		return err
 	}
+	now := s.cfg.Now()
+	// One link per address per cooldown, counted from the attempt: a
+	// failing relay is not a licence to hammer it.
+	// ponytail: per-address only — an attacker rotating addresses can still
+	// flood the relay; a global bucket on /auth/request if that ever bites.
+	s.mu.Lock()
+	if last, ok := s.asked[email]; ok && now.Sub(last) < s.cfg.Cooldown {
+		wait := s.cfg.Cooldown - now.Sub(last)
+		s.mu.Unlock()
+		return &RetryError{After: wait}
+	}
+	if len(s.asked) >= 1024 { // sweep, so the map cannot grow without bound
+		for a, at := range s.asked {
+			if now.Sub(at) >= s.cfg.Cooldown {
+				delete(s.asked, a)
+			}
+		}
+	}
+	s.asked[email] = now
+	s.mu.Unlock()
 	token := randomToken()
-	expires := s.cfg.Now().Add(s.cfg.LinkTTL)
+	expires := now.Add(s.cfg.LinkTTL)
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO links (hash, email, expires_at) VALUES (?, ?, ?)`,
 		hashToken(token), email, expires.Unix()); err != nil {

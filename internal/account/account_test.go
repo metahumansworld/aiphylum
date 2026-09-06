@@ -5,7 +5,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,8 +83,11 @@ func newStore(t *testing.T) (*Store, *ledger.Ledger, *memMailer, *clock) {
 	return s, l, mail, clk
 }
 
-func signIn(t *testing.T, s *Store, mail *memMailer, email string) Session {
+func signIn(t *testing.T, s *Store, mail *memMailer, clk *clock, email string) Session {
 	t.Helper()
+	// Each helper sign-in is a later visit: step past the cooldown rather
+	// than switching it off.
+	clk.advance(time.Minute)
 	ctx := context.Background()
 	if err := s.Request(ctx, email); err != nil {
 		t.Fatalf("request: %v", err)
@@ -96,10 +102,10 @@ func signIn(t *testing.T, s *Store, mail *memMailer, email string) Session {
 }
 
 func TestFirstSignInIsTheSignUpAndMintsTheGrantOnce(t *testing.T) {
-	s, l, mail, _ := newStore(t)
+	s, l, mail, clk := newStore(t)
 	ctx := context.Background()
 
-	first := signIn(t, s, mail, " Ada@Example.com ")
+	first := signIn(t, s, mail, clk, " Ada@Example.com ")
 	if first.User.Email != "ada@example.com" {
 		t.Errorf("email was not normalised: %q", first.User.Email)
 	}
@@ -112,7 +118,7 @@ func TestFirstSignInIsTheSignUpAndMintsTheGrantOnce(t *testing.T) {
 	}
 
 	// The same address again is the same user, and no second grant.
-	again := signIn(t, s, mail, "ada@example.com")
+	again := signIn(t, s, mail, clk, "ada@example.com")
 	if again.User.ID != first.User.ID || again.Token == first.Token {
 		t.Errorf("second sign-in: user %s→%s, tokens equal: %v", first.User.ID, again.User.ID, again.Token == first.Token)
 	}
@@ -140,6 +146,7 @@ func TestALinkIsSingleUseAndExpires(t *testing.T) {
 		t.Errorf("a used link was accepted again: %v", err)
 	}
 
+	clk.advance(time.Minute) // past the cooldown, not the link's TTL
 	if err := s.Request(ctx, "bo@example.com"); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +163,7 @@ func TestALinkIsSingleUseAndExpires(t *testing.T) {
 func TestSessionsExpireAndSignOut(t *testing.T) {
 	s, _, mail, clk := newStore(t)
 	ctx := context.Background()
-	sess := signIn(t, s, mail, "cy@example.com")
+	sess := signIn(t, s, mail, clk, "cy@example.com")
 
 	u, err := s.Authenticate(ctx, sess.Token)
 	if err != nil || u.ID != sess.User.ID {
@@ -169,7 +176,7 @@ func TestSessionsExpireAndSignOut(t *testing.T) {
 		t.Errorf("a signed-out session still works: %v", err)
 	}
 
-	sess = signIn(t, s, mail, "cy@example.com")
+	sess = signIn(t, s, mail, clk, "cy@example.com")
 	clk.advance(31 * 24 * time.Hour)
 	if _, err := s.Authenticate(ctx, sess.Token); !errors.Is(err, ErrNoSession) {
 		t.Errorf("a month-old session still works: %v", err)
@@ -194,7 +201,7 @@ func TestAUserWithoutAWalletIsFundedOnNextSignIn(t *testing.T) {
 	if _, err := l.Balance(ctx, "usr:orphan"); !errors.Is(err, ledger.ErrNotFound) {
 		t.Fatalf("precondition: wallet exists: %v", err)
 	}
-	sess := signIn(t, s, mail, "di@example.com")
+	sess := signIn(t, s, mail, clk, "di@example.com")
 	if sess.User.ID != "u_orphan" {
 		t.Errorf("sign-in made a new user %s instead of finding the orphan", sess.User.ID)
 	}
@@ -217,9 +224,9 @@ func TestBadEmailsAreRefusedBeforeAnyMail(t *testing.T) {
 }
 
 func TestWaitlistTakesOnlyNamedReasonsOnce(t *testing.T) {
-	s, _, mail, _ := newStore(t)
+	s, _, mail, clk := newStore(t)
 	ctx := context.Background()
-	u := signIn(t, s, mail, "ed@example.com").User
+	u := signIn(t, s, mail, clk, "ed@example.com").User
 
 	for _, r := range []string{"arena", "model:anthropic/claude-opus-5", "arena"} {
 		if err := s.Waitlist(ctx, u.ID, r); err != nil {
@@ -237,8 +244,8 @@ func TestWaitlistTakesOnlyNamedReasonsOnce(t *testing.T) {
 
 func TestRechargeCreditsAPaymentOnceAndUnlocks(t *testing.T) {
 	ctx := context.Background()
-	s, l, mail, _ := newStore(t)
-	u := signIn(t, s, mail, "ada@example.com").User
+	s, l, mail, clk := newStore(t)
+	u := signIn(t, s, mail, clk, "ada@example.com").User
 	if paid, _ := s.Paid(ctx, u.ID); paid {
 		t.Fatal("a fresh user has not paid")
 	}
@@ -266,5 +273,63 @@ func TestRechargeCreditsAPaymentOnceAndUnlocks(t *testing.T) {
 	}
 	if err := s.Recharge(ctx, "u_nobody", "cs_3", 1); !errors.Is(err, ErrNoSuchUser) {
 		t.Fatalf("recharge of a stranger: %v, want ErrNoSuchUser", err)
+	}
+}
+
+func TestARequestCoolsDownPerAddress(t *testing.T) {
+	s, _, _, clk := newStore(t)
+	ctx := context.Background()
+	if err := s.Request(ctx, "gil@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	var retry *RetryError
+	if err := s.Request(ctx, "gil@example.com"); !errors.As(err, &retry) || retry.Seconds() != 60 {
+		t.Fatalf("second request = %v, want a 60s RetryError", err)
+	}
+	if err := s.Request(ctx, "hal@example.com"); err != nil {
+		t.Errorf("another address was caught in gil's cooldown: %v", err)
+	}
+	clk.advance(61 * time.Second)
+	if err := s.Request(ctx, "gil@example.com"); err != nil {
+		t.Errorf("request after the cooldown: %v", err)
+	}
+}
+
+func TestRequestAnswers429WithRetryAfterInsideTheCooldown(t *testing.T) {
+	s, _, _, _ := newStore(t)
+	h := s.Handler()
+	post := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/auth/request", strings.NewReader(`{"email":"fi@example.com"}`)))
+		return rec
+	}
+	if rec := post(); rec.Code != http.StatusAccepted {
+		t.Fatalf("first request: %d", rec.Code)
+	}
+	rec := post()
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request inside the cooldown: %d", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Retry-After = %q, want 60", got)
+	}
+	// The page shows only the error field, so the wait must be in the words.
+	if !strings.Contains(rec.Body.String(), "60 seconds") {
+		t.Errorf("the person is not told how long: %s", rec.Body.String())
+	}
+}
+
+func TestSignInMailCarriesTheLink(t *testing.T) {
+	mail := string(signInMail("soscitea <hi@soscitea.example>", "io@example.com", "https://soscitea.example/", "tok123"))
+	for _, want := range []string{
+		"To: io@example.com\r\n",
+		"Subject: ",
+		"\r\n\r\n", // a blank line ends the headers
+		"https://soscitea.example/?token=tok123",
+		"expires in 15 minutes", // the copy promises the real TTL
+	} {
+		if !strings.Contains(mail, want) {
+			t.Errorf("mail lacks %q:\n%s", want, mail)
+		}
 	}
 }

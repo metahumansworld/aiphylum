@@ -34,6 +34,15 @@ const (
 	stripeWebhookEnv = "STRIPE_WEBHOOK_SECRET"
 )
 
+// The mail relay, read the same way. Addr and from open real mail together;
+// user and pass are optional, for a relay that asks no login.
+const (
+	smtpAddrEnv = "SMTP_ADDR"
+	smtpUserEnv = "SMTP_USER"
+	smtpPassEnv = "SMTP_PASS"
+	mailFromEnv = "MAIL_FROM"
+)
+
 // operator owns the agents loaded from -agent files at boot. It is a user
 // like any other to the service — one wallet, funded once with the grant —
 // so the boot agents are capped the way a person's are, and the ledger's
@@ -82,14 +91,34 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	}
 	p := proxy.New(l, table, prov, tw, log)
 
-	// The mailer is the one launch dependency not chosen yet; until it is,
-	// the link goes to the log, and the operator at the terminal is the mail.
+	// The site is the public face: sign-in links and Stripe's return URLs
+	// point at it, and the listen address stands in when none is named.
+	site := opt.serveSite
+	if site == "" {
+		site = "http://" + opt.serveListen
+	}
+
+	// Real mail opens when the relay and the sender are both named; without
+	// them the link goes to the log, and the operator at the terminal is the
+	// mail.
+	var mailer account.Mailer = account.LogMailer{Log: log, Addr: opt.serveListen}
+	if addr, from := os.Getenv(smtpAddrEnv), os.Getenv(mailFromEnv); addr != "" && from != "" {
+		mailer = &account.SMTPMailer{Addr: addr, From: from,
+			User: os.Getenv(smtpUserEnv), Pass: os.Getenv(smtpPassEnv), Site: site, Log: log}
+		log.Info("mail is live: sign-in links go through the relay", "relay", addr, "from", from)
+	} else {
+		log.Info("mail is offline: sign-in links go to the log", "hint", "set "+smtpAddrEnv+" and "+mailFromEnv)
+		if os.Getenv(openRouterKeyEnv) != "" {
+			log.Warn("the service is live but its mail is not: nobody signs in without reading the log")
+		}
+	}
+
 	reasons := []string{"arena"}
 	for _, m := range locked {
 		reasons = append(reasons, "model:"+m)
 	}
 	accounts, err := account.Open(opt.accountsPath, account.Config{
-		Ledger: l, Grant: ledger.Credits(opt.grant), Mailer: account.LogMailer{Log: log, Addr: opt.serveListen},
+		Ledger: l, Grant: ledger.Credits(opt.grant), Mailer: mailer,
 		Log: log, Reasons: reasons,
 	})
 	if err != nil {
@@ -113,10 +142,6 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 
 	// The recharge is open when both Stripe secrets are in the environment,
 	// and the builder hides its button when it is not.
-	site := opt.serveSite
-	if site == "" {
-		site = "http://" + opt.serveListen
-	}
 	pay := billing.New(billing.Config{Key: os.Getenv(stripeKeyEnv), WebhookSecret: os.Getenv(stripeWebhookEnv),
 		Site: site, Accounts: accounts, Log: log})
 	if pay.Open() {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,14 @@ func (s *Store) Handler() http.Handler {
 		if err := s.Request(r.Context(), in.Email); err != nil {
 			if errors.Is(err, ErrBadEmail) {
 				httpError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			// The wait rides in the message too: the builder page shows only
+			// the error field, never a header.
+			var retry *RetryError
+			if errors.As(err, &retry) {
+				w.Header().Set("Retry-After", strconv.Itoa(retry.Seconds()))
+				httpError(w, http.StatusTooManyRequests, retry.Error())
 				return
 			}
 			s.cfg.Log.Error("sign-in request failed", "err", err)
