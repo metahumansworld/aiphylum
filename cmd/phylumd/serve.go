@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/metahumansworld/aiphylum/internal/account"
+	"github.com/metahumansworld/aiphylum/internal/billing"
 	"github.com/metahumansworld/aiphylum/internal/builder"
 	"github.com/metahumansworld/aiphylum/internal/ledger"
 	"github.com/metahumansworld/aiphylum/internal/proxy"
@@ -26,6 +27,13 @@ import (
 // or a process listing.
 const openRouterKeyEnv = "OPENROUTER_API_KEY"
 
+// The Stripe secrets, read the same way. Both must be set for the recharge
+// to open: a key alone would take money the platform never hears about.
+const (
+	stripeKeyEnv     = "STRIPE_SECRET_KEY"
+	stripeWebhookEnv = "STRIPE_WEBHOOK_SECRET"
+)
+
 // operator owns the agents loaded from -agent files at boot. It is a user
 // like any other to the service — one wallet, funded once with the grant —
 // so the boot agents are capped the way a person's are, and the ledger's
@@ -37,10 +45,12 @@ var operator = service.Owner{ID: "operator", Wallet: "usr:operator"}
 // surface, the builder page in front of a person, and one HTTP listener
 // carrying all of it. The one real model is also the builder's: a draft is
 // a call on it like a reply is, from the same grant. The price table decides
-// what the agents may call. With no key it holds the stub's model beside the
-// real one, so a spec naming the real model runs offline unchanged — the stub
-// answers under whatever name it is asked for, and the accounting is the same
-// either way.
+// what the agents may call: the offered model and the locked ones, priced
+// live from OpenRouter's catalogue, with the -serve-model price standing in
+// for the one model when the catalogue cannot be read. With no key it holds
+// the stub's model beside the real ones at the stub's price, so a spec
+// naming a real model runs offline unchanged — the stub answers under
+// whatever name it is asked for, and the accounting is the same either way.
 func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace.Writer, opt options) error {
 	model, price, err := parseModelPrice(opt.serveModel)
 	if err != nil {
@@ -48,33 +58,29 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	}
 	table := proxy.NewPriceTable()
 	table.Set(model, price)
+	locked := splitList(opt.serveLocked)
 
 	var prov proxy.Provider
 	if key := os.Getenv(openRouterKeyEnv); key != "" {
 		prov = &proxy.AnthropicProvider{APIKey: key, BaseURL: proxy.OpenRouterBaseURL}
+		missing, err := proxy.SyncPrices(ctx, &http.Client{Timeout: 15 * time.Second}, proxy.OpenRouterBaseURL, table, append([]string{model}, locked...))
+		if err != nil {
+			log.Warn("could not read openrouter's catalogue; the locked models stay off the table", "err", err)
+		} else if len(missing) > 0 {
+			log.Warn("openrouter's catalogue does not price these models; a spec naming one is refused", "models", missing)
+		}
 		log.Info("service is live: real spend behind each user's grant",
 			"provider", "openrouter", "model", model, "grant", ledger.Credits(opt.grant))
 	} else {
-		table.Set("stub-1", proxy.Price{InputPerTok: 1000, OutputPerTok: 1000})
+		stub := proxy.Price{InputPerTok: 1000, OutputPerTok: 1000}
+		for _, m := range append([]string{"stub-1"}, locked...) {
+			table.Set(m, stub)
+		}
 		prov = &proxy.StubProvider{Latency: opt.latency}
 		log.Info("service is offline: the stub answers every model, zero API calls",
 			"hint", "set "+openRouterKeyEnv+" for real replies")
 	}
 	p := proxy.New(l, table, prov, tw, log)
-	locked := splitList(opt.serveLocked)
-	store, err := service.OpenStore(opt.agentsPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	svc, err := service.New(service.Config{Proxy: p, Ledger: l, Log: log, Locked: locked, Store: store, BuilderModel: model,
-		InsecureTools: opt.serveInsecureTools})
-	if err != nil {
-		return err
-	}
-	if opt.serveInsecureTools {
-		log.Warn("tools may reach http and private addresses: -serve-insecure-tools is for your own machine only")
-	}
 
 	// The mailer is the one launch dependency not chosen yet; until it is,
 	// the link goes to the log, and the operator at the terminal is the mail.
@@ -90,6 +96,34 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 		return err
 	}
 	defer accounts.Close()
+
+	store, err := service.OpenStore(opt.agentsPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	svc, err := service.New(service.Config{Proxy: p, Ledger: l, Log: log, Locked: locked, Unlocked: accounts.Paid,
+		Store: store, BuilderModel: model, InsecureTools: opt.serveInsecureTools})
+	if err != nil {
+		return err
+	}
+	if opt.serveInsecureTools {
+		log.Warn("tools may reach http and private addresses: -serve-insecure-tools is for your own machine only")
+	}
+
+	// The recharge is open when both Stripe secrets are in the environment,
+	// and the builder hides its button when it is not.
+	site := opt.serveSite
+	if site == "" {
+		site = "http://" + opt.serveListen
+	}
+	pay := billing.New(billing.Config{Key: os.Getenv(stripeKeyEnv), WebhookSecret: os.Getenv(stripeWebhookEnv),
+		Site: site, Accounts: accounts, Log: log})
+	if pay.Open() {
+		log.Info("recharge is open", "site", site, "webhook", site+"/billing/webhook")
+	} else {
+		log.Info("recharge is closed: locked models join the waitlist", "hint", "set "+stripeKeyEnv+" and "+stripeWebhookEnv)
+	}
 
 	// The operator's agents come from files, and the files are the truth:
 	// what a previous boot stored for the operator is dropped and made again
@@ -137,6 +171,8 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	mux := http.NewServeMux()
 	mux.Handle("/auth/", accounts.Handler())
 	mux.Handle("/waitlist", accounts.Handler())
+	mux.Handle("/billing", pay.Handler())
+	mux.Handle("/billing/", pay.Handler())
 	mux.Handle("/v1/", svc.Control(auth))
 	mux.Handle("/a/", svc.Public())
 	mux.Handle("GET /a/{id}/embed", widget.Handler())

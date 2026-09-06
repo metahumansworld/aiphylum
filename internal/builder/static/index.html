@@ -11,6 +11,13 @@
   <a class="mark" href="/">soscitea</a>
   <div class="who" id="who" hidden>
     <span id="balance"></span>
+    <button class="quiet" id="topup" type="button" hidden>Add credits</button>
+    <span class="topup" id="topup-menu" hidden>
+      <button type="button" data-cents="500">$5</button>
+      <button type="button" data-cents="1000">$10</button>
+      <button type="button" data-cents="2000">$20</button>
+      <button class="quiet" type="button" data-cents="0" aria-label="Close">×</button>
+    </span>
     <span class="sep">·</span>
     <span id="email"></span>
     <button class="quiet" id="signout" type="button">Sign out</button>

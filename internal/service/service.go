@@ -70,6 +70,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,6 +90,11 @@ var (
 	// not exist until the owner opens it.
 	ErrNoWebhook       = errors.New("service: agent has no webhook")
 	ErrModelNotOffered = errors.New("service: model is not offered")
+	// ErrModelLocked is a spec naming a model the catalogue shows behind a
+	// lock, from an owner who has not unlocked it. It answers as a 402: the
+	// lock opens with money. The builder, which knows whether the recharge
+	// is open, is the one to say how.
+	ErrModelLocked = errors.New("service: model is locked")
 	// ErrOutOfCredits is the proxy's 402, said the service's way. It is the
 	// one refusal a person talking to an agent will meet on purpose: the
 	// owner's grant is spent, and nothing more was charged.
@@ -172,10 +178,13 @@ type Config struct {
 	// Rate is the public endpoint's limit per agent; a zero Rate means
 	// DefaultRate.
 	Rate Rate
-	// Locked are the models the catalogue shows and does not offer. Naming
-	// one in a spec is refused like any model off the price table; the
-	// builder shows them with a lock, and the lock joins the waitlist.
-	Locked []string
+	// Locked are the models the catalogue shows behind a lock. One that is
+	// on the price table may be named by an owner Unlocked says yes to and
+	// is refused with ErrModelLocked for anyone else; one that is not on the
+	// table is refused like any other, for everyone. Nil Unlocked keeps
+	// every lock shut: that is the launch, where the lock joins the waitlist.
+	Locked   []string
+	Unlocked func(ctx context.Context, ownerID string) (bool, error)
 	// Store keeps agents across restarts; nil keeps them in memory only.
 	Store Store
 	// BuilderModel is the model Draft calls, on the owner's wallet. It must
@@ -352,9 +361,9 @@ func (s *Service) run(id, owner, wallet string, a spec.Agent, created time.Time)
 }
 
 // check is what Create and Update both ask of a spec: that it validates,
-// names a model on the table, and gives its tools URLs the platform will
-// call.
-func (s *Service) check(a *spec.Agent) error {
+// names a model on the table that its owner may use, and gives its tools
+// URLs the platform will call.
+func (s *Service) check(ctx context.Context, ownerID string, a *spec.Agent) error {
 	if a.MaxReplyTokens == 0 {
 		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
 	}
@@ -363,6 +372,18 @@ func (s *Service) check(a *spec.Agent) error {
 	}
 	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
 		return fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
+	}
+	if slices.Contains(s.cfg.Locked, a.Model) {
+		unlocked := false
+		if s.cfg.Unlocked != nil {
+			var err error
+			if unlocked, err = s.cfg.Unlocked(ctx, ownerID); err != nil {
+				return fmt.Errorf("unlock check: %w", err)
+			}
+		}
+		if !unlocked {
+			return fmt.Errorf("%w: %s", ErrModelLocked, a.Model)
+		}
 	}
 	for _, t := range a.Tools {
 		if err := checkTool(t, s.cfg.InsecureTools); err != nil {
@@ -393,7 +414,7 @@ func (s *Service) Create(ctx context.Context, owner Owner, a spec.Agent) (*Agent
 	if owner.ID == "" || owner.Wallet == "" {
 		return nil, errors.New("service: an agent needs an owner with a wallet")
 	}
-	if err := s.check(&a); err != nil {
+	if err := s.check(ctx, owner.ID, &a); err != nil {
 		return nil, err
 	}
 	if _, err := s.cfg.Ledger.Get(ctx, owner.Wallet); err != nil {
@@ -418,13 +439,20 @@ func (s *Service) Create(ctx context.Context, owner Owner, a spec.Agent) (*Agent
 // refill the bucket, and a message in flight on the old spec finishes on
 // the old spec — the agent it was answering as is the one the caller heard.
 func (s *Service) Update(ctx context.Context, id string, a spec.Agent) (*Agent, error) {
-	if err := s.check(&a); err != nil {
+	// The owner is read before the check and the agent again after it: the
+	// check may go to the books, and the lock is not held across that.
+	s.mu.Lock()
+	old, ok := s.agents[id]
+	s.mu.Unlock()
+	if !ok {
+		return nil, ErrNoAgent
+	}
+	if err := s.check(ctx, old.Owner, &a); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	old, ok := s.agents[id]
-	if !ok {
+	if old, ok = s.agents[id]; !ok {
 		return nil, ErrNoAgent
 	}
 	// A new value rather than a write to the old one: pointers handed out
@@ -496,9 +524,17 @@ func (s *Service) AgentsOf(owner string) []*Agent {
 	return out
 }
 
-// Models is the catalogue: what a spec may name, and what it may not yet.
+// Models is the catalogue: what any spec may name, and what is behind a
+// lock. A locked model is on the table once its price is known, and is
+// listed here as locked rather than offered all the same.
 func (s *Service) Models() (offered, locked []string) {
-	return s.cfg.Proxy.Table.Models(), append([]string(nil), s.cfg.Locked...)
+	offered = []string{}
+	for _, m := range s.cfg.Proxy.Table.Models() {
+		if !slices.Contains(s.cfg.Locked, m) {
+			offered = append(offered, m)
+		}
+	}
+	return offered, append([]string(nil), s.cfg.Locked...)
 }
 
 // take spends one token from the agent's bucket, or says how long until

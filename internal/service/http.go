@@ -56,9 +56,9 @@ func (s *Service) Control(auth Authenticator) http.Handler {
 		}
 		ag, err := s.Create(r.Context(), owner, a)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, ErrModelNotOffered) || errors.Is(err, spec.ErrInvalid) {
-				status = http.StatusBadRequest
+			status := statusFor(err)
+			if errors.Is(err, ErrModelNotOffered) {
+				status = http.StatusBadRequest // the caller's spec, not the proxy's refusal
 			}
 			httpError(w, status, err.Error())
 			return
@@ -277,7 +277,7 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrEmptyMessage), errors.Is(err, ErrMessageTooLong), errors.Is(err, spec.ErrInvalid):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrOutOfCredits):
+	case errors.Is(err, ErrOutOfCredits), errors.Is(err, ErrModelLocked):
 		return http.StatusPaymentRequired
 	case errors.Is(err, ErrRateLimited):
 		return http.StatusTooManyRequests

@@ -93,6 +93,8 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
 .mark { font-weight: 600; text-decoration: none; color: var(--ink); font-size: 1.05rem; }
 .who { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-secondary); font-size: 0.9375rem; }
 .sep { color: var(--line-heavy); }
+.topup { display: inline-flex; gap: 0.25rem; }
+.topup button { padding: 0.3rem 0.6rem; }
 
 /* Sign-in */
 .signin { max-width: 34rem; margin: 12vh auto 0; padding: 0 1.25rem; }

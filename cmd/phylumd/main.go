@@ -99,6 +99,7 @@ func main() {
 	grant := flag.Int64("grant", 1_000_000, "serve: credits minted to each new user's wallet at first sign-in, in micro-USD (1000000 is $1); every agent they build spends from it")
 	serveModel := flag.String("serve-model", defaultServeModel, "serve: the one real model offered, as id=input,output in nano-USD per token")
 	serveLocked := flag.String("serve-locked", defaultServeLocked, "serve: models shown in the catalogue and not offered, comma-separated; a builder's click on one joins the waitlist")
+	serveSite := flag.String("serve-site", "", "serve: the public base URL of the builder, for the addresses a Stripe checkout returns to; empty means http://<serve-listen>")
 	serveInsecureTools := flag.Bool("serve-insecure-tools", false, "serve: let agents' tools reach http and private addresses — for your own machine only, never a deployment")
 	flag.Parse()
 
@@ -147,7 +148,7 @@ func main() {
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
 		serve: *serve, agents: agents, serveListen: *serveListen, grant: *grant, serveModel: *serveModel,
-		serveLocked: *serveLocked, serveInsecureTools: *serveInsecureTools,
+		serveLocked: *serveLocked, serveSite: *serveSite, serveInsecureTools: *serveInsecureTools,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -204,6 +205,10 @@ type options struct {
 	grant       int64
 	serveModel  string
 	serveLocked string
+	// serveSite is where the builder is reachable from outside, which a
+	// checkout needs to send the person back to; empty means the listen
+	// address.
+	serveSite string
 	// serveInsecureTools turns the tool URL policy off, for a developer's
 	// machine: without it a tool must be https to a public name.
 	serveInsecureTools bool
@@ -221,14 +226,15 @@ const (
 	// is public in shape, not yet in reach. Accounts and rate limits are here;
 	// a public bind and TLS are the job of the milestone that puts it online.
 	defaultServeListen = "127.0.0.1:8151"
-	// The fixed model every built agent runs on, at OpenRouter's price for it
-	// ($1 per million input tokens, $5 per million output) in nano-USD per
-	// token. One row, set by hand; syncing the table from OpenRouter's
-	// catalogue comes with the milestone that unlocks other models.
+	// The model every grant runs on, with OpenRouter's price for it ($1 per
+	// million input tokens, $5 per million output) in nano-USD per token as
+	// the fallback: live, the price comes from OpenRouter's catalogue at boot,
+	// and this row stands in when the catalogue cannot be read.
 	defaultServeModel = "anthropic/claude-haiku-4.5=1000,5000"
-	// The models a builder sees and cannot pick yet. Display only: the price
-	// table never holds them, so a spec naming one is refused. Corrected the
-	// same way -serve-model is, by hand, until the catalogue syncs.
+	// The models a builder sees behind a lock. Priced from the catalogue at
+	// boot like the offered one, and open to a builder who has added
+	// credits; until then, or with the recharge closed, the lock joins the
+	// waitlist.
 	defaultServeLocked = "anthropic/claude-sonnet-5,anthropic/claude-opus-5,openai/gpt-5,google/gemini-2.5-pro"
 	// A live service keeps its books: users' grants must survive a restart,
 	// so with a key set the ledger goes to a file, and the users next to it.

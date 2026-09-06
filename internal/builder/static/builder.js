@@ -16,6 +16,7 @@
     session: null,
     me: null,
     models: { offered: [], locked: [] },
+    billing: null, // {open, min, max} when the recharge is open
     agents: [],
     current: null, // {id, spec} or null for a new one
     spec: blankSpec(),
@@ -67,6 +68,8 @@
   async function boot() {
     const url = new URL(location.href);
     const token = url.searchParams.get("token");
+    const topup = url.searchParams.get("topup");
+    if (topup) history.replaceState({}, "", "/");
     if (token) {
       history.replaceState({}, "", "/");
       const r = await api("POST", "/auth/verify", { token });
@@ -85,6 +88,7 @@
     if (!me.ok) { showSignIn(""); return; }
     state.me = me.data;
     await enterApp();
+    if (topup === "ok") toast("Thank you. Your credits land the moment Stripe confirms the payment.");
   }
 
   function showSignIn(status) {
@@ -125,14 +129,33 @@
     renderWho();
     const m = await api("GET", "/v1/models");
     if (m.ok) state.models = m.data;
+    const b = await api("GET", "/billing", undefined, { public: true });
+    state.billing = b.ok && b.data.open ? b.data : null;
+    $("topup").hidden = !state.billing;
     await loadAgents();
     if (state.agents.length) selectAgent(state.agents[0]); else selectNew();
   }
 
   function renderWho() {
     $("email").textContent = state.me.email;
-    $("balance").textContent = money(state.me.balance) + " of your grant left";
+    $("balance").textContent = money(state.me.balance) + (state.me.paid ? " left" : " of your grant left");
   }
+
+  // ---- recharge ------------------------------------------------------
+  function showTopup(open) {
+    $("topup").hidden = !state.billing || open;
+    $("topup-menu").hidden = !state.billing || !open;
+  }
+  $("topup").addEventListener("click", () => showTopup(true));
+  $("topup-menu").addEventListener("click", async (e) => {
+    const cents = Number(e.target.dataset.cents);
+    if (!cents) { showTopup(false); return; }
+    e.target.disabled = true;
+    const r = await api("POST", "/billing/checkout", { cents });
+    e.target.disabled = false;
+    if (r.ok && r.data.url) location.href = r.data.url;
+    else toast(r.data.error || "Could not open a checkout.", true);
+  });
 
   async function refreshMe() {
     const me = await api("GET", "/auth/me");
@@ -541,9 +564,13 @@
     const wrap = document.createElement("div");
     wrap.className = "models";
     const waiting = new Set((state.me && state.me.waiting) || []);
+    const paid = !!(state.me && state.me.paid);
+    const locked = state.models.locked || [];
     const redraw = () => {
       wrap.replaceChildren();
-      for (const id of state.models.offered || []) {
+      // A person who has added credits picks from every model; the grant
+      // covers only the offered one, and the tag says which is which.
+      for (const id of [...(state.models.offered || []), ...(paid ? locked : [])]) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = state.spec.model === id ? "chosen" : "";
@@ -553,13 +580,13 @@
         if (state.spec.model === id) {
           const tag = document.createElement("span");
           tag.className = "lock";
-          tag.textContent = "on your grant";
+          tag.textContent = locked.includes(id) ? "on your credits" : "on your grant";
           b.append(tag);
         }
         b.addEventListener("click", () => { state.spec.model = id; markDirty(); redraw(); });
         wrap.append(b);
       }
-      for (const id of state.models.locked || []) {
+      for (const id of paid ? [] : locked) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "locked";
@@ -567,9 +594,11 @@
         code.textContent = id;
         const tag = document.createElement("span");
         tag.className = "lock";
-        tag.textContent = waiting.has("model:" + id) ? "on the waitlist" : "locked · join the waitlist";
+        tag.textContent = state.billing ? "locked · add credits to unlock"
+          : waiting.has("model:" + id) ? "on the waitlist" : "locked · join the waitlist";
         b.append(code, tag);
         b.addEventListener("click", async () => {
+          if (state.billing) { showTopup(true); return; }
           const r = await api("POST", "/waitlist", { reason: "model:" + id });
           if (r.ok) {
             waiting.add("model:" + id);

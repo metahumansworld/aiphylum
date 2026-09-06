@@ -531,3 +531,60 @@ func TestThePublicSurfaceAnswersAnyOrigin(t *testing.T) {
 		t.Error("credentials must never be allowed on a surface with no session")
 	}
 }
+
+// A locked model on the price table opens for an owner the unlock says yes
+// to, and the catalogue lists it as locked either way.
+func TestALockedModelOpensWithTheUnlock(t *testing.T) {
+	ctx := context.Background()
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "ledger.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	table := proxy.NewPriceTable()
+	table.Set("stub-1", proxy.Price{InputPerTok: 1000, OutputPerTok: 1000})
+	table.Set("anthropic/claude-opus-5", proxy.Price{InputPerTok: 5000, OutputPerTok: 25000})
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	paid := map[string]bool{}
+	s, err := New(Config{
+		Proxy: proxy.New(l, table, &proxy.StubProvider{}, &memRecorder{}, quiet), Ledger: l, Log: quiet,
+		Locked:   []string{"anthropic/claude-opus-5", "openai/gpt-5"}, // gpt-5 is locked and unpriced
+		Unlocked: func(_ context.Context, id string) (bool, error) { return paid[id], nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada := fund(t, l, "ada", 1_000_000)
+	opus := steward
+	opus.Model = "anthropic/claude-opus-5"
+
+	if _, err := s.Create(ctx, ada, opus); !errors.Is(err, ErrModelLocked) {
+		t.Fatalf("unpaid: %v, want ErrModelLocked", err)
+	}
+	ag, err := s.Create(ctx, ada, steward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Update(ctx, ag.ID, opus); !errors.Is(err, ErrModelLocked) {
+		t.Fatalf("unpaid update: %v, want ErrModelLocked", err)
+	}
+	paid[ada.ID] = true
+	if _, err := s.Update(ctx, ag.ID, opus); err != nil {
+		t.Fatalf("paid update: %v", err)
+	}
+	if _, err := s.Create(ctx, ada, opus); err != nil {
+		t.Fatalf("paid create: %v", err)
+	}
+	gpt := steward
+	gpt.Model = "openai/gpt-5"
+	if _, err := s.Create(ctx, ada, gpt); !errors.Is(err, ErrModelNotOffered) {
+		t.Fatalf("paid, unpriced: %v, want ErrModelNotOffered", err)
+	}
+	offered, locked := s.Models()
+	if len(offered) != 1 || offered[0] != "stub-1" || len(locked) != 2 {
+		t.Fatalf("offered %v locked %v", offered, locked)
+	}
+	if statusFor(ErrModelLocked) != http.StatusPaymentRequired {
+		t.Fatal("a lock answers 402")
+	}
+}
