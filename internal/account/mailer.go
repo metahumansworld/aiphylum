@@ -95,8 +95,10 @@ func signInMail(from, to, site, token string) []byte {
 		"",
 		link,
 		"",
-		"The link works once and expires soon. If you did not ask for it,",
-		"ignore this mail and nothing happens.",
+		// The copy cites defaultLinkTTL; a Config.LinkTTL override would
+		// make it lie, and serve.go never overrides it.
+		fmt.Sprintf("The link works once and expires in %d minutes. If you did not ask", int(defaultLinkTTL.Minutes())),
+		"for it, ignore this mail and nothing happens.",
 		"",
 	}, "\r\n"))
 }

@@ -326,6 +326,7 @@ func TestSignInMailCarriesTheLink(t *testing.T) {
 		"Subject: ",
 		"\r\n\r\n", // a blank line ends the headers
 		"https://soscitea.example/?token=tok123",
+		"expires in 15 minutes", // the copy promises the real TTL
 	} {
 		if !strings.Contains(mail, want) {
 			t.Errorf("mail lacks %q:\n%s", want, mail)
