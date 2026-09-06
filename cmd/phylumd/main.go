@@ -99,6 +99,7 @@ func main() {
 	grant := flag.Int64("grant", 1_000_000, "serve: credits minted to each new user's wallet at first sign-in, in micro-USD (1000000 is $1); every agent they build spends from it")
 	serveModel := flag.String("serve-model", defaultServeModel, "serve: the one real model offered, as id=input,output in nano-USD per token")
 	serveLocked := flag.String("serve-locked", defaultServeLocked, "serve: models shown in the catalogue and not offered, comma-separated; a builder's click on one joins the waitlist")
+	serveInsecureTools := flag.Bool("serve-insecure-tools", false, "serve: let agents' tools reach http and private addresses — for your own machine only, never a deployment")
 	flag.Parse()
 
 	// The trace path's default names the arena. A run on another track that was
@@ -146,7 +147,7 @@ func main() {
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
 		serve: *serve, agents: agents, serveListen: *serveListen, grant: *grant, serveModel: *serveModel,
-		serveLocked: *serveLocked,
+		serveLocked: *serveLocked, serveInsecureTools: *serveInsecureTools,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -197,14 +198,17 @@ type options struct {
 	// models the catalogue shows behind a lock. accountsPath is the users'
 	// database and agentsPath the built agents', both chosen next to the
 	// ledger.
-	serve        bool
-	agents       []string
-	serveListen  string
-	grant        int64
-	serveModel   string
-	serveLocked  string
-	accountsPath string
-	agentsPath   string
+	serve       bool
+	agents      []string
+	serveListen string
+	grant       int64
+	serveModel  string
+	serveLocked string
+	// serveInsecureTools turns the tool URL policy off, for a developer's
+	// machine: without it a tool must be https to a public name.
+	serveInsecureTools bool
+	accountsPath       string
+	agentsPath         string
 }
 
 const (

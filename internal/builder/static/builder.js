@@ -25,7 +25,7 @@
   };
 
   function blankSpec() {
-    return { version: 1, name: "", model: "", persona: "", greeting: "", rules: [], max_reply_tokens: DEFAULT_CEILING };
+    return { version: 1, name: "", model: "", persona: "", greeting: "", rules: [], max_reply_tokens: DEFAULT_CEILING, tools: [] };
   }
 
   // ---- storage, which may be absent ----------------------------------
@@ -205,6 +205,10 @@
       greeting: s.greeting || "",
       rules: Array.isArray(s.rules) ? s.rules.slice() : [],
       max_reply_tokens: s.max_reply_tokens || DEFAULT_CEILING,
+      tools: Array.isArray(s.tools) ? s.tools.map((t) => ({
+        name: t.name || "", description: t.description || "", url: t.url || "", method: t.method === "POST" ? "POST" : "GET",
+        params: Array.isArray(t.params) ? t.params.map((p) => ({ name: p.name || "", description: p.description || "" })) : [],
+      })) : [],
     };
   }
 
@@ -217,13 +221,14 @@
     { key: "greeting", title: "Greeting" },
     { key: "rules", title: "Rules" },
     { key: "ceiling", title: "Reply ceiling" },
+    { key: "tools", title: "Tools" },
   ];
   const nodeEls = {};
   let positions = {};
 
-  // Three columns: the fields on either side, the agent between them. The
-  // widths are the stylesheet's node widths; the canvas scrolls if it is
-  // narrower than the three of them.
+  // Three columns: the fields on either side, the agent between them, the
+  // tools under it. The widths are the stylesheet's node widths; the canvas
+  // scrolls if it is narrower than the three of them.
   function defaultPositions() {
     const c = $("canvas");
     const side = 232, hub = 256, pad = 24;
@@ -234,6 +239,7 @@
       greeting: { x: pad, y: Math.max(340, h - 230) },
       rules: { x: w - pad - side, y: 40 },
       ceiling: { x: w - pad - side, y: Math.max(340, h - 200) },
+      tools: { x: Math.round((w - hub) / 2), y: Math.max(500, h - 140) },
     };
   }
 
@@ -419,7 +425,89 @@
       hint.className = "hint";
       hint.textContent = "The most it may say in one reply, and what is held before each one. 256 is a short paragraph.";
       body.append(hint);
+      return;
     }
+    if (key === "tools") {
+      const ul = document.createElement("ul");
+      ul.className = "tools";
+      const redraw = () => {
+        ul.replaceChildren();
+        s.tools.forEach((tool, i) => ul.append(toolItem(tool, i, () => { s.tools.splice(i, 1); markDirty(); redraw(); })));
+        count.textContent = s.tools.length + " of 8";
+        add.disabled = s.tools.length >= 8;
+        drawEdges();
+      };
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "add-rule";
+      add.textContent = "Add a tool";
+      add.addEventListener("click", () => {
+        s.tools.push({ name: "", description: "", url: "", method: "GET", params: [] });
+        markDirty();
+        redraw();
+        const last = ul.querySelector("li:last-child input");
+        if (last) last.focus();
+      });
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Your own HTTP endpoints, https to a public host. The model decides when to call one; the platform makes the call and hands back what came out, up to 8 KiB. No keys: put what the endpoint needs in the URL.";
+      body.append(ul, add, hint);
+      redraw();
+    }
+  }
+
+  // One tool's fields. Params are edited as lines of "name: what to write"
+  // and kept as the spec's list; a line with no name is dropped on Save.
+  function toolItem(tool, i, remove) {
+    const li = document.createElement("li");
+    const head = document.createElement("div");
+    head.className = "tool-head";
+    const name = document.createElement("input");
+    name.type = "text";
+    name.maxLength = 32;
+    name.pattern = "[a-z][a-z0-9_]*";
+    name.placeholder = "name, like check_stock";
+    name.value = tool.name;
+    name.addEventListener("input", () => { tool.name = name.value; markDirty(); });
+    const method = document.createElement("select");
+    for (const m of ["GET", "POST"]) {
+      const o = document.createElement("option");
+      o.value = m; o.textContent = m; o.selected = tool.method === m;
+      method.append(o);
+    }
+    method.addEventListener("change", () => { tool.method = method.value; markDirty(); });
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "remove";
+    rm.textContent = "×";
+    rm.setAttribute("aria-label", "Remove tool " + (i + 1));
+    rm.addEventListener("click", remove);
+    head.append(name, method, rm);
+    const url = document.createElement("input");
+    url.type = "url";
+    url.maxLength = 1024;
+    url.placeholder = "https://your.site/api/stock";
+    url.value = tool.url;
+    url.addEventListener("input", () => { tool.url = url.value; markDirty(); });
+    const desc = document.createElement("input");
+    desc.type = "text";
+    desc.maxLength = 256;
+    desc.placeholder = "When to call it: “How many of a tea are on the shelf.”";
+    desc.value = tool.description;
+    desc.addEventListener("input", () => { tool.description = desc.value; markDirty(); });
+    const params = document.createElement("textarea");
+    params.rows = 2;
+    params.placeholder = "params, one per line: tea: the tea, by name";
+    params.value = tool.params.map((p) => p.description ? p.name + ": " + p.description : p.name).join("\n");
+    params.addEventListener("input", () => {
+      tool.params = params.value.split("\n").map((line) => {
+        const [n, ...rest] = line.split(":");
+        return { name: n.trim(), description: rest.join(":").trim() };
+      }).filter((p) => p.name);
+      markDirty();
+    });
+    li.append(head, url, desc, params);
+    return li;
   }
 
   function renderModels() {
@@ -534,6 +622,10 @@
       greeting: s.greeting,
       rules: s.rules.map((r) => r.trim()).filter(Boolean),
       max_reply_tokens: s.max_reply_tokens,
+      tools: s.tools.filter((t) => t.name.trim() || t.url.trim()).map((t) => ({
+        name: t.name.trim(), description: t.description.trim(), url: t.url.trim(), method: t.method,
+        params: t.params.filter((p) => p.name).map((p) => ({ name: p.name, description: p.description })),
+      })),
     };
   }
 

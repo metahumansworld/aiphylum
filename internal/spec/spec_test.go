@@ -40,7 +40,19 @@ func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
 		json string
 		want error
 	}{
-		"unknown key": {`{"version":1,"name":"a","model":"m","tools":[]}`, ErrInvalid},
+		"unknown key": {`{"version":1,"name":"a","model":"m","memory":{}}`, ErrInvalid},
+		"tool with no description": {`{"version":1,"name":"a","model":"m","tools":[{"name":"stock","url":"https://x.test/"}]}`,
+			ErrInvalid},
+		"tool named like a sentence": {`{"version":1,"name":"a","model":"m","tools":[{"name":"Check stock","description":"d","url":"https://x.test/"}]}`,
+			ErrInvalid},
+		"tool with a password in its url": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://u:p@x.test/"}]}`,
+			ErrInvalid},
+		"tool with a method that is not a request": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://x.test/","method":"DELETE"}]}`,
+			ErrInvalid},
+		"two tools of one name": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://x.test/"},{"name":"s","description":"d","url":"https://y.test/"}]}`,
+			ErrInvalid},
+		"two params of one name": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://x.test/","params":[{"name":"q"},{"name":"q"}]}]}`,
+			ErrInvalid},
 		"old version": {`{"version":0,"name":"a","model":"m"}`, ErrVersion},
 		"no name":     {`{"version":1,"model":"m"}`, ErrInvalid},
 		"no model":    {`{"version":1,"name":"a"}`, ErrInvalid},
@@ -55,6 +67,12 @@ func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
 		if !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v, want %v", name, err, c.want)
 		}
+	}
+	// A whole tool, as the builder writes one, stands.
+	a, err := Parse([]byte(`{"version":1,"name":"a","model":"m","tools":[{"name":"stock","description":"How many of a tea are on the shelf.",` +
+		`"url":"https://shop.test/stock","method":"GET","params":[{"name":"tea","description":"The tea, by name"}]}]}`))
+	if err != nil || len(a.Tools) != 1 || a.Tools[0].Params[0].Name != "tea" {
+		t.Errorf("a well-formed tool: %v, %+v", err, a.Tools)
 	}
 }
 

@@ -114,6 +114,16 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			InputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"input_schema"`
+		} `json:"tools"`
+		ToolChoice struct {
+			Type string `json:"type"`
+		} `json:"tool_choice"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, Usage{}, fmt.Errorf("stub: bad request: %w", err)
@@ -137,30 +147,76 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 	var seed [8]byte
 	binary.BigEndian.PutUint64(seed[:], digest)
 	text := fmt.Sprintf("stub:%x", seed)
+	content := []map[string]any{{"type": "text", "text": text}}
+	stop := "end_turn"
 	if len(req.Messages) > 0 {
-		var content string
-		if err := json.Unmarshal(req.Messages[len(req.Messages)-1].Content, &content); err == nil {
-			if answered, ok := stubService(req.System, content); ok {
+		var heard string
+		last := req.Messages[len(req.Messages)-1].Content
+		if err := json.Unmarshal(last, &heard); err == nil {
+			if answered, ok := stubService(req.System, heard); ok {
 				text = answered
-			} else if drafted, ok := stubBuilder(req.System, content); ok {
+				// A service agent with tools calls one when the weightiest
+				// word of the message is in the tool's name or description,
+				// unless told not to ask. The call is the service's to make;
+				// the stub only asks, the way a model does.
+				if req.ToolChoice.Type != "none" {
+					if want := spec.Salient(heard); want != "" {
+						for _, t := range req.Tools {
+							if strings.Contains(strings.ToLower(t.Name+" "+t.Description), want) {
+								input := map[string]any{}
+								for name := range t.InputSchema.Properties {
+									input[name] = heard
+									break
+								}
+								text = "Let me ask " + t.Name + "."
+								content = []map[string]any{
+									{"type": "text", "text": text},
+									{"type": "tool_use", "id": fmt.Sprintf("toolu_stub_%016x", digest), "name": t.Name, "input": input},
+								}
+								stop = "tool_use"
+								break
+							}
+						}
+					}
+				}
+			} else if drafted, ok := stubBuilder(req.System, heard); ok {
 				text = drafted
-			} else if graded, ok := stubGrade(content); ok {
+			} else if graded, ok := stubGrade(heard); ok {
 				text = graded
-			} else if said, ok := stubMind(content); ok {
+			} else if said, ok := stubMind(heard); ok {
 				text = said
 			}
+		} else if result, ok := stubToolResult(last); ok {
+			// The service came back with what the tool said. The tool's
+			// name is on the tool_use block one message up.
+			name := "the tool"
+			if len(req.Messages) > 1 {
+				var blocks []struct {
+					Type, ID, Name string
+				}
+				json.Unmarshal(req.Messages[len(req.Messages)-2].Content, &blocks)
+				for _, b := range blocks {
+					if b.Type == "tool_use" && b.ID == result.ToolUseID {
+						name = b.Name
+					}
+				}
+			}
+			var system string
+			json.Unmarshal(req.System, &system)
+			text = spec.AnswerTool(system, name, result.Content)
+		}
+		if stop == "end_turn" {
+			content = []map[string]any{{"type": "text", "text": text}}
 		}
 	}
 
 	resp, err := json.Marshal(map[string]any{
-		"id":    fmt.Sprintf("msg_stub_%016x", digest),
-		"type":  "message",
-		"role":  "assistant",
-		"model": req.Model,
-		"content": []map[string]any{
-			{"type": "text", "text": text},
-		},
-		"stop_reason": "end_turn",
+		"id":          fmt.Sprintf("msg_stub_%016x", digest),
+		"type":        "message",
+		"role":        "assistant",
+		"model":       req.Model,
+		"content":     content,
+		"stop_reason": stop,
 		"usage": Usage{
 			InputTokens:  inputToks,
 			OutputTokens: outputToks,
@@ -170,6 +226,25 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 		return nil, Usage{}, err
 	}
 	return resp, Usage{InputTokens: inputToks, OutputTokens: outputToks}, nil
+}
+
+// stubToolResult reads a tool_result block out of a message whose content
+// is a list of blocks, or reports that this was not one.
+func stubToolResult(content json.RawMessage) (struct{ ToolUseID, Content string }, bool) {
+	var blocks []struct {
+		Type      string `json:"type"`
+		ToolUseID string `json:"tool_use_id"`
+		Content   string `json:"content"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return struct{ ToolUseID, Content string }{}, false
+	}
+	for _, b := range blocks {
+		if b.Type == "tool_result" {
+			return struct{ ToolUseID, Content string }{b.ToolUseID, b.Content}, true
+		}
+	}
+	return struct{ ToolUseID, Content string }{}, false
 }
 
 // stubGrade answers a grading request, or reports that this was not one. The

@@ -170,6 +170,14 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
 .rules .remove { padding: 0.2rem 0.45rem; border-color: transparent; color: var(--ink-muted); }
 .rules .remove:hover { color: var(--danger); }
 .add-rule { margin-top: 0.5rem; padding: 0.3rem 0.7rem; }
+.tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.tools li { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); }
+.tools .tool-head { display: flex; gap: 0.25rem; align-items: center; }
+.tools .tool-head input { flex: 1; min-width: 0; }
+.tools .tool-head select { padding: 0.3rem; border: 1px solid var(--edge); border-radius: 6px; background: var(--surface-page); }
+.tools .remove { padding: 0.2rem 0.45rem; border-color: transparent; color: var(--ink-muted); }
+.tools .remove:hover { color: var(--danger); }
+.tools textarea { font-size: 0.875rem; }
 
 /* Model choice, inside the hub */
 .models { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; }

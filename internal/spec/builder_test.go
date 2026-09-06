@@ -61,6 +61,21 @@ func TestReviseAlwaysWritesADraftThatStands(t *testing.T) {
 	if d.Spec.Name != "Steward" || d.Spec.Persona != "You are a steward for a tea shop." {
 		t.Errorf("an unnamed agent should be named from the request: %+v", d.Spec)
 	}
+	// A URL in the request is a tool, named for its host and described in
+	// the person's words; the request is not also filed as a rule.
+	d, _ = ParseDraft(Revise(BuilderPrompt(Agent{Name: "Steward"}), "check the shelf at https://shop.test/stock?tea= before promising a tea"))
+	if len(d.Spec.Tools) != 1 || d.Spec.Tools[0].Name != "shop_test" || d.Spec.Tools[0].URL != "https://shop.test/stock?tea=" ||
+		!strings.Contains(d.Spec.Tools[0].Description, "check the shelf") || len(d.Spec.Rules) != 0 {
+		t.Errorf("a request with a URL should become a tool: %+v rules %v", d.Spec.Tools, d.Spec.Rules)
+	}
+	d.Spec.Model, d.Spec.MaxReplyTokens = "m", DefaultMaxReplyTokens
+	if err := d.Spec.Validate(); err != nil {
+		t.Errorf("the tool the stub wrote does not stand: %v", err)
+	}
+	d, _ = ParseDraft(Revise(BuilderPrompt(d.Spec), "and https://shop.test/hours too"))
+	if len(d.Spec.Tools) != 2 || d.Spec.Tools[1].Name != "shop_test_2" {
+		t.Errorf("a second tool on one host takes a numbered name: %+v", d.Spec.Tools)
+	}
 	d, _ = ParseDraft(Revise(BuilderPrompt(full), "close at six"))
 	if len(d.Spec.Rules) != MaxRules || d.Spec.Rules[MaxRules-1] != "close at six" {
 		t.Errorf("a full rule list should have its last rule replaced: %q", d.Spec.Rules[len(d.Spec.Rules)-1])

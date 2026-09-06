@@ -38,7 +38,17 @@
 // recently used forgotten first, and end with the process. Agents do not:
 // a Store keeps them, and a restart brings each one back under a fresh
 // proxy token, with its conversations gone. A built agent has no memory
-// across conversations yet; that is a later addition, and so are tools.
+// across conversations yet; that is a later addition.
+//
+// A tool is the owner's own HTTP endpoint, described in the spec, and the
+// one thing an agent does besides ask the model. The model asks for it by
+// name in a reply; the service makes the request itself, with the guard in
+// egress.go on the address, and hands back what came out as the next thing
+// the model reads. One message may go round this a few times before the
+// model answers in words, and every round is a metered call like the first,
+// held and settled by the proxy one at a time — so a message with tools in
+// it may cost several holds from one bucket token, and the ceiling on
+// rounds is what bounds it.
 //
 // Draft is the other way of building. A person describes a change in plain
 // language, the current spec and the request go to the builder model, and a
@@ -167,7 +177,11 @@ type Config struct {
 	// BuilderModel is the model Draft calls, on the owner's wallet. It must
 	// be on the price table. Empty refuses drafts with ErrNoBuilder.
 	BuilderModel string
-	Log          *slog.Logger
+	// InsecureTools lets a tool reach http and private addresses. For a
+	// developer's own machine and never for a deployment: with it set a
+	// stranger can make an agent call anything the platform can see.
+	InsecureTools bool
+	Log           *slog.Logger
 	// Now is the clock the rate limit and the conversation cap read; nil
 	// means time.Now.
 	Now func() time.Time
@@ -212,9 +226,26 @@ type Turn struct {
 	Balance      ledger.Credits `json:"balance"`
 }
 
+// message is one turn as the model sees it. Content is a string in the
+// history a conversation keeps, and a list of blocks in the rounds a tool
+// call adds within one message: the model's reply with its tool_use blocks,
+// echoed back, and the results as tool_result blocks.
 type message struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+// block is one content block, either way: text or tool_use from the model,
+// tool_result to it.
+type block struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
 }
 
 // conversation is one thread with one agent. Its mutex serialises the calls
@@ -232,6 +263,7 @@ type Service struct {
 	cfg    Config
 	log    *slog.Logger
 	client *http.Client
+	egress *http.Client
 	now    func() time.Time
 
 	mu     sync.Mutex
@@ -268,6 +300,7 @@ func New(cfg Config) (*Service, error) {
 		cfg:      cfg,
 		log:      log,
 		client:   &http.Client{Transport: inProcess{cfg.Proxy}},
+		egress:   egressClient(cfg.InsecureTools),
 		now:      now,
 		agents:   map[string]*Agent{},
 		convs:    map[string]*conversation{},
@@ -307,8 +340,9 @@ func (s *Service) run(id, owner, wallet string, a spec.Agent, created time.Time)
 	return ag
 }
 
-// check is what Create and Update both ask of a spec: that it validates and
-// names a model on the table.
+// check is what Create and Update both ask of a spec: that it validates,
+// names a model on the table, and gives its tools URLs the platform will
+// call.
 func (s *Service) check(a *spec.Agent) error {
 	if a.MaxReplyTokens == 0 {
 		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
@@ -318,6 +352,11 @@ func (s *Service) check(a *spec.Agent) error {
 	}
 	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
 		return fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
+	}
+	for _, t := range a.Tools {
+		if err := checkTool(t, s.cfg.InsecureTools); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -527,7 +566,8 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	// What the call needs is copied out under the lock: an Update landing
 	// mid-call swaps the agent, and this message is answered by the agent
 	// it was sent to.
-	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: spec.Prompt(ag.Spec), token: ag.token}
+	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: spec.Prompt(ag.Spec), token: ag.token,
+		agent: ag.ID, tools: ag.Spec.Tools}
 	s.mu.Unlock()
 
 	// One call on a conversation at a time. A second message that arrives
@@ -535,7 +575,7 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	conv.mu.Lock()
 	defer conv.mu.Unlock()
 	history := append(append([]message(nil), conv.messages...), message{"user", text})
-	reply, cost, balance, err := s.complete(ctx, c, history)
+	reply, cost, balance, err := s.converse(ctx, c, history)
 	if err != nil {
 		return Turn{}, err
 	}
@@ -566,10 +606,11 @@ func (s *Service) Draft(ctx context.Context, owner Owner, current spec.Agent, re
 		return Draft{}, ErrMessageTooLong
 	}
 	c := call{model: s.cfg.BuilderModel, maxTokens: DraftMaxTokens, system: spec.BuilderPrompt(current), token: s.builder(owner)}
-	reply, cost, balance, err := s.complete(ctx, c, []message{{"user", request}})
+	out, err := s.complete(ctx, c, []message{{"user", request}}, false)
 	if err != nil {
 		return Draft{}, err
 	}
+	reply, cost, balance := out.text, out.cost, out.balance
 	d, err := spec.ParseDraft(reply)
 	if err != nil {
 		s.log.Warn("builder reply was not a draft", "owner", owner.ID, "err", err, "reply", fmt.Sprintf("%.200s", reply))
@@ -604,74 +645,158 @@ func (s *Service) builder(owner Owner) string {
 }
 
 // call is one metered call's fixed part: the model and ceiling, the system
-// prompt, and the token that pays.
+// prompt, the token that pays, and for an agent's message, the agent and
+// the tools it may ask for.
 type call struct {
 	model     string
 	maxTokens int64
 	system    string
 	token     string
+	agent     string
+	tools     []spec.Tool
+}
+
+// completion is what one metered call came back with: the words, the whole
+// content as sent (to echo back if a tool was asked for), the tool_use
+// blocks in it, and what it cost.
+type completion struct {
+	text    string
+	content json.RawMessage
+	uses    []block
+	cost    ledger.Credits
+	balance ledger.Credits
+}
+
+// converse answers one message: a call, and if the model asked for tools,
+// their results and another call, up to MaxToolRounds times. On the last
+// round the model is told it may not ask again, so the message ends in
+// words. Costs add up across rounds; the balance is the last one seen. A
+// round that is refused ends the message with nothing said, though the
+// rounds before it were charged — the proxy recorded each.
+func (s *Service) converse(ctx context.Context, c call, msgs []message) (string, ledger.Credits, ledger.Credits, error) {
+	ctx, cancel := context.WithTimeout(ctx, MessageDeadline)
+	defer cancel()
+	var total ledger.Credits
+	for round := 0; ; round++ {
+		last := round >= MaxToolRounds
+		out, err := s.complete(ctx, c, msgs, last)
+		if err != nil {
+			return "", total, 0, err
+		}
+		total += out.cost
+		if len(out.uses) == 0 || last {
+			reply := out.text
+			if reply == "" {
+				// A model that stops with nothing to say would leave an
+				// empty turn in the history, which the next call refuses.
+				reply = "…"
+			}
+			return reply, total, out.balance, nil
+		}
+		results := make([]block, 0, len(out.uses))
+		for _, u := range out.uses {
+			var tool spec.Tool
+			for _, t := range c.tools {
+				if t.Name == u.Name {
+					tool = t
+				}
+			}
+			text, failed := "there is no tool called "+u.Name, true
+			if tool.Name != "" {
+				text, failed = s.callTool(ctx, c.agent, tool, u.Input)
+			}
+			results = append(results, block{Type: "tool_result", ToolUseID: u.ID, Content: text, IsError: failed})
+		}
+		msgs = append(msgs, message{"assistant", out.content}, message{"user", results})
+	}
 }
 
 // complete makes the one metered call. It is the Python SDK's Model.complete
 // in Go: the same body, the same bearer token, the same three refusals read
-// off the same status codes.
-func (s *Service) complete(ctx context.Context, c call, history []message) (string, ledger.Credits, ledger.Credits, error) {
-	body, err := json.Marshal(map[string]any{
+// off the same status codes. With tools on the call they go along in the
+// provider's shape, every parameter a string; noTools keeps them defined
+// (the history may refer to them) but tells the model not to ask.
+func (s *Service) complete(ctx context.Context, c call, history []message, noTools bool) (completion, error) {
+	payload := map[string]any{
 		"model":      c.model,
 		"max_tokens": c.maxTokens,
 		"system":     c.system,
 		"messages":   history,
-	})
+	}
+	if len(c.tools) > 0 {
+		tools := make([]map[string]any, 0, len(c.tools))
+		for _, t := range c.tools {
+			props := map[string]any{}
+			for _, p := range t.Params {
+				props[p.Name] = map[string]any{"type": "string", "description": p.Description}
+			}
+			tools = append(tools, map[string]any{
+				"name": t.Name, "description": t.Description,
+				"input_schema": map[string]any{"type": "object", "properties": props},
+			})
+		}
+		payload["tools"] = tools
+		if noTools {
+			payload["tool_choice"] = map[string]any{"type": "none"}
+		}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", 0, 0, err
+		return completion{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://proxy/v1/messages", bytes.NewReader(body))
 	if err != nil {
-		return "", 0, 0, err
+		return completion{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("proxy: %w", err)
+		return completion{}, fmt.Errorf("proxy: %w", err)
 	}
 	defer resp.Body.Close()
 	out, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("read proxy response: %w", err)
+		return completion{}, fmt.Errorf("read proxy response: %w", err)
 	}
 
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusPaymentRequired:
-		return "", 0, 0, ErrOutOfCredits
+		return completion{}, ErrOutOfCredits
 	case http.StatusBadGateway:
-		return "", 0, 0, ErrProviderDown
+		return completion{}, ErrProviderDown
 	case http.StatusForbidden:
-		return "", 0, 0, ErrModelNotOffered
+		return completion{}, ErrModelNotOffered
 	default:
-		return "", 0, 0, fmt.Errorf("proxy returned %d: %.200s", resp.StatusCode, out)
+		return completion{}, fmt.Errorf("proxy returned %d: %.200s", resp.StatusCode, out)
 	}
 
 	var parsed struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
+		Content json.RawMessage `json:"content"`
 	}
+	var blocks []block
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		return "", 0, 0, fmt.Errorf("model response: %w", err)
+		return completion{}, fmt.Errorf("model response: %w", err)
+	}
+	if err := json.Unmarshal(parsed.Content, &blocks); err != nil {
+		return completion{}, fmt.Errorf("model response content: %w", err)
 	}
 	var reply strings.Builder
-	for _, c := range parsed.Content {
-		if c.Type == "text" {
-			reply.WriteString(c.Text)
+	var uses []block
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			reply.WriteString(b.Text)
+		case "tool_use":
+			uses = append(uses, b)
 		}
 	}
 	cost, _ := strconv.ParseInt(resp.Header.Get("X-Phylum-Cost"), 10, 64)
 	balance, _ := strconv.ParseInt(resp.Header.Get("X-Phylum-Balance"), 10, 64)
-	return strings.TrimSpace(reply.String()), ledger.Credits(cost), ledger.Credits(balance), nil
+	return completion{text: strings.TrimSpace(reply.String()), content: parsed.Content, uses: uses,
+		cost: ledger.Credits(cost), balance: ledger.Credits(balance)}, nil
 }
 
 // inProcess dispatches a request straight to a handler: the proxy's HTTP

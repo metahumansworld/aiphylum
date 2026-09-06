@@ -67,9 +67,13 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 		return err
 	}
 	defer store.Close()
-	svc, err := service.New(service.Config{Proxy: p, Ledger: l, Log: log, Locked: locked, Store: store, BuilderModel: model})
+	svc, err := service.New(service.Config{Proxy: p, Ledger: l, Log: log, Locked: locked, Store: store, BuilderModel: model,
+		InsecureTools: opt.serveInsecureTools})
 	if err != nil {
 		return err
+	}
+	if opt.serveInsecureTools {
+		log.Warn("tools may reach http and private addresses: -serve-insecure-tools is for your own machine only")
 	}
 
 	// The mailer is the one launch dependency not chosen yet; until it is,
