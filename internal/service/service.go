@@ -82,8 +82,12 @@ import (
 )
 
 var (
-	ErrNoAgent         = errors.New("service: no such agent")
-	ErrNoConversation  = errors.New("service: no such conversation")
+	ErrNoAgent        = errors.New("service: no such agent")
+	ErrNoConversation = errors.New("service: no such conversation")
+	// ErrNoWebhook is an event for an agent whose spec has no webhook. It
+	// answers as a 404, like an agent that is not there: the endpoint does
+	// not exist until the owner opens it.
+	ErrNoWebhook       = errors.New("service: agent has no webhook")
 	ErrModelNotOffered = errors.New("service: model is not offered")
 	// ErrOutOfCredits is the proxy's 402, said the service's way. It is the
 	// one refusal a person talking to an agent will meet on purpose: the
@@ -541,7 +545,52 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	case len(text) > MaxMessageBytes:
 		return Turn{}, ErrMessageTooLong
 	}
+	return s.say(ctx, agentID, convID, text)
+}
 
+// Event delivers an inbound event to an agent whose spec has a webhook and
+// returns what the agent made of it. An event is a message the owner's
+// systems send instead of a person: it opens a conversation of its own,
+// is rate-limited on the same bucket, and costs the owner's wallet what a
+// message does. The body is bounded like a message; the instruction it is
+// framed with is bounded by the spec, so the two together are still one
+// short call.
+func (s *Service) Event(ctx context.Context, agentID string, body []byte) (Turn, error) {
+	body = bytes.TrimSpace(body)
+	switch {
+	case len(body) == 0:
+		return Turn{}, ErrEmptyMessage
+	case len(body) > MaxMessageBytes:
+		return Turn{}, ErrMessageTooLong
+	}
+	s.mu.Lock()
+	ag, ok := s.agents[agentID]
+	var hook *spec.Webhook
+	if ok {
+		hook = ag.Spec.Webhook
+	}
+	s.mu.Unlock()
+	switch {
+	case !ok:
+		return Turn{}, ErrNoAgent
+	case hook == nil:
+		return Turn{}, ErrNoWebhook
+	}
+	return s.say(ctx, agentID, "", frameEvent(hook.Instruction, body))
+}
+
+// frameEvent is how an event reaches the model: as one message from the
+// owner's side, the instruction first and the event after it, so the model
+// reads what to do before it reads what happened. The event goes in as it
+// came — JSON stays JSON — since the model reads it better than any
+// flattening would, and the instruction is the owner's to word.
+func frameEvent(instruction string, body []byte) string {
+	return strings.TrimSpace(instruction) + "\n\nEvent:\n" + string(body)
+}
+
+// say is Say once its text has been checked. Called by Say and by Event,
+// whose text is an instruction and an event together.
+func (s *Service) say(ctx context.Context, agentID, convID, text string) (Turn, error) {
 	now := s.now()
 	s.mu.Lock()
 	ag, ok := s.agents[agentID]

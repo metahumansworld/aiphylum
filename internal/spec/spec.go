@@ -16,9 +16,10 @@
 // like a hash.
 //
 // Version 1 is deliberately small: a name, a model, a persona, a greeting, a
-// list of rules, a ceiling on reply length, and the tools the agent may
-// call — each an HTTP endpoint of the owner's, described in words, with the
-// parameters the model fills in. Memory across conversations and personality
+// list of rules, a ceiling on reply length, the tools the agent may call —
+// each an HTTP endpoint of the owner's, described in words, with the
+// parameters the model fills in — and a webhook, the agent's own inbound
+// endpoint for events. Memory across conversations and personality
 // proper are later additions, and JSON grows without breaking what is here.
 package spec
 
@@ -68,6 +69,8 @@ const (
 	MaxToolDescBytes = 256
 	MaxToolURLBytes  = 1024
 	MaxParams        = 8
+
+	MaxWebhookBytes = 1024
 )
 
 // toolName is what a tool or a parameter may be called: a word a model can
@@ -97,6 +100,18 @@ type Agent struct {
 	// Tools are what the agent may call besides the model: the owner's own
 	// HTTP endpoints. The platform makes the call; no user code runs.
 	Tools []Tool `json:"tools,omitempty"`
+	// Webhook, when present, lets the agent be woken by an event as well
+	// as by a message: the owner's systems POST to it and get a reply.
+	Webhook *Webhook `json:"webhook,omitempty"`
+}
+
+// Webhook is the agent's inbound side. An event is whatever a caller POSTs
+// — a form, an order, a build result — and Instruction is what the agent is
+// told an event is and what to do with one. There is no secret to check:
+// like a message, an event is public and rate-limited, and what it can cost
+// the owner is bounded the same way.
+type Webhook struct {
+	Instruction string `json:"instruction"`
 }
 
 // Tool is one HTTP endpoint the agent may call. The model sees the name,
@@ -194,6 +209,14 @@ func (a Agent) Validate() error {
 			return fmt.Errorf("%w: two tools named %q", ErrInvalid, t.Name)
 		}
 		names[t.Name] = true
+	}
+	if h := a.Webhook; h != nil {
+		switch {
+		case strings.TrimSpace(h.Instruction) == "":
+			return fmt.Errorf("%w: the webhook needs an instruction; it is what the agent does with an event", ErrInvalid)
+		case len(h.Instruction) > MaxWebhookBytes:
+			return fmt.Errorf("%w: webhook instruction is over %d bytes", ErrInvalid, MaxWebhookBytes)
+		}
 	}
 	// The section syntax is the one thing a persona or rule could counterfeit:
 	// a line that reads "--- RULES ---" inside the persona would end the WHO

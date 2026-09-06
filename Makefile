@@ -273,5 +273,9 @@ clean:
 ##   curl -s localhost:8151/v1/draft -H 'Authorization: Bearer <session>' -d '{"spec":{"version":"phylum-agent/1"},"request":"a steward for a tea shop"}'
 ##   curl -s localhost:8151/v1/agents -H 'Authorization: Bearer <session>' -d @examples/agents/steward.json
 ##   curl -s localhost:8151/a/<id>/messages -d '{"text":"any jasmine tea?"}'
+##   curl -s localhost:8151/a/<id>/events -d '{"order":"two tins of jasmine"}'   # once the spec has a webhook
+## The page's endpoint line carries the widget snippet for any site, and the
+## Tools node calls the owner's own https endpoints. On your own machine,
+## -serve-insecure-tools lets a tool reach http and 127.0.0.1; never deploy it.
 serve:
 	$(GO) run ./cmd/phylumd -serve -agent examples/agents/steward.json

@@ -186,6 +186,8 @@ func (s *Service) owner(w http.ResponseWriter, r *http.Request, auth Authenticat
 //	                                              → 402 when the owner's grant is spent
 //	                                              → 429 + Retry-After when the agent is being flooded
 //	                                              → 502 when the model is unreachable (nothing charged)
+//	POST /a/{id}/events    any body, ≤ 4 KiB      → 200 {conversation, reply}   the agent's webhook
+//	                                              → 404 when the spec has no webhook
 //
 // The surface answers any origin. There is no session to leak and nothing a
 // cross-site request could do that a curl could not, so a page anywhere may
@@ -230,6 +232,25 @@ func (s *Service) Public() http.Handler {
 			"conversation": turn.Conversation, "reply": turn.Reply,
 		})
 	})
+	mux.HandleFunc("POST /a/{id}/events", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, MaxMessageBytes+1))
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "unreadable body")
+			return
+		}
+		turn, err := s.Event(r.Context(), r.PathValue("id"), body)
+		if err != nil {
+			var limited *RateLimitError
+			if errors.As(err, &limited) {
+				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(limited.RetryAfter.Seconds()))))
+			}
+			httpError(w, statusFor(err), err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"conversation": turn.Conversation, "reply": turn.Reply,
+		})
+	})
 	return cors(mux)
 }
 
@@ -252,7 +273,7 @@ func cors(h http.Handler) http.Handler {
 // teaches: 402 is out of credits, 502 is the provider, 4xx is the caller.
 func statusFor(err error) int {
 	switch {
-	case errors.Is(err, ErrNoAgent), errors.Is(err, ErrNoConversation):
+	case errors.Is(err, ErrNoAgent), errors.Is(err, ErrNoConversation), errors.Is(err, ErrNoWebhook):
 		return http.StatusNotFound
 	case errors.Is(err, ErrEmptyMessage), errors.Is(err, ErrMessageTooLong), errors.Is(err, spec.ErrInvalid):
 		return http.StatusBadRequest

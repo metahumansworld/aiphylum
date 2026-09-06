@@ -25,7 +25,7 @@
   };
 
   function blankSpec() {
-    return { version: 1, name: "", model: "", persona: "", greeting: "", rules: [], max_reply_tokens: DEFAULT_CEILING, tools: [] };
+    return { version: 1, name: "", model: "", persona: "", greeting: "", rules: [], max_reply_tokens: DEFAULT_CEILING, tools: [], webhook: "" };
   }
 
   // ---- storage, which may be absent ----------------------------------
@@ -209,6 +209,8 @@
         name: t.name || "", description: t.description || "", url: t.url || "", method: t.method === "POST" ? "POST" : "GET",
         params: Array.isArray(t.params) ? t.params.map((p) => ({ name: p.name || "", description: p.description || "" })) : [],
       })) : [],
+      // Kept as the instruction alone: an empty one is no webhook.
+      webhook: s.webhook && s.webhook.instruction ? s.webhook.instruction : "",
     };
   }
 
@@ -222,24 +224,27 @@
     { key: "rules", title: "Rules" },
     { key: "ceiling", title: "Reply ceiling" },
     { key: "tools", title: "Tools" },
+    { key: "webhook", title: "Webhook" },
   ];
   const nodeEls = {};
   let positions = {};
 
   // Three columns: the fields on either side, the agent between them, the
-  // tools under it. The widths are the stylesheet's node widths; the canvas
+  // tools under it and the webhook beside them. The widths are the stylesheet's node widths; the canvas
   // scrolls if it is narrower than the three of them.
   function defaultPositions() {
     const c = $("canvas");
     const side = 232, hub = 256, pad = 24;
     const w = Math.max(c.clientWidth, side * 2 + hub + pad * 4), h = Math.max(c.clientHeight, 620);
+    const ceilingY = Math.max(340, h - 200);
     return {
       hub: { x: Math.round((w - hub) / 2), y: 40 },
       persona: { x: pad, y: 40 },
       greeting: { x: pad, y: Math.max(340, h - 230) },
       rules: { x: w - pad - side, y: 40 },
-      ceiling: { x: w - pad - side, y: Math.max(340, h - 200) },
+      ceiling: { x: w - pad - side, y: ceilingY },
       tools: { x: Math.round((w - hub) / 2), y: Math.max(500, h - 140) },
+      webhook: { x: w - pad - side, y: ceilingY + 220 },
     };
   }
 
@@ -453,6 +458,28 @@
       hint.textContent = "Your own HTTP endpoints, https to a public host. The model decides when to call one; the platform makes the call and hands back what came out, up to 8 KiB. No keys: put what the endpoint needs in the URL.";
       body.append(ul, add, hint);
       redraw();
+      return;
+    }
+    if (key === "webhook") {
+      const t = document.createElement("textarea");
+      t.rows = 3;
+      t.maxLength = 1024;
+      t.value = s.webhook;
+      t.placeholder = "What an event is and what to do with one: “An order came in. Thank the customer by name.”";
+      const where = document.createElement("p");
+      where.className = "hint";
+      const show = () => {
+        count.textContent = s.webhook.trim() ? "on" : "off";
+        where.replaceChildren();
+        if (!s.webhook.trim()) { where.textContent = "Off. Write an instruction and the agent gets an endpoint your own systems can POST to."; return; }
+        if (!state.current) { where.textContent = "Save, and the endpoint appears here."; return; }
+        const code = document.createElement("code");
+        code.textContent = location.origin + "/a/" + state.current.id + "/events";
+        where.append("POST any body up to 4 KiB to ", code, " and the reply comes back. No secret: it is as public as a message, and rate-limited the same.");
+      };
+      t.addEventListener("input", () => { s.webhook = t.value; markDirty(); show(); });
+      body.append(t, where);
+      show();
     }
   }
 
@@ -626,6 +653,7 @@
         name: t.name.trim(), description: t.description.trim(), url: t.url.trim(), method: t.method,
         params: t.params.filter((p) => p.name).map((p) => ({ name: p.name, description: p.description })),
       })),
+      ...(s.webhook.trim() ? { webhook: { instruction: s.webhook.trim() } } : {}),
     };
   }
 

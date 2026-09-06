@@ -61,6 +61,9 @@ func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
 			ErrInvalid},
 		"reply ceiling too high": {`{"version":1,"name":"a","model":"m","max_reply_tokens":5000}`,
 			ErrInvalid},
+		"webhook with nothing to do": {`{"version":1,"name":"a","model":"m","webhook":{"instruction":" "}}`, ErrInvalid},
+		"webhook with a secret it cannot keep": {`{"version":1,"name":"a","model":"m","webhook":{"instruction":"x","secret":"s"}}`,
+			ErrInvalid},
 	}
 	for name, c := range cases {
 		_, err := Parse([]byte(c.json))
@@ -73,6 +76,11 @@ func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
 		`"url":"https://shop.test/stock","method":"GET","params":[{"name":"tea","description":"The tea, by name"}]}]}`))
 	if err != nil || len(a.Tools) != 1 || a.Tools[0].Params[0].Name != "tea" {
 		t.Errorf("a well-formed tool: %v, %+v", err, a.Tools)
+	}
+	// No webhook key is no webhook, not an empty one.
+	a, err = Parse([]byte(`{"version":1,"name":"a","model":"m"}`))
+	if err != nil || a.Webhook != nil {
+		t.Errorf("no webhook: %v, %+v", err, a.Webhook)
 	}
 }
 
