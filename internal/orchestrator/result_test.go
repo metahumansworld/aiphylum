@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // bidFixed asks the same price on every open bounty, so a test can set the

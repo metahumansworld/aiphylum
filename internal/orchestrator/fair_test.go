@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/auction"
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
-	"github.com/singhtushant3-hub/aiphylum/internal/town"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/auction"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/town"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // total counts every event of a type, for events like bids that carry no

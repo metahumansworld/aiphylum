@@ -1,4 +1,4 @@
-module github.com/singhtushant3-hub/aiphylum
+module github.com/metahumansworld/aiphylum
 
 go 1.27
 

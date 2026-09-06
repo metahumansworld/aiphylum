@@ -21,10 +21,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
-	"github.com/singhtushant3-hub/aiphylum/internal/judge"
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/bounty"
+	"github.com/metahumansworld/aiphylum/internal/judge"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // JudgeWallet is the platform's grading purse. It is an experiment wallet: it

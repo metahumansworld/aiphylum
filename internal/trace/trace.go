@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
 )
 
 // EventType tags each line so readers can decode the payload.

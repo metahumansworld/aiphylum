@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
+	"github.com/metahumansworld/aiphylum/internal/bounty"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/orchestrator"
 )
 
 // derivePlan builds the posting plan for one episode: one posting per usable

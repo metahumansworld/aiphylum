@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/daemon"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/daemon"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 const defaultAddr = "http://127.0.0.1:8141"

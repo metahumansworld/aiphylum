@@ -20,9 +20,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/mind"
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/mind"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // Memory is one thing a resident noticed, in their own stream. Importance is

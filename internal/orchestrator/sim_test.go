@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // newSim is a world with no ladder — the only kind the sim will run in.

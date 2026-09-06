@@ -49,17 +49,17 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
-	"github.com/singhtushant3-hub/aiphylum/internal/daemon"
-	"github.com/singhtushant3-hub/aiphylum/internal/generators"
-	"github.com/singhtushant3-hub/aiphylum/internal/judge"
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/orchestrator"
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
-	"github.com/singhtushant3-hub/aiphylum/internal/rating"
-	"github.com/singhtushant3-hub/aiphylum/internal/runner"
-	"github.com/singhtushant3-hub/aiphylum/internal/suites"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/bounty"
+	"github.com/metahumansworld/aiphylum/internal/daemon"
+	"github.com/metahumansworld/aiphylum/internal/generators"
+	"github.com/metahumansworld/aiphylum/internal/judge"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/orchestrator"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/rating"
+	"github.com/metahumansworld/aiphylum/internal/runner"
+	"github.com/metahumansworld/aiphylum/internal/suites"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 func main() {

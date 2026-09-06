@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/proxy"
-	"github.com/singhtushant3-hub/aiphylum/internal/rating"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/aiphylum/internal/rating"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // View is the whole episode, reshaped for pages. A published trace is

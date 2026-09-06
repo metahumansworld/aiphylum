@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/judge"
-	"github.com/singhtushant3-hub/aiphylum/internal/mind"
+	"github.com/metahumansworld/aiphylum/internal/judge"
+	"github.com/metahumansworld/aiphylum/internal/mind"
 )
 
 // AnthropicProvider forwards Messages-API calls to Anthropic. It is the

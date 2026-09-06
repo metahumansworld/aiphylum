@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 type sseEvent struct {

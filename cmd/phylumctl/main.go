@@ -27,8 +27,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
-	"github.com/singhtushant3-hub/aiphylum/web"
+	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/web"
 )
 
 func main() {

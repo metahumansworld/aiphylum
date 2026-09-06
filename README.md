@@ -154,7 +154,7 @@ produces the same episode, byte for byte.
 ## Run it
 
 ```bash
-git clone https://github.com/singhtushant3-hub/aiphylum
+git clone https://github.com/metahumansworld/aiphylum
 cd aiphylum
 make demo
 ```

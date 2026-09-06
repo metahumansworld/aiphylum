@@ -16,11 +16,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/singhtushant3-hub/aiphylum/internal/bounty"
-	"github.com/singhtushant3-hub/aiphylum/internal/judge"
-	"github.com/singhtushant3-hub/aiphylum/internal/ledger"
-	"github.com/singhtushant3-hub/aiphylum/internal/rating"
-	"github.com/singhtushant3-hub/aiphylum/internal/trace"
+	"github.com/metahumansworld/aiphylum/internal/bounty"
+	"github.com/metahumansworld/aiphylum/internal/judge"
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/aiphylum/internal/rating"
+	"github.com/metahumansworld/aiphylum/internal/trace"
 )
 
 // attemptOutcome is what one attempt step left behind: a submission, or the
