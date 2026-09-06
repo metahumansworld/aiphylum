@@ -234,3 +234,37 @@ func TestWaitlistTakesOnlyNamedReasonsOnce(t *testing.T) {
 		t.Errorf("waiting = %v, want two distinct reasons", got)
 	}
 }
+
+func TestRechargeCreditsAPaymentOnceAndUnlocks(t *testing.T) {
+	ctx := context.Background()
+	s, l, mail, _ := newStore(t)
+	u := signIn(t, s, mail, "ada@example.com").User
+	if paid, _ := s.Paid(ctx, u.ID); paid {
+		t.Fatal("a fresh user has not paid")
+	}
+	for range 2 { // Stripe announces the same payment twice
+		if err := s.Recharge(ctx, u.ID, "cs_1", 5_000_000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if bal, _ := l.Balance(ctx, u.Wallet); bal != 6_000_000 {
+		t.Fatalf("balance = %d, want the grant plus one $5 topup", bal)
+	}
+	if paid, _ := s.Paid(ctx, u.ID); !paid {
+		t.Fatal("a topup unlocks")
+	}
+	// The mint landed but the row did not: the next announcement finishes
+	// the job without minting again.
+	if _, _, err := l.MintOnce(ctx, u.Wallet, 1_000_000, "topup", "cs_2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Recharge(ctx, u.ID, "cs_2", 1_000_000); err != nil {
+		t.Fatal(err)
+	}
+	if bal, _ := l.Balance(ctx, u.Wallet); bal != 7_000_000 {
+		t.Fatalf("balance = %d, want no second mint for cs_2", bal)
+	}
+	if err := s.Recharge(ctx, "u_nobody", "cs_3", 1); !errors.Is(err, ErrNoSuchUser) {
+		t.Fatalf("recharge of a stranger: %v, want ErrNoSuchUser", err)
+	}
+}

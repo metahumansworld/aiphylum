@@ -163,6 +163,12 @@ func (s *Store) migrate(ctx context.Context) error {
 			reason     TEXT NOT NULL,
 			created_at INTEGER NOT NULL,
 			PRIMARY KEY (user_id, reason)
+		);
+		CREATE TABLE IF NOT EXISTS topups (
+			ref        TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL REFERENCES users(id),
+			credits    INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
 		);`)
 	if err != nil {
 		return fmt.Errorf("migrate accounts: %w", err)
@@ -335,6 +341,41 @@ func (s *Store) Waiting(ctx context.Context, userID string) ([]string, error) {
 	return out, rows.Err()
 }
 
+// Recharge credits a payment to a user's wallet, once per ref however many
+// times it is announced. The ledger is the receipt: the mint is keyed on the
+// ref, and the topups row here is written after it, so a crash between the
+// two costs the payer nothing — the next announcement finds the mint, skips
+// it, and writes the row. The row is what Paid reads.
+func (s *Store) Recharge(ctx context.Context, userID, ref string, credits ledger.Credits) error {
+	u, err := s.userByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	_, minted, err := s.cfg.Ledger.MintOnce(ctx, u.Wallet, credits, "topup", ref)
+	if err != nil {
+		return fmt.Errorf("mint topup: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO topups (ref, user_id, credits, created_at) VALUES (?, ?, ?, ?)`,
+		ref, u.ID, credits, s.cfg.Now().Unix()); err != nil {
+		return fmt.Errorf("record topup: %w", err)
+	}
+	if minted {
+		s.cfg.Log.Info("topup", "user", u.ID, "credits", credits, "ref", ref)
+	}
+	return nil
+}
+
+// Paid reports whether a user has ever recharged. It is the unlock: a person
+// who has put money in may name the models the grant does not cover.
+func (s *Store) Paid(ctx context.Context, userID string) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM topups WHERE user_id = ?`, userID).Scan(&n); err != nil {
+		return false, fmt.Errorf("read topups: %w", err)
+	}
+	return n > 0, nil
+}
+
 func (s *Store) wantable(reason string) bool {
 	for _, r := range s.cfg.Reasons {
 		if r == reason {
@@ -345,9 +386,17 @@ func (s *Store) wantable(reason string) bool {
 }
 
 func (s *Store) userByEmail(ctx context.Context, email string) (User, error) {
+	return s.user(ctx, `email`, email)
+}
+
+func (s *Store) userByID(ctx context.Context, id string) (User, error) {
+	return s.user(ctx, `id`, id)
+}
+
+func (s *Store) user(ctx context.Context, col, key string) (User, error) {
 	var u User
 	var created int64
-	err := s.db.QueryRowContext(ctx, `SELECT id, email, wallet, created_at FROM users WHERE email = ?`, email).
+	err := s.db.QueryRowContext(ctx, `SELECT id, email, wallet, created_at FROM users WHERE `+col+` = ?`, key).
 		Scan(&u.ID, &u.Email, &u.Wallet, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNoSuchUser
