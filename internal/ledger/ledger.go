@@ -42,6 +42,7 @@ const (
 	KindHold       AccountKind = "system_hold"     // reserved mid-call, not yet settled
 	KindAgent      AccountKind = "agent_wallet"    // a ranked agent's bankroll; bankruptcy is terminal
 	KindExperiment AccountKind = "experiment_wallet"
+	KindUser       AccountKind = "user_wallet" // a signed-in person's grant; every agent they build spends from it
 )
 
 // isSystem reports whether an account may carry a negative balance.

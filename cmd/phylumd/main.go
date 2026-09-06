@@ -89,15 +89,16 @@ func main() {
 	window := flag.Duration("window", 1500*time.Millisecond, "sim: how long an auction takes bids")
 	runFor := flag.Duration("for", 0, "sim: stop after this long (0 = until the deck is spent)")
 	deck := flag.Int("deck", 16, "sim: how many bounties the world has to give")
-	serve := flag.Bool("serve", false, "run the service: built agents answering over HTTP — on the stub unless OPENROUTER_API_KEY is set, and then real spend behind each agent's grant")
+	serve := flag.Bool("serve", false, "run the service: built agents answering over HTTP — on the stub unless OPENROUTER_API_KEY is set, and then real spend behind each user's grant")
 	var agents []string
 	flag.Func("agent", "serve: `path` to an agent spec (JSON) to run from boot — repeatable", func(v string) error {
 		agents = append(agents, v)
 		return nil
 	})
 	serveListen := flag.String("serve-listen", defaultServeListen, "serve: address for the control surface (/v1/agents) and the agents' public endpoints (/a/{id})")
-	grant := flag.Int64("grant", 1_000_000, "serve: credits minted to each new agent's wallet, in micro-USD (1000000 is $1)")
+	grant := flag.Int64("grant", 1_000_000, "serve: credits minted to each new user's wallet at first sign-in, in micro-USD (1000000 is $1); every agent they build spends from it")
 	serveModel := flag.String("serve-model", defaultServeModel, "serve: the one real model offered, as id=input,output in nano-USD per token")
+	serveLocked := flag.String("serve-locked", defaultServeLocked, "serve: models shown in the catalogue and not offered, comma-separated; a builder's click on one joins the waitlist")
 	flag.Parse()
 
 	// The trace path's default names the arena. A run on another track that was
@@ -145,6 +146,7 @@ func main() {
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
 		serve: *serve, agents: agents, serveListen: *serveListen, grant: *grant, serveModel: *serveModel,
+		serveLocked: *serveLocked,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -190,13 +192,17 @@ type options struct {
 
 	// serve runs built agents instead of a world: no board, no ladder, no
 	// containers. agents are spec files to run from boot; serveListen is where
-	// they answer; grant is each new agent's whole bankroll; serveModel is the
-	// one real model on the price table, with its price.
-	serve       bool
-	agents      []string
-	serveListen string
-	grant       int64
-	serveModel  string
+	// they answer; grant is each new user's whole bankroll; serveModel is the
+	// one real model on the price table, with its price; serveLocked are the
+	// models the catalogue shows behind a lock. accountsPath is the users'
+	// database, chosen next to the ledger.
+	serve        bool
+	agents       []string
+	serveListen  string
+	grant        int64
+	serveModel   string
+	serveLocked  string
+	accountsPath string
 }
 
 const (
@@ -206,14 +212,22 @@ const (
 	liveDB        = "phylum-live.db"
 
 	// The service binds to loopback too, for now: an agent's public endpoint
-	// is public in shape, not yet in reach. Putting it on the internet is the
-	// job of the milestone that brings accounts and rate limits with it.
+	// is public in shape, not yet in reach. Accounts and rate limits are here;
+	// a public bind and TLS are the job of the milestone that puts it online.
 	defaultServeListen = "127.0.0.1:8151"
 	// The fixed model every built agent runs on, at OpenRouter's price for it
 	// ($1 per million input tokens, $5 per million output) in nano-USD per
 	// token. One row, set by hand; syncing the table from OpenRouter's
 	// catalogue comes with the milestone that unlocks other models.
 	defaultServeModel = "anthropic/claude-haiku-4.5=1000,5000"
+	// The models a builder sees and cannot pick yet. Display only: the price
+	// table never holds them, so a spec naming one is refused. Corrected the
+	// same way -serve-model is, by hand, until the catalogue syncs.
+	defaultServeLocked = "anthropic/claude-sonnet-5,anthropic/claude-opus-5,openai/gpt-5,google/gemini-2.5-pro"
+	// A live service keeps its books: users' grants must survive a restart,
+	// so with a key set the ledger goes to a file, and the users next to it.
+	serviceDB       = "phylum-service.db"
+	serviceAccounts = "phylum-accounts.db"
 )
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
@@ -263,6 +277,16 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		return runTown(ctx, tw, opt)
 	}
 
+	// The service is not an episode either. Its books are people's grants and
+	// its trace is every conversation they had, and both must outlive the
+	// process: a service that will not restart over its own record is not a
+	// service. So it takes neither of the live guards below — a used ledger
+	// is its normal state — and appends to its trace instead of refusing it.
+	// Offline, with no key, it is still a demo: temp books, gone at exit.
+	if opt.serve {
+		return serveBooks(ctx, log, opt)
+	}
+
 	dbPath := opt.dbPath
 	if dbPath == "" {
 		// The offline modes run one episode and print it; their ledger is
@@ -300,25 +324,11 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 			return err
 		}
 	}
-	// A service run with a key is spending real money, and its trace is the
-	// only record of conversations that cannot be had again: the same
-	// protection the live world gets, without the ledger half, since the
-	// service's wallets are minted fresh at boot.
-	if opt.serve && os.Getenv(openRouterKeyEnv) != "" {
-		if err := refuseUsedTrace(opt.tracePath); err != nil {
-			return err
-		}
-	}
-
 	tw, err := trace.NewWriter(opt.tracePath)
 	if err != nil {
 		return fmt.Errorf("open trace: %w", err)
 	}
 	defer tw.Close()
-
-	if opt.serve {
-		return runServe(ctx, log, l, tw, opt)
-	}
 
 	board := bounty.NewBoard()
 	for _, g := range generators.Dir(opt.genDir) {
@@ -380,6 +390,40 @@ func refuseUsedLedger(ctx context.Context, l *ledger.Ledger, dbPath string) erro
 // reproducible — regenerating an identical one from a seed is what `make demo`
 // is for — so overwriting it costs nothing. A live trace is the only record of a
 // run that cannot be run again, so it is never overwritten without being asked.
+// serveBooks opens what the service keeps — the ledger, the users, the trace
+// — and runs it. With a key the books are files that persist across runs;
+// without one they are a temp directory, since the stub's money is not money.
+func serveBooks(ctx context.Context, log *slog.Logger, opt options) error {
+	live := os.Getenv(openRouterKeyEnv) != ""
+	dbPath := opt.dbPath
+	if dbPath == "" {
+		if live {
+			dbPath = serviceDB
+		} else {
+			dir, err := os.MkdirTemp("", "phylum-*")
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(dir)
+			dbPath = filepath.Join(dir, "ledger.db")
+		}
+	}
+	opt.accountsPath = filepath.Join(filepath.Dir(dbPath), serviceAccounts)
+
+	l, err := ledger.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open ledger: %w", err)
+	}
+	defer l.Close()
+
+	tw, err := trace.OpenWriter(opt.tracePath)
+	if err != nil {
+		return err
+	}
+	defer tw.Close()
+	return runServe(ctx, log, l, tw, opt)
+}
+
 func refuseUsedTrace(path string) error {
 	fi, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {

@@ -62,6 +62,48 @@ func NewWriter(path string) (*Writer, error) {
 	return &Writer{f: f, bw: bufio.NewWriter(f), path: path}, nil
 }
 
+// OpenWriter appends to a trace file, creating it if it is absent. It is
+// for a process that is expected to restart over the same record — the
+// service, whose trace is the only copy of every conversation its agents
+// ever had — and it continues the sequence from where the file left off, so
+// a reader sees one run. The arena keeps NewWriter: an episode is one
+// process, and a trace that outlives one is a mistake it refuses to make.
+func OpenWriter(path string) (*Writer, error) {
+	last, err := lastSeq(path)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open trace: %w", err)
+	}
+	return &Writer{f: f, bw: bufio.NewWriter(f), path: path, seq: last}, nil
+}
+
+// lastSeq is the sequence number of the file's final line, or zero for a
+// file that is empty or absent.
+func lastSeq(path string) (int64, error) {
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("open trace: %w", err)
+	}
+	defer f.Close()
+	var seq int64
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+	for sc.Scan() {
+		var l Line
+		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
+			return 0, fmt.Errorf("trace %s is not a trace: %w", path, err)
+		}
+		seq = l.Seq
+	}
+	return seq, sc.Err()
+}
+
 func (w *Writer) Path() string { return w.path }
 
 // Append writes one event. The payload is marshalled once and stored verbatim.

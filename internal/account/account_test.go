@@ -1,0 +1,236 @@
+package account
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/metahumansworld/aiphylum/internal/ledger"
+)
+
+// memMailer keeps the tokens it was asked to send, which is what a test
+// needs and what a real mailer must never do.
+type memMailer struct {
+	mu   sync.Mutex
+	sent map[string][]string
+}
+
+func (m *memMailer) Send(_ context.Context, to, token string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sent == nil {
+		m.sent = map[string][]string{}
+	}
+	m.sent[to] = append(m.sent[to], token)
+	return nil
+}
+
+func (m *memMailer) last(t *testing.T, to string) string {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	toks := m.sent[to]
+	if len(toks) == 0 {
+		t.Fatalf("nothing mailed to %s", to)
+	}
+	return toks[len(toks)-1]
+}
+
+type clock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *clock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *clock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+func newStore(t *testing.T) (*Store, *ledger.Ledger, *memMailer, *clock) {
+	t.Helper()
+	dir := t.TempDir()
+	l, err := ledger.Open(filepath.Join(dir, "ledger.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	mail := &memMailer{}
+	clk := &clock{t: time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)}
+	s, err := Open(filepath.Join(dir, "accounts.db"), Config{
+		Ledger: l, Grant: 1_000_000, Mailer: mail, Now: clk.now,
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Reasons: []string{"arena", "model:anthropic/claude-opus-5"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s, l, mail, clk
+}
+
+func signIn(t *testing.T, s *Store, mail *memMailer, email string) Session {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.Request(ctx, email); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	// The mail goes to the address as the store keeps it, not as typed.
+	normalised, _ := normalizeEmail(email)
+	sess, err := s.Verify(ctx, mail.last(t, normalised))
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	return sess
+}
+
+func TestFirstSignInIsTheSignUpAndMintsTheGrantOnce(t *testing.T) {
+	s, l, mail, _ := newStore(t)
+	ctx := context.Background()
+
+	first := signIn(t, s, mail, " Ada@Example.com ")
+	if first.User.Email != "ada@example.com" {
+		t.Errorf("email was not normalised: %q", first.User.Email)
+	}
+	if bal, _ := l.Balance(ctx, first.User.Wallet); bal != 1_000_000 {
+		t.Errorf("wallet holds %d after sign-up, want the grant", bal)
+	}
+	acct, _ := l.Get(ctx, first.User.Wallet)
+	if acct.Kind != ledger.KindUser || acct.Owner != first.User.ID {
+		t.Errorf("wallet = %+v, want a user wallet owned by the user", acct)
+	}
+
+	// The same address again is the same user, and no second grant.
+	again := signIn(t, s, mail, "ada@example.com")
+	if again.User.ID != first.User.ID || again.Token == first.Token {
+		t.Errorf("second sign-in: user %s→%s, tokens equal: %v", first.User.ID, again.User.ID, again.Token == first.Token)
+	}
+	if bal, _ := l.Balance(ctx, first.User.Wallet); bal != 1_000_000 {
+		t.Errorf("wallet holds %d after a second sign-in; the grant was minted twice", bal)
+	}
+	// And the books still balance with the new kind of wallet on them.
+	if err := l.Verify(ctx); err != nil {
+		t.Errorf("ledger audit: %v", err)
+	}
+}
+
+func TestALinkIsSingleUseAndExpires(t *testing.T) {
+	s, _, mail, clk := newStore(t)
+	ctx := context.Background()
+
+	if err := s.Request(ctx, "bo@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	token := mail.last(t, "bo@example.com")
+	if _, err := s.Verify(ctx, token); err != nil {
+		t.Fatalf("first use: %v", err)
+	}
+	if _, err := s.Verify(ctx, token); !errors.Is(err, ErrBadToken) {
+		t.Errorf("a used link was accepted again: %v", err)
+	}
+
+	if err := s.Request(ctx, "bo@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	stale := mail.last(t, "bo@example.com")
+	clk.advance(16 * time.Minute)
+	if _, err := s.Verify(ctx, stale); !errors.Is(err, ErrBadToken) {
+		t.Errorf("a sixteen-minute-old link was accepted: %v", err)
+	}
+	if _, err := s.Verify(ctx, "not-a-token"); !errors.Is(err, ErrBadToken) {
+		t.Errorf("a made-up token was accepted: %v", err)
+	}
+}
+
+func TestSessionsExpireAndSignOut(t *testing.T) {
+	s, _, mail, clk := newStore(t)
+	ctx := context.Background()
+	sess := signIn(t, s, mail, "cy@example.com")
+
+	u, err := s.Authenticate(ctx, sess.Token)
+	if err != nil || u.ID != sess.User.ID {
+		t.Fatalf("authenticate: %v, %+v", err, u)
+	}
+	if err := s.SignOut(ctx, sess.Token); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Authenticate(ctx, sess.Token); !errors.Is(err, ErrNoSession) {
+		t.Errorf("a signed-out session still works: %v", err)
+	}
+
+	sess = signIn(t, s, mail, "cy@example.com")
+	clk.advance(31 * 24 * time.Hour)
+	if _, err := s.Authenticate(ctx, sess.Token); !errors.Is(err, ErrNoSession) {
+		t.Errorf("a month-old session still works: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, ""); !errors.Is(err, ErrNoSession) {
+		t.Errorf("an empty token was a session: %v", err)
+	}
+}
+
+// A sign-up is two books with no transaction across them. If the process
+// dies after the user row exists but the ledger never heard of the wallet —
+// the order signUp uses makes this the unlikely side, but a ledger restored
+// from an older backup produces the same state — the next sign-in funds it.
+func TestAUserWithoutAWalletIsFundedOnNextSignIn(t *testing.T) {
+	s, l, mail, clk := newStore(t)
+	ctx := context.Background()
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO users (id, email, wallet, created_at) VALUES ('u_orphan', 'di@example.com', 'usr:orphan', ?)`,
+		clk.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Balance(ctx, "usr:orphan"); !errors.Is(err, ledger.ErrNotFound) {
+		t.Fatalf("precondition: wallet exists: %v", err)
+	}
+	sess := signIn(t, s, mail, "di@example.com")
+	if sess.User.ID != "u_orphan" {
+		t.Errorf("sign-in made a new user %s instead of finding the orphan", sess.User.ID)
+	}
+	if bal, _ := l.Balance(ctx, "usr:orphan"); bal != 1_000_000 {
+		t.Errorf("orphan wallet holds %d, want the grant", bal)
+	}
+}
+
+func TestBadEmailsAreRefusedBeforeAnyMail(t *testing.T) {
+	s, _, mail, _ := newStore(t)
+	ctx := context.Background()
+	for _, e := range []string{"", "nope", "@x", "x@", "a b@c", "a@b@c"} {
+		if err := s.Request(ctx, e); !errors.Is(err, ErrBadEmail) {
+			t.Errorf("Request(%q) = %v, want ErrBadEmail", e, err)
+		}
+	}
+	if len(mail.sent) != 0 {
+		t.Errorf("mail went out for a refused address: %v", mail.sent)
+	}
+}
+
+func TestWaitlistTakesOnlyNamedReasonsOnce(t *testing.T) {
+	s, _, mail, _ := newStore(t)
+	ctx := context.Background()
+	u := signIn(t, s, mail, "ed@example.com").User
+
+	for _, r := range []string{"arena", "model:anthropic/claude-opus-5", "arena"} {
+		if err := s.Waitlist(ctx, u.ID, r); err != nil {
+			t.Errorf("Waitlist(%q): %v", r, err)
+		}
+	}
+	if err := s.Waitlist(ctx, u.ID, "model:something-else"); !errors.Is(err, ErrBadReason) {
+		t.Errorf("an unlisted reason was accepted: %v", err)
+	}
+	got, _ := s.Waiting(ctx, u.ID)
+	if len(got) != 2 {
+		t.Errorf("waiting = %v, want two distinct reasons", got)
+	}
+}
