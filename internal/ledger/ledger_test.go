@@ -393,3 +393,28 @@ func TestHasHistoryIgnoresTheSystemAccountsAndCountsRetiredOnes(t *testing.T) {
 	}
 	verify(t, l)
 }
+
+func TestMintOnceMintsARefOnceHoweverOftenItIsAnnounced(t *testing.T) {
+	ctx := context.Background()
+	l := newTestLedger(t)
+	mustWallet(t, l, "w1")
+
+	id, minted, err := l.MintOnce(ctx, "w1", 500_000, "topup", "cs_1")
+	if err != nil || !minted || id == "" {
+		t.Fatalf("first: id=%q minted=%v err=%v", id, minted, err)
+	}
+	id, minted, err = l.MintOnce(ctx, "w1", 500_000, "topup", "cs_1")
+	if err != nil || minted || id != "" {
+		t.Fatalf("second: id=%q minted=%v err=%v; want nothing minted", id, minted, err)
+	}
+	if _, minted, _ = l.MintOnce(ctx, "w1", 500_000, "topup", "cs_2"); !minted {
+		t.Fatal("a different ref is a different payment")
+	}
+	if got := balance(t, l, "w1"); got != 1_000_000 {
+		t.Errorf("balance = %d, want 1000000: two payments, one of them announced twice", got)
+	}
+	if _, _, err := l.MintOnce(ctx, "w1", 1, "topup", ""); err == nil {
+		t.Error("an empty ref cannot be keyed on")
+	}
+	verify(t, l)
+}

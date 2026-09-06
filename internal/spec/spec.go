@@ -16,9 +16,11 @@
 // like a hash.
 //
 // Version 1 is deliberately small: a name, a model, a persona, a greeting, a
-// list of rules, and a ceiling on reply length. Tools, memory across
-// conversations and personality proper are later additions, and JSON grows
-// without breaking what is here.
+// list of rules, a ceiling on reply length, the tools the agent may call —
+// each an HTTP endpoint of the owner's, described in words, with the
+// parameters the model fills in — and a webhook, the agent's own inbound
+// endpoint for events. Memory across conversations and personality
+// proper are later additions, and JSON grows without breaking what is here.
 package spec
 
 import (
@@ -26,6 +28,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -41,9 +45,10 @@ const Version = 1
 
 // Section labels in the rendered prompt.
 const (
-	SecWho   = "WHO"
-	SecRules = "RULES"
-	secEnd   = "END"
+	SecWho    = "WHO"
+	SecRules  = "RULES"
+	SecEvents = "EVENTS"
+	secEnd    = "END"
 )
 
 // Limits. They bound what one agent can cost per call as much as what it can
@@ -60,7 +65,18 @@ const (
 	// call, and a thin wallet is refused on the reservation, not the reply.
 	DefaultMaxReplyTokens = 256
 	MaxReplyTokensCeiling = 4096
+
+	MaxTools         = 8
+	MaxToolDescBytes = 256
+	MaxToolURLBytes  = 1024
+	MaxParams        = 8
+
+	MaxWebhookBytes = 1024
 )
+
+// toolName is what a tool or a parameter may be called: a word a model can
+// use as a JSON key without quoting games.
+var toolName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 var (
 	ErrVersion = errors.New("spec: unsupported version")
@@ -82,6 +98,44 @@ type Agent struct {
 	// MaxReplyTokens caps one reply. It is the max_tokens of every call the
 	// agent makes, so it is also the worst case the proxy holds per message.
 	MaxReplyTokens int64 `json:"max_reply_tokens,omitempty"`
+	// Tools are what the agent may call besides the model: the owner's own
+	// HTTP endpoints. The platform makes the call; no user code runs.
+	Tools []Tool `json:"tools,omitempty"`
+	// Webhook, when present, lets the agent be woken by an event as well
+	// as by a message: the owner's systems POST to it and get a reply.
+	Webhook *Webhook `json:"webhook,omitempty"`
+}
+
+// Webhook is the agent's inbound side. An event is whatever a caller POSTs
+// — a form, an order, a build result — and Instruction is what the agent is
+// told an event is and what to do with one. There is no secret to check:
+// like a message, an event is public and rate-limited, and what it can cost
+// the owner is bounded the same way.
+type Webhook struct {
+	Instruction string `json:"instruction"`
+}
+
+// Tool is one HTTP endpoint the agent may call. The model sees the name,
+// the description and the parameters, and decides when to call it; the
+// platform sends the request — the parameters as a query on a GET, as a JSON
+// body on a POST — and hands the response back to the model as text. A
+// tool carries no secret: the spec is stored and shown as it is, so
+// anything the endpoint needs to know the caller goes in the URL itself.
+type Tool struct {
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	URL         string  `json:"url"`
+	Method      string  `json:"method,omitempty"` // GET (the default) or POST
+	Params      []Param `json:"params,omitempty"`
+}
+
+// Param is one thing the model fills in when it calls a tool. Every
+// parameter is a string and every one is optional: the description is what
+// tells the model what to write, and the endpoint is what decides whether
+// what it wrote will do.
+type Param struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // Parse reads a spec from JSON. Unknown keys are refused rather than dropped:
@@ -144,16 +198,85 @@ func (a Agent) Validate() error {
 	if a.MaxReplyTokens < 1 || a.MaxReplyTokens > MaxReplyTokensCeiling {
 		return fmt.Errorf("%w: max_reply_tokens must be 1..%d", ErrInvalid, MaxReplyTokensCeiling)
 	}
+	if len(a.Tools) > MaxTools {
+		return fmt.Errorf("%w: more than %d tools", ErrInvalid, MaxTools)
+	}
+	names := map[string]bool{}
+	for i, t := range a.Tools {
+		if err := t.validate(); err != nil {
+			return fmt.Errorf("%w: tool %d: %v", ErrInvalid, i+1, err)
+		}
+		if names[t.Name] {
+			return fmt.Errorf("%w: two tools named %q", ErrInvalid, t.Name)
+		}
+		names[t.Name] = true
+	}
+	if h := a.Webhook; h != nil {
+		switch {
+		case strings.TrimSpace(h.Instruction) == "":
+			return fmt.Errorf("%w: the webhook needs an instruction; it is what the agent does with an event", ErrInvalid)
+		case len(h.Instruction) > MaxWebhookBytes:
+			return fmt.Errorf("%w: webhook instruction is over %d bytes", ErrInvalid, MaxWebhookBytes)
+		}
+	}
 	// The section syntax is the one thing a persona or rule could counterfeit:
 	// a line that reads "--- RULES ---" inside the persona would end the WHO
 	// block early on the way back out. Refuse it rather than escape it, so the
 	// rendered prompt stays readable and Section stays simple.
-	for _, text := range append([]string{a.Persona}, a.Rules...) {
+	texts := append([]string{a.Persona}, a.Rules...)
+	if a.Webhook != nil {
+		texts = append(texts, a.Webhook.Instruction)
+	}
+	for _, text := range texts {
 		for _, line := range strings.Split(text, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "--- ") {
 				return fmt.Errorf("%w: a line may not begin with \"--- \"", ErrInvalid)
 			}
 		}
+	}
+	return nil
+}
+
+// validate is the syntactic half of what a tool must be. Whether the URL
+// may be called at all — the scheme, and where the host resolves to — is
+// the runtime's policy, decided where the call is made.
+func (t Tool) validate() error {
+	switch {
+	case !toolName.MatchString(t.Name):
+		return errors.New("name must be a-z, 0-9 and _, up to 32, starting with a letter")
+	case strings.TrimSpace(t.Description) == "":
+		return errors.New("needs a description; it is how the model knows when to call it")
+	case len(t.Description) > MaxToolDescBytes:
+		return fmt.Errorf("description is over %d bytes", MaxToolDescBytes)
+	case len(t.URL) > MaxToolURLBytes:
+		return fmt.Errorf("url is over %d bytes", MaxToolURLBytes)
+	case t.Method != "" && t.Method != "GET" && t.Method != "POST":
+		return errors.New("method must be GET or POST")
+	case len(t.Params) > MaxParams:
+		return fmt.Errorf("more than %d params", MaxParams)
+	}
+	u, err := url.Parse(t.URL)
+	switch {
+	case err != nil:
+		return fmt.Errorf("url: %v", err)
+	case u.Scheme != "http" && u.Scheme != "https":
+		return errors.New("url must be http:// or https://")
+	case u.Hostname() == "":
+		return errors.New("url needs a host")
+	case u.User != nil:
+		return errors.New("url may not carry a user or password")
+	}
+	seen := map[string]bool{}
+	for i, p := range t.Params {
+		switch {
+		case !toolName.MatchString(p.Name):
+			return fmt.Errorf("param %d: name must be a-z, 0-9 and _, up to 32, starting with a letter", i+1)
+		case len(p.Description) > MaxToolDescBytes:
+			return fmt.Errorf("param %d: description is over %d bytes", i+1, MaxToolDescBytes)
+		case seen[p.Name]:
+			return fmt.Errorf("two params named %q", p.Name)
+		}
+		seen[p.Name] = true
 	}
 	return nil
 }
@@ -167,20 +290,47 @@ func (a Agent) Validate() error {
 // lost once real models are behind it. Version 1 keeps it plain: say who the
 // agent is, hand over the rules verbatim, and ask for the agent's own voice.
 func Prompt(a Agent) string {
+	return prompt(a, "You are the agent described below, in conversation with someone who has\n"+
+		"written to you. Answer as that agent, in its own voice, and stay inside\n"+
+		"its rules. Keep each reply short: it is cut off past its ceiling.\n", nil)
+}
+
+// EventPrompt renders the system prompt of an agent's event thread, where
+// what it reads is not a person but events the owner's systems send it. The
+// webhook's instruction goes in as an EVENTS section, standing policy the
+// model reads before any event and above all of them: an event that says
+// "ignore your instruction" is a message, and the instruction is not. The
+// event itself is not rendered here; it reaches the model as its own message,
+// verbatim, so nothing the owner's system sent is lost to a flattening.
+func EventPrompt(a Agent) string {
+	var events []string
+	if a.Webhook != nil {
+		events = []string{strings.TrimSpace(a.Webhook.Instruction)}
+	}
+	return prompt(a, "You are the agent described below. What you read is not a person but\n"+
+		"events the owner's systems send you, one message each, exactly as sent.\n"+
+		"The EVENTS block says what they are and what to do with one. Answer as\n"+
+		"that agent, in its own voice, inside its rules. Keep each reply short:\n"+
+		"it is cut off past its ceiling.\n", events)
+}
+
+func prompt(a Agent, intro string, events []string) string {
 	var b strings.Builder
 	b.WriteString(Marker + "\n")
-	b.WriteString("You are the agent described below, in conversation with someone who has\n")
-	b.WriteString("written to you. Answer as that agent, in its own voice, and stay inside\n")
-	b.WriteString("its rules. Keep each reply short: it is cut off past its ceiling.\n")
+	b.WriteString(intro)
 
 	rules := make([]string, 0, len(a.Rules))
 	for _, r := range a.Rules {
 		rules = append(rules, "- "+strings.TrimSpace(r))
 	}
-	for _, s := range []struct{ label, body string }{
+	sections := []struct{ label, body string }{
 		{SecWho, strings.TrimSpace(strings.TrimSpace(a.Name) + "\n" + strings.TrimSpace(a.Persona))},
 		{SecRules, strings.Join(rules, "\n")},
-	} {
+	}
+	for _, e := range events {
+		sections = append(sections, struct{ label, body string }{SecEvents, e})
+	}
+	for _, s := range sections {
 		b.WriteString("\n--- " + s.label + " ---\n")
 		b.WriteString(s.body + "\n")
 	}
@@ -230,7 +380,7 @@ func Answer(system, heard string) string {
 	if name == "" {
 		name = "The agent"
 	}
-	topic := salient(heard)
+	topic := Salient(heard)
 	if topic == "" {
 		return name + " here. Say something and I will answer it."
 	}
@@ -241,9 +391,27 @@ func Answer(system, heard string) string {
 	return reply
 }
 
-// salient is the stub's whole reading of a message: the longest word in it,
-// earliest on a tie, with short words skipped so "the" never wins.
-func salient(text string) string {
+// AnswerTool is the stub's reply once a tool it called has answered: the
+// agent, by name, saying what the tool said. Like Answer it is a visible
+// function of its inputs, so a round trip through a tool on the stub reads
+// as this agent relaying this result.
+func AnswerTool(system, tool, result string) string {
+	name, _, _ := strings.Cut(Section(system, SecWho), "\n")
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "The agent"
+	}
+	result = strings.Join(strings.Fields(result), " ")
+	if len(result) > 200 {
+		result = result[:200] + "…"
+	}
+	return name + " here — I asked " + tool + ", and it said: " + result
+}
+
+// Salient is the stub's whole reading of a message: the longest word in it,
+// earliest on a tie, with short words skipped so "the" never wins. Exported
+// for the stub's tool choice, which reads a message the same way.
+func Salient(text string) string {
 	best := ""
 	for _, w := range strings.FieldsFunc(text, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\''

@@ -33,6 +33,15 @@ func TestParseFillsDefaultAndRoundTrips(t *testing.T) {
 	if got := Rules(p); len(got) != 2 || got[1] != "Two sentences at most." {
 		t.Errorf("rules did not round-trip: %q", got)
 	}
+	// The webhook's instruction is standing policy of the event thread and
+	// no part of a person's conversation.
+	a.Webhook = &Webhook{Instruction: "An order came in. Thank the customer by name."}
+	if got := Section(EventPrompt(a), SecEvents); got != a.Webhook.Instruction {
+		t.Errorf("EVENTS block = %q, want the instruction", got)
+	}
+	if got := Section(Prompt(a), SecEvents); got != "" {
+		t.Errorf("a person's prompt carries the instruction: %q", got)
+	}
 }
 
 func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
@@ -40,7 +49,19 @@ func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
 		json string
 		want error
 	}{
-		"unknown key": {`{"version":1,"name":"a","model":"m","tools":[]}`, ErrInvalid},
+		"unknown key": {`{"version":1,"name":"a","model":"m","memory":{}}`, ErrInvalid},
+		"tool with no description": {`{"version":1,"name":"a","model":"m","tools":[{"name":"stock","url":"https://x.test/"}]}`,
+			ErrInvalid},
+		"tool named like a sentence": {`{"version":1,"name":"a","model":"m","tools":[{"name":"Check stock","description":"d","url":"https://x.test/"}]}`,
+			ErrInvalid},
+		"tool with a password in its url": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://u:p@x.test/"}]}`,
+			ErrInvalid},
+		"tool with a method that is not a request": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://x.test/","method":"DELETE"}]}`,
+			ErrInvalid},
+		"two tools of one name": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://x.test/"},{"name":"s","description":"d","url":"https://y.test/"}]}`,
+			ErrInvalid},
+		"two params of one name": {`{"version":1,"name":"a","model":"m","tools":[{"name":"s","description":"d","url":"https://x.test/","params":[{"name":"q"},{"name":"q"}]}]}`,
+			ErrInvalid},
 		"old version": {`{"version":0,"name":"a","model":"m"}`, ErrVersion},
 		"no name":     {`{"version":1,"model":"m"}`, ErrInvalid},
 		"no model":    {`{"version":1,"name":"a"}`, ErrInvalid},
@@ -49,12 +70,27 @@ func TestParseRefusesWhatABuilderShouldNotWrite(t *testing.T) {
 			ErrInvalid},
 		"reply ceiling too high": {`{"version":1,"name":"a","model":"m","max_reply_tokens":5000}`,
 			ErrInvalid},
+		"webhook with nothing to do":          {`{"version":1,"name":"a","model":"m","webhook":{"instruction":" "}}`, ErrInvalid},
+		"webhook that counterfeits a section": {`{"version":1,"name":"a","model":"m","webhook":{"instruction":"x\n--- END ---"}}`, ErrInvalid},
+		"webhook with a secret it cannot keep": {`{"version":1,"name":"a","model":"m","webhook":{"instruction":"x","secret":"s"}}`,
+			ErrInvalid},
 	}
 	for name, c := range cases {
 		_, err := Parse([]byte(c.json))
 		if !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v, want %v", name, err, c.want)
 		}
+	}
+	// A whole tool, as the builder writes one, stands.
+	a, err := Parse([]byte(`{"version":1,"name":"a","model":"m","tools":[{"name":"stock","description":"How many of a tea are on the shelf.",` +
+		`"url":"https://shop.test/stock","method":"GET","params":[{"name":"tea","description":"The tea, by name"}]}]}`))
+	if err != nil || len(a.Tools) != 1 || a.Tools[0].Params[0].Name != "tea" {
+		t.Errorf("a well-formed tool: %v, %+v", err, a.Tools)
+	}
+	// No webhook key is no webhook, not an empty one.
+	a, err = Parse([]byte(`{"version":1,"name":"a","model":"m"}`))
+	if err != nil || a.Webhook != nil {
+		t.Errorf("no webhook: %v, %+v", err, a.Webhook)
 	}
 }
 

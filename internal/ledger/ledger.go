@@ -376,6 +376,43 @@ func (l *Ledger) Mint(ctx context.Context, to string, amount Credits, memo, ref 
 	)
 }
 
+// MintOnce is Mint keyed by its ref: a second call with the same ref mints
+// nothing and reports it. It is for money that arrives by a channel that
+// retries — a payment webhook — where the ref is the payment, and the book
+// must show it once however many times it is announced. The check and the
+// mint share one transaction under the ledger's lock, so two announcements
+// at once cannot both pass the check.
+func (l *Ledger) MintOnce(ctx context.Context, to string, amount Credits, memo, ref string) (id string, minted bool, err error) {
+	if amount <= 0 {
+		return "", false, ErrNegativeAmt
+	}
+	if ref == "" {
+		return "", false, errors.New("mint once: a ref is required")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM txns WHERE kind = 'mint' AND ref = ?`, ref).Scan(&n); err != nil {
+		return "", false, fmt.Errorf("check ref: %w", err)
+	}
+	if n > 0 {
+		return "", false, nil
+	}
+	id, err = postTx(ctx, tx, "mint", memo, ref, Leg{AcctMint, -amount}, Leg{to, amount})
+	if err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, fmt.Errorf("commit: %w", err)
+	}
+	return id, true, nil
+}
+
 // Burn destroys credits. This is the sink that stands against continuous
 // minting; a burned credit can never re-enter circulation.
 func (l *Ledger) Burn(ctx context.Context, from string, amount Credits, memo, ref string) (string, error) {

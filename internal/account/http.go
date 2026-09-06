@@ -16,7 +16,7 @@ import (
 //
 //	POST /auth/request  {email}  → 202 {}         (the same answer for every address)
 //	POST /auth/verify   {token}  → 200 {session, expires, user}
-//	GET  /auth/me                → 200 {id, email, wallet, created, balance, waiting}
+//	GET  /auth/me                → 200 {id, email, wallet, created, balance, waiting, paid}
 //	POST /auth/signout           → 204
 //	POST /waitlist      {reason} → 201 {}         reasons: arena, model:<id>
 func (s *Store) Handler() http.Handler {
@@ -73,9 +73,14 @@ func (s *Store) Handler() http.Handler {
 			httpError(w, http.StatusInternalServerError, "could not read the waitlist")
 			return
 		}
+		paid, err := s.Paid(r.Context(), u.ID)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, "could not read the topups")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"id": u.ID, "email": u.Email, "wallet": u.Wallet, "created": u.Created,
-			"balance": bal, "waiting": waiting,
+			"balance": bal, "waiting": waiting, "paid": paid,
 		})
 	})
 	mux.HandleFunc("POST /auth/signout", func(w http.ResponseWriter, r *http.Request) {

@@ -260,14 +260,22 @@ build:
 clean:
 	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl
 
-## serve: the service — one built agent, from examples/agents, answering on
-## 127.0.0.1:8151. On the stub, zero API calls; set OPENROUTER_API_KEY and the
-## same command spends real money behind each user's $1 grant, keeping its
-## books (phylum-service.db, phylum-accounts.db) across restarts. Sign in —
-## offline the link lands in the log — then build, then talk:
+## serve: the service — the builder page and one built agent, from
+## examples/agents, on 127.0.0.1:8151. Open http://127.0.0.1:8151/ and sign
+## in — offline the link lands in the log — then describe an agent in the chat
+## pane, or edit its nodes, and save; every agent the page saves is kept
+## (phylum-agents.db) beside the books (phylum-service.db, phylum-accounts.db)
+## across restarts. On the stub, zero API calls; set OPENROUTER_API_KEY and
+## the same command spends real money behind each user's $1 grant, a draft
+## from the same grant as a reply. The same over curl:
 ##   curl -s localhost:8151/auth/request -d '{"email":"you@example.com"}'
 ##   curl -s localhost:8151/auth/verify -d '{"token":"<from the log>"}'
+##   curl -s localhost:8151/v1/draft -H 'Authorization: Bearer <session>' -d '{"spec":{"version":"phylum-agent/1"},"request":"a steward for a tea shop"}'
 ##   curl -s localhost:8151/v1/agents -H 'Authorization: Bearer <session>' -d @examples/agents/steward.json
 ##   curl -s localhost:8151/a/<id>/messages -d '{"text":"any jasmine tea?"}'
+##   curl -s localhost:8151/a/<id>/events -d '{"order":"two tins of jasmine"}'   # once the spec has a webhook
+## The page's endpoint line carries the widget snippet for any site, and the
+## Tools node calls the owner's own https endpoints. On your own machine,
+## -serve-insecure-tools lets a tool reach http and 127.0.0.1; never deploy it.
 serve:
 	$(GO) run ./cmd/phylumd -serve -agent examples/agents/steward.json

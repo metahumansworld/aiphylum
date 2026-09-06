@@ -35,9 +35,28 @@
 // so it is the one place with a rate limit: a token bucket per agent, sized
 // so a conversation feels unthrottled and a loop does not empty a dollar in
 // a minute. Conversations live in memory, capped per agent with the least
-// recently used forgotten first, and end with the process. A built agent has
-// no memory across conversations yet; that is a later addition, and so are
-// tools.
+// recently used forgotten first, and end with the process. Agents do not:
+// a Store keeps them, and a restart brings each one back under a fresh
+// proxy token, with its conversations gone. A built agent has no memory
+// across conversations yet; that is a later addition.
+//
+// A tool is the owner's own HTTP endpoint, described in the spec, and the
+// one thing an agent does besides ask the model. The model asks for it by
+// name in a reply; the service makes the request itself, with the guard in
+// egress.go on the address, and hands back what came out as the next thing
+// the model reads. One message may go round this a few times before the
+// model answers in words, and every round is a metered call like the first,
+// held and settled by the proxy one at a time — so a message with tools in
+// it may cost several holds from one bucket token, and the ceiling on
+// rounds is what bounds it.
+//
+// Draft is the other way of building. A person describes a change in plain
+// language, the current spec and the request go to the builder model, and a
+// revised spec comes back for the person to keep or not. It is a metered
+// call like any other, on the owner's own grant: the platform does not pay
+// for the thinking, and a dollar buys a fixed amount of it. It buys less
+// than it buys of replies — a draft may write the whole spec back, so its
+// ceiling, and the hold behind it, is many times a reply's.
 package service
 
 import (
@@ -51,6 +70,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,9 +83,18 @@ import (
 )
 
 var (
-	ErrNoAgent         = errors.New("service: no such agent")
-	ErrNoConversation  = errors.New("service: no such conversation")
+	ErrNoAgent        = errors.New("service: no such agent")
+	ErrNoConversation = errors.New("service: no such conversation")
+	// ErrNoWebhook is an event for an agent whose spec has no webhook. It
+	// answers as a 404, like an agent that is not there: the endpoint does
+	// not exist until the owner opens it.
+	ErrNoWebhook       = errors.New("service: agent has no webhook")
 	ErrModelNotOffered = errors.New("service: model is not offered")
+	// ErrModelLocked is a spec naming a model the catalogue shows behind a
+	// lock, from an owner who has not unlocked it. It answers as a 402: the
+	// lock opens with money. The builder, which knows whether the recharge
+	// is open, is the one to say how.
+	ErrModelLocked = errors.New("service: model is locked")
 	// ErrOutOfCredits is the proxy's 402, said the service's way. It is the
 	// one refusal a person talking to an agent will meet on purpose: the
 	// owner's grant is spent, and nothing more was charged.
@@ -81,6 +110,12 @@ var (
 	// ErrUnauthenticated is the control surface's 401: no session, or one
 	// that has ended.
 	ErrUnauthenticated = errors.New("service: not signed in")
+	// ErrBadDraft is the builder model's failure: it answered, and what it
+	// answered was not a spec this platform reads. The call was charged, as a
+	// wrong answer from any model is.
+	ErrBadDraft = errors.New("service: the builder's draft is not a valid spec")
+	// ErrNoBuilder is a Draft with no builder model configured.
+	ErrNoBuilder = errors.New("service: no builder model")
 )
 
 // RateLimitError carries the wait. errors.Is(err, ErrRateLimited) holds.
@@ -103,6 +138,14 @@ const DefaultHistory = 12
 // DefaultConversations is how many open conversations one agent keeps before
 // the least recently used is forgotten to make room.
 const DefaultConversations = 1000
+
+// DraftMaxTokens is the reply ceiling of a chat-to-spec call. A draft carries
+// the whole revised spec, and a spec at its limits is several thousand
+// tokens, so the ceiling is the spec's own ceiling. The proxy holds this
+// much before every draft: on the launch model that is a few cents, roughly
+// ten replies' worth, and a grant with less than that left is refused a
+// draft while it can still answer messages.
+const DraftMaxTokens = spec.MaxReplyTokensCeiling
 
 // Rate is the public endpoint's token bucket, per agent. Burst is how many
 // messages an agent answers back-to-back from a standing start; PerMinute is
@@ -135,11 +178,23 @@ type Config struct {
 	// Rate is the public endpoint's limit per agent; a zero Rate means
 	// DefaultRate.
 	Rate Rate
-	// Locked are the models the catalogue shows and does not offer. Naming
-	// one in a spec is refused like any model off the price table; the
-	// builder shows them with a lock, and the lock joins the waitlist.
-	Locked []string
-	Log    *slog.Logger
+	// Locked are the models the catalogue shows behind a lock. One that is
+	// on the price table may be named by an owner Unlocked says yes to and
+	// is refused with ErrModelLocked for anyone else; one that is not on the
+	// table is refused like any other, for everyone. Nil Unlocked keeps
+	// every lock shut: that is the launch, where the lock joins the waitlist.
+	Locked   []string
+	Unlocked func(ctx context.Context, ownerID string) (bool, error)
+	// Store keeps agents across restarts; nil keeps them in memory only.
+	Store Store
+	// BuilderModel is the model Draft calls, on the owner's wallet. It must
+	// be on the price table. Empty refuses drafts with ErrNoBuilder.
+	BuilderModel string
+	// InsecureTools lets a tool reach http and private addresses. For a
+	// developer's own machine and never for a deployment: with it set a
+	// stranger can make an agent call anything the platform can see.
+	InsecureTools bool
+	Log           *slog.Logger
 	// Now is the clock the rate limit and the conversation cap read; nil
 	// means time.Now.
 	Now func() time.Time
@@ -165,6 +220,22 @@ type Agent struct {
 	tokens float64
 	filled time.Time
 	convs  map[string]*conversation
+
+	// The standing event thread, kept apart from convs: it is never at the
+	// cap, never evicted for a person's conversation, and not an id Say
+	// will take, so a person cannot speak into what the owner's systems
+	// said. It ends with the spec, as the others do.
+	events   *conversation
+	eventsID string
+}
+
+// Draft is one chat-to-spec exchange: the revised spec, the builder's note
+// on what it changed, and what the call cost the owner.
+type Draft struct {
+	Spec    spec.Agent     `json:"spec"`
+	Note    string         `json:"note"`
+	Cost    ledger.Credits `json:"cost"`
+	Balance ledger.Credits `json:"balance"`
 }
 
 // Turn is one exchange: what the agent said, and what it cost.
@@ -175,9 +246,26 @@ type Turn struct {
 	Balance      ledger.Credits `json:"balance"`
 }
 
+// message is one turn as the model sees it. Content is a string in the
+// history a conversation keeps, and a list of blocks in the rounds a tool
+// call adds within one message: the model's reply with its tool_use blocks,
+// echoed back, and the results as tool_result blocks.
 type message struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+// block is one content block, either way: text or tool_use from the model,
+// tool_result to it.
+type block struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
 }
 
 // conversation is one thread with one agent. Its mutex serialises the calls
@@ -195,14 +283,22 @@ type Service struct {
 	cfg    Config
 	log    *slog.Logger
 	client *http.Client
+	egress *http.Client
 	now    func() time.Time
 
 	mu     sync.Mutex
 	agents map[string]*Agent
 	convs  map[string]*conversation
+	// builders are the per-owner proxy tokens drafts are charged on, made
+	// on first use. An agent's token spends the same wallet; a draft has no
+	// agent yet, so the owner gets a token of their own.
+	builders map[string]string
 }
 
-func New(cfg Config) *Service {
+// New assembles the service and brings back every agent in its Store, each
+// under a fresh proxy token. A stored agent is not re-validated: the limits
+// are for what is written, and what was written stands.
+func New(cfg Config) (*Service, error) {
 	if cfg.History <= 0 {
 		cfg.History = DefaultHistory
 	}
@@ -220,14 +316,94 @@ func New(cfg Config) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{
-		cfg:    cfg,
-		log:    log,
-		client: &http.Client{Transport: inProcess{cfg.Proxy}},
-		now:    now,
-		agents: map[string]*Agent{},
-		convs:  map[string]*conversation{},
+	s := &Service{
+		cfg:      cfg,
+		log:      log,
+		client:   &http.Client{Transport: inProcess{cfg.Proxy}},
+		egress:   egressClient(cfg.InsecureTools),
+		now:      now,
+		agents:   map[string]*Agent{},
+		convs:    map[string]*conversation{},
+		builders: map[string]string{},
 	}
+	if cfg.Store == nil {
+		return s, nil
+	}
+	records, err := cfg.Store.List(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("service: load agents: %w", err)
+	}
+	for _, r := range records {
+		if r.Spec.MaxReplyTokens == 0 {
+			r.Spec.MaxReplyTokens = spec.DefaultMaxReplyTokens
+		}
+		ag := s.run(r.ID, r.Owner, r.Wallet, r.Spec, r.Created)
+		s.agents[ag.ID] = ag
+		if _, ok := cfg.Proxy.Table.Lookup(r.Spec.Model); !ok {
+			log.Warn("agent's model is not offered; its messages will be refused", "agent", ag.ID, "model", r.Spec.Model)
+		}
+	}
+	log.Info("agents loaded", "count", len(records))
+	return s, nil
+}
+
+// run makes the in-memory agent for a spec — a token the proxy will honour
+// and a full bucket — and authorises it. Called for a new agent and for a
+// stored one alike; a revised agent is run again from its old token.
+func (s *Service) run(id, owner, wallet string, a spec.Agent, created time.Time) *Agent {
+	ag := &Agent{
+		ID: id, Owner: owner, Spec: a, Wallet: wallet, Created: created,
+		token: randomHex(32), tokens: float64(s.cfg.Rate.Burst), filled: s.now(),
+		convs: map[string]*conversation{},
+	}
+	s.cfg.Proxy.Authorize(ag.token, wallet)
+	return ag
+}
+
+// check is what Create and Update both ask of a spec: that it validates,
+// names a model on the table that its owner may use, and gives its tools
+// URLs the platform will call.
+func (s *Service) check(ctx context.Context, ownerID string, a *spec.Agent) error {
+	if a.MaxReplyTokens == 0 {
+		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
+	}
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
+		return fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
+	}
+	if slices.Contains(s.cfg.Locked, a.Model) {
+		unlocked := false
+		if s.cfg.Unlocked != nil {
+			var err error
+			if unlocked, err = s.cfg.Unlocked(ctx, ownerID); err != nil {
+				return fmt.Errorf("unlock check: %w", err)
+			}
+		}
+		if !unlocked {
+			return fmt.Errorf("%w: %s", ErrModelLocked, a.Model)
+		}
+	}
+	for _, t := range a.Tools {
+		if err := checkTool(t, s.cfg.InsecureTools); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// save writes an agent to the store, if there is one.
+func (s *Service) save(ctx context.Context, ag *Agent) error {
+	if s.cfg.Store == nil {
+		return nil
+	}
+	r := Record{ID: ag.ID, Owner: ag.Owner, Wallet: ag.Wallet, Spec: ag.Spec, Created: ag.Created}
+	if err := s.cfg.Store.Put(ctx, r); err != nil {
+		s.log.Error("store put failed", "agent", ag.ID, "err", err)
+		return errStore
+	}
+	return nil
 }
 
 // Create validates a spec and starts running it on its owner's wallet. The
@@ -238,32 +414,89 @@ func (s *Service) Create(ctx context.Context, owner Owner, a spec.Agent) (*Agent
 	if owner.ID == "" || owner.Wallet == "" {
 		return nil, errors.New("service: an agent needs an owner with a wallet")
 	}
-	if a.MaxReplyTokens == 0 {
-		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
-	}
-	if err := a.Validate(); err != nil {
+	if err := s.check(ctx, owner.ID, &a); err != nil {
 		return nil, err
-	}
-	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
-		return nil, fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
 	}
 	if _, err := s.cfg.Ledger.Get(ctx, owner.Wallet); err != nil {
 		return nil, fmt.Errorf("owner's wallet: %w", err)
 	}
 
-	now := s.now()
-	ag := &Agent{
-		ID: "a_" + randomHex(8), Owner: owner.ID, Spec: a, Wallet: owner.Wallet, Created: now,
-		token: randomHex(32), tokens: float64(s.cfg.Rate.Burst), filled: now,
-		convs: map[string]*conversation{},
+	ag := s.run("a_"+randomHex(8), owner.ID, owner.Wallet, a, s.now())
+	if err := s.save(ctx, ag); err != nil {
+		s.cfg.Proxy.Revoke(ag.token)
+		return nil, err
 	}
-	s.cfg.Proxy.Authorize(ag.token, owner.Wallet)
-
 	s.mu.Lock()
 	s.agents[ag.ID] = ag
 	s.mu.Unlock()
 	s.log.Info("agent created", "agent", ag.ID, "name", a.Name, "model", a.Model, "owner", owner.ID)
 	return ag, nil
+}
+
+// Update replaces an agent's spec, checked as a new one is. Its
+// conversations end with it: the history was with the agent it used to be.
+// The agent's token and its bucket carry over, so an edit is not a way to
+// refill the bucket, and a message in flight on the old spec finishes on
+// the old spec — the agent it was answering as is the one the caller heard.
+func (s *Service) Update(ctx context.Context, id string, a spec.Agent) (*Agent, error) {
+	// The owner is read before the check and the agent again after it: the
+	// check may go to the books, and the lock is not held across that.
+	s.mu.Lock()
+	old, ok := s.agents[id]
+	s.mu.Unlock()
+	if !ok {
+		return nil, ErrNoAgent
+	}
+	if err := s.check(ctx, old.Owner, &a); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if old, ok = s.agents[id]; !ok {
+		return nil, ErrNoAgent
+	}
+	// A new value rather than a write to the old one: pointers handed out
+	// by Get and AgentsOf are being encoded outside this lock, and they
+	// must go on reading the spec they were given.
+	ag := &Agent{
+		ID: old.ID, Owner: old.Owner, Spec: a, Wallet: old.Wallet, Created: old.Created,
+		token: old.token, tokens: old.tokens, filled: old.filled,
+		convs: map[string]*conversation{},
+	}
+	if err := s.save(ctx, ag); err != nil {
+		return nil, err
+	}
+	for cid := range old.convs {
+		delete(s.convs, cid)
+	}
+	s.agents[id] = ag
+	s.log.Info("agent updated", "agent", id, "name", a.Name, "model", a.Model)
+	return ag, nil
+}
+
+// Delete stops an agent: its token is revoked at the proxy, its
+// conversations are forgotten, and its endpoint answers 404 from now on. A
+// message in flight completes — the hold was taken — and is the last.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ag, ok := s.agents[id]
+	if !ok {
+		return ErrNoAgent
+	}
+	if s.cfg.Store != nil {
+		if err := s.cfg.Store.Delete(ctx, id); err != nil {
+			s.log.Error("store delete failed", "agent", id, "err", err)
+			return errStore
+		}
+	}
+	for cid := range ag.convs {
+		delete(s.convs, cid)
+	}
+	delete(s.agents, id)
+	s.cfg.Proxy.Revoke(ag.token)
+	s.log.Info("agent deleted", "agent", id, "name", ag.Spec.Name)
+	return nil
 }
 
 // Get returns a running agent.
@@ -291,9 +524,17 @@ func (s *Service) AgentsOf(owner string) []*Agent {
 	return out
 }
 
-// Models is the catalogue: what a spec may name, and what it may not yet.
+// Models is the catalogue: what any spec may name, and what is behind a
+// lock. A locked model is on the table once its price is known, and is
+// listed here as locked rather than offered all the same.
 func (s *Service) Models() (offered, locked []string) {
-	return s.cfg.Proxy.Table.Models(), append([]string(nil), s.cfg.Locked...)
+	offered = []string{}
+	for _, m := range s.cfg.Proxy.Table.Models() {
+		if !slices.Contains(s.cfg.Locked, m) {
+			offered = append(offered, m)
+		}
+	}
+	return offered, append([]string(nil), s.cfg.Locked...)
 }
 
 // take spends one token from the agent's bucket, or says how long until
@@ -347,13 +588,40 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	case len(text) > MaxMessageBytes:
 		return Turn{}, ErrMessageTooLong
 	}
+	return s.say(ctx, agentID, convID, text, false)
+}
 
+// Event delivers an inbound event to an agent whose spec has a webhook and
+// returns what the agent made of it. An event is a message the owner's
+// systems send instead of a person: it goes to the model exactly as sent,
+// on the agent's one standing event thread, so the agent sees an event
+// beside the ones before it. It is rate-limited on the same bucket and
+// costs the owner's wallet what a message does. The body is bounded like a
+// message; the instruction the thread runs under is bounded by the spec.
+func (s *Service) Event(ctx context.Context, agentID string, body []byte) (Turn, error) {
+	body = bytes.TrimSpace(body)
+	switch {
+	case len(body) == 0:
+		return Turn{}, ErrEmptyMessage
+	case len(body) > MaxMessageBytes:
+		return Turn{}, ErrMessageTooLong
+	}
+	return s.say(ctx, agentID, "", string(body), true)
+}
+
+// say is Say once its text has been checked. Called by Say and by Event;
+// an event runs on the agent's standing event thread under EventPrompt.
+func (s *Service) say(ctx context.Context, agentID, convID, text string, event bool) (Turn, error) {
 	now := s.now()
 	s.mu.Lock()
 	ag, ok := s.agents[agentID]
-	if !ok {
+	switch {
+	case !ok:
 		s.mu.Unlock()
 		return Turn{}, ErrNoAgent
+	case event && ag.Spec.Webhook == nil:
+		s.mu.Unlock()
+		return Turn{}, ErrNoWebhook
 	}
 	// The bucket is checked before anything else the message could touch:
 	// a flood of bad conversation ids is still a flood.
@@ -362,13 +630,27 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 		return Turn{}, &RateLimitError{RetryAfter: wait}
 	}
 	var conv *conversation
-	if convID == "" {
+	system := spec.Prompt(ag.Spec)
+	switch {
+	case event:
+		if ag.events == nil {
+			ag.eventsID, ag.events = "c_"+randomHex(16), &conversation{agent: ag.ID}
+		}
+		convID, conv, system = ag.eventsID, ag.events, spec.EventPrompt(ag.Spec)
+	case convID == "":
 		convID, conv = s.open(ag, now)
-	} else if conv, ok = s.convs[convID]; !ok || conv.agent != agentID {
-		s.mu.Unlock()
-		return Turn{}, ErrNoConversation
+	default:
+		if conv, ok = s.convs[convID]; !ok || conv.agent != agentID {
+			s.mu.Unlock()
+			return Turn{}, ErrNoConversation
+		}
 	}
 	conv.last = now
+	// What the call needs is copied out under the lock: an Update landing
+	// mid-call swaps the agent, and this message is answered by the agent
+	// it was sent to.
+	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: system, token: ag.token,
+		agent: ag.ID, tools: ag.Spec.Tools}
 	s.mu.Unlock()
 
 	// One call on a conversation at a time. A second message that arrives
@@ -376,7 +658,7 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	conv.mu.Lock()
 	defer conv.mu.Unlock()
 	history := append(append([]message(nil), conv.messages...), message{"user", text})
-	reply, cost, balance, err := s.complete(ctx, ag, history)
+	reply, cost, balance, err := s.converse(ctx, c, history)
 	if err != nil {
 		return Turn{}, err
 	}
@@ -387,66 +669,217 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	return Turn{Conversation: convID, Reply: reply, Cost: cost, Balance: balance}, nil
 }
 
+// Draft asks the builder model to revise a spec as a person described, and
+// charges the owner for it. The current spec may be incomplete — a new
+// agent has no name yet — and goes to the model as it is; the model's
+// answer is a draft until the service has pinned what the model may not
+// choose (the version, and the model the agent runs on) and found it valid.
+// The draft is returned, not kept: keeping it is a Create or an Update,
+// which check it again.
+func (s *Service) Draft(ctx context.Context, owner Owner, current spec.Agent, request string) (Draft, error) {
+	request = strings.TrimSpace(request)
+	switch {
+	case s.cfg.BuilderModel == "":
+		return Draft{}, ErrNoBuilder
+	case owner.ID == "" || owner.Wallet == "":
+		return Draft{}, ErrUnauthenticated
+	case request == "":
+		return Draft{}, ErrEmptyMessage
+	case len(request) > MaxMessageBytes:
+		return Draft{}, ErrMessageTooLong
+	}
+	c := call{model: s.cfg.BuilderModel, maxTokens: DraftMaxTokens, system: spec.BuilderPrompt(current), token: s.builder(owner)}
+	out, err := s.complete(ctx, c, []message{{"user", request}}, false)
+	if err != nil {
+		return Draft{}, err
+	}
+	reply, cost, balance := out.text, out.cost, out.balance
+	d, err := spec.ParseDraft(reply)
+	if err != nil {
+		s.log.Warn("builder reply was not a draft", "owner", owner.ID, "err", err, "reply", fmt.Sprintf("%.200s", reply))
+		return Draft{}, fmt.Errorf("%w: %v", ErrBadDraft, err)
+	}
+	d.Spec.Version = spec.Version
+	d.Spec.Model = current.Model
+	if d.Spec.Model == "" {
+		d.Spec.Model = s.cfg.BuilderModel
+	}
+	if d.Spec.MaxReplyTokens == 0 {
+		d.Spec.MaxReplyTokens = spec.DefaultMaxReplyTokens
+	}
+	if err := d.Spec.Validate(); err != nil {
+		return Draft{}, fmt.Errorf("%w: %v", ErrBadDraft, err)
+	}
+	return Draft{Spec: d.Spec, Note: d.Note, Cost: cost, Balance: balance}, nil
+}
+
+// builder is the owner's proxy token for drafts, made and authorised on
+// first use.
+func (s *Service) builder(owner Owner) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tok, ok := s.builders[owner.ID]
+	if !ok {
+		tok = randomHex(32)
+		s.cfg.Proxy.Authorize(tok, owner.Wallet)
+		s.builders[owner.ID] = tok
+	}
+	return tok
+}
+
+// call is one metered call's fixed part: the model and ceiling, the system
+// prompt, the token that pays, and for an agent's message, the agent and
+// the tools it may ask for.
+type call struct {
+	model     string
+	maxTokens int64
+	system    string
+	token     string
+	agent     string
+	tools     []spec.Tool
+}
+
+// completion is what one metered call came back with: the words, the whole
+// content as sent (to echo back if a tool was asked for), the tool_use
+// blocks in it, and what it cost.
+type completion struct {
+	text    string
+	content json.RawMessage
+	uses    []block
+	cost    ledger.Credits
+	balance ledger.Credits
+}
+
+// converse answers one message: a call, and if the model asked for tools,
+// their results and another call, up to MaxToolRounds times. On the last
+// round the model is told it may not ask again, so the message ends in
+// words. Costs add up across rounds; the balance is the last one seen. A
+// round that is refused ends the message with nothing said, though the
+// rounds before it were charged — the proxy recorded each.
+func (s *Service) converse(ctx context.Context, c call, msgs []message) (string, ledger.Credits, ledger.Credits, error) {
+	ctx, cancel := context.WithTimeout(ctx, MessageDeadline)
+	defer cancel()
+	var total ledger.Credits
+	for round := 0; ; round++ {
+		last := round >= MaxToolRounds
+		out, err := s.complete(ctx, c, msgs, last)
+		if err != nil {
+			return "", total, 0, err
+		}
+		total += out.cost
+		if len(out.uses) == 0 || last {
+			reply := out.text
+			if reply == "" {
+				// A model that stops with nothing to say would leave an
+				// empty turn in the history, which the next call refuses.
+				reply = "…"
+			}
+			return reply, total, out.balance, nil
+		}
+		results := make([]block, 0, len(out.uses))
+		for _, u := range out.uses {
+			var tool spec.Tool
+			for _, t := range c.tools {
+				if t.Name == u.Name {
+					tool = t
+				}
+			}
+			text, failed := "there is no tool called "+u.Name, true
+			if tool.Name != "" {
+				text, failed = s.callTool(ctx, c.agent, tool, u.Input)
+			}
+			results = append(results, block{Type: "tool_result", ToolUseID: u.ID, Content: text, IsError: failed})
+		}
+		msgs = append(msgs, message{"assistant", out.content}, message{"user", results})
+	}
+}
+
 // complete makes the one metered call. It is the Python SDK's Model.complete
 // in Go: the same body, the same bearer token, the same three refusals read
-// off the same status codes.
-func (s *Service) complete(ctx context.Context, ag *Agent, history []message) (string, ledger.Credits, ledger.Credits, error) {
-	body, err := json.Marshal(map[string]any{
-		"model":      ag.Spec.Model,
-		"max_tokens": ag.Spec.MaxReplyTokens,
-		"system":     spec.Prompt(ag.Spec),
+// off the same status codes. With tools on the call they go along in the
+// provider's shape, every parameter a string; noTools keeps them defined
+// (the history may refer to them) but tells the model not to ask.
+func (s *Service) complete(ctx context.Context, c call, history []message, noTools bool) (completion, error) {
+	payload := map[string]any{
+		"model":      c.model,
+		"max_tokens": c.maxTokens,
+		"system":     c.system,
 		"messages":   history,
-	})
+	}
+	if len(c.tools) > 0 {
+		tools := make([]map[string]any, 0, len(c.tools))
+		for _, t := range c.tools {
+			props := map[string]any{}
+			for _, p := range t.Params {
+				props[p.Name] = map[string]any{"type": "string", "description": p.Description}
+			}
+			tools = append(tools, map[string]any{
+				"name": t.Name, "description": t.Description,
+				"input_schema": map[string]any{"type": "object", "properties": props},
+			})
+		}
+		payload["tools"] = tools
+		if noTools {
+			payload["tool_choice"] = map[string]any{"type": "none"}
+		}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", 0, 0, err
+		return completion{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://proxy/v1/messages", bytes.NewReader(body))
 	if err != nil {
-		return "", 0, 0, err
+		return completion{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+ag.token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("proxy: %w", err)
+		return completion{}, fmt.Errorf("proxy: %w", err)
 	}
 	defer resp.Body.Close()
 	out, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("read proxy response: %w", err)
+		return completion{}, fmt.Errorf("read proxy response: %w", err)
 	}
 
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusPaymentRequired:
-		return "", 0, 0, ErrOutOfCredits
+		return completion{}, ErrOutOfCredits
 	case http.StatusBadGateway:
-		return "", 0, 0, ErrProviderDown
+		return completion{}, ErrProviderDown
 	case http.StatusForbidden:
-		return "", 0, 0, ErrModelNotOffered
+		return completion{}, ErrModelNotOffered
 	default:
-		return "", 0, 0, fmt.Errorf("proxy returned %d: %.200s", resp.StatusCode, out)
+		return completion{}, fmt.Errorf("proxy returned %d: %.200s", resp.StatusCode, out)
 	}
 
 	var parsed struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
+		Content json.RawMessage `json:"content"`
 	}
+	var blocks []block
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		return "", 0, 0, fmt.Errorf("model response: %w", err)
+		return completion{}, fmt.Errorf("model response: %w", err)
+	}
+	if err := json.Unmarshal(parsed.Content, &blocks); err != nil {
+		return completion{}, fmt.Errorf("model response content: %w", err)
 	}
 	var reply strings.Builder
-	for _, c := range parsed.Content {
-		if c.Type == "text" {
-			reply.WriteString(c.Text)
+	var uses []block
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			reply.WriteString(b.Text)
+		case "tool_use":
+			uses = append(uses, b)
 		}
 	}
 	cost, _ := strconv.ParseInt(resp.Header.Get("X-Phylum-Cost"), 10, 64)
 	balance, _ := strconv.ParseInt(resp.Header.Get("X-Phylum-Balance"), 10, 64)
-	return strings.TrimSpace(reply.String()), ledger.Credits(cost), ledger.Credits(balance), nil
+	return completion{text: strings.TrimSpace(reply.String()), content: parsed.Content, uses: uses,
+		cost: ledger.Credits(cost), balance: ledger.Credits(balance)}, nil
 }
 
 // inProcess dispatches a request straight to a handler: the proxy's HTTP

@@ -1,0 +1,52 @@
+{
+  "data": [
+    {
+      "id": "anthropic/claude-opus-5",
+      "name": "Claude Opus 5",
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025"
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "name": "Anthropic: Claude Sonnet 5",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001"
+      }
+    },
+    {
+      "id": "anthropic/claude-haiku-4.5",
+      "name": "Anthropic: Claude Haiku 4.5",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000005"
+      }
+    },
+    {
+      "id": "openai/gpt-5",
+      "name": "OpenAI: GPT-5",
+      "pricing": {
+        "prompt": "0.00000125",
+        "completion": "0.00001"
+      }
+    },
+    {
+      "id": "google/gemini-2.5-pro",
+      "name": "Google: Gemini 2.5 Pro",
+      "pricing": {
+        "prompt": "0.00000125",
+        "completion": "0.00001"
+      }
+    },
+    {
+      "id": "openrouter/auto",
+      "name": "Auto Router",
+      "pricing": {
+        "prompt": "-1",
+        "completion": "-1"
+      }
+    }
+  ]
+}
