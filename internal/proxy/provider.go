@@ -142,6 +142,8 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 		if err := json.Unmarshal(req.Messages[len(req.Messages)-1].Content, &content); err == nil {
 			if answered, ok := stubService(req.System, content); ok {
 				text = answered
+			} else if drafted, ok := stubBuilder(req.System, content); ok {
+				text = drafted
 			} else if graded, ok := stubGrade(content); ok {
 				text = graded
 			} else if said, ok := stubMind(content); ok {
@@ -195,6 +197,22 @@ func stubMind(content string) (string, bool) {
 		return "", false
 	}
 	return mind.Answer(content), true
+}
+
+// stubBuilder answers a chat-to-spec call, or reports that this was not
+// one. Like stubService it reads the system prompt, where the spec being
+// revised is. The draft it writes is a real function of the request — see
+// spec.Revise — and always one the service accepts, so the builder can be
+// exercised end to end with no model behind it.
+func stubBuilder(system json.RawMessage, request string) (string, bool) {
+	var s string
+	if len(system) == 0 || json.Unmarshal(system, &s) != nil {
+		return "", false
+	}
+	if !strings.HasPrefix(strings.TrimSpace(s), spec.BuilderMarker) {
+		return "", false
+	}
+	return spec.Revise(s, request), true
 }
 
 // stubService answers a built agent replying to a message, or reports that

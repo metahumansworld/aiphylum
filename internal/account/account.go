@@ -44,16 +44,17 @@ type Mailer interface {
 	Send(ctx context.Context, to, token string) error
 }
 
-// LogMailer is the offline mailer: it writes the token to the log, where an
-// operator at the terminal can copy it into a verify call. Addr is the
-// service's listen address, for the hint.
+// LogMailer is the offline mailer: it writes the token to the log, as the
+// link the builder page opens with and as a verify call for the terminal.
+// Addr is the service's listen address, for both.
 type LogMailer struct {
 	Log  *slog.Logger
 	Addr string
 }
 
 func (m LogMailer) Send(_ context.Context, to, token string) error {
-	m.Log.Info("sign-in link (log mailer: nothing was sent)", "to", to, "token", token,
+	m.Log.Info("sign-in link (log mailer: nothing was sent)", "to", to,
+		"open", "http://"+m.Addr+"/?token="+token,
 		"verify", `curl -s `+m.Addr+`/auth/verify -d '{"token":"`+token+`"}'`)
 	return nil
 }

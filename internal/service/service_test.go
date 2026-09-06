@@ -62,7 +62,10 @@ func newService(t *testing.T, prov proxy.Provider, grant ledger.Credits) (*Servi
 	rec := &memRecorder{}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	p := proxy.New(l, table, prov, rec, quiet)
-	s := New(Config{Proxy: p, Ledger: l, Log: quiet, Locked: []string{"anthropic/claude-opus-5"}})
+	s, err := New(Config{Proxy: p, Ledger: l, Log: quiet, Locked: []string{"anthropic/claude-opus-5"}, BuilderModel: "stub-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return s, l, rec, fund(t, l, "ada", grant)
 }
 

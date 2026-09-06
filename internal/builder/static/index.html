@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>soscitea · builder</title>
+<link rel="stylesheet" href="/static/builder.css">
+</head>
+<body>
+<header class="top">
+  <a class="mark" href="/">soscitea</a>
+  <div class="who" id="who" hidden>
+    <span id="balance"></span>
+    <span class="sep">·</span>
+    <span id="email"></span>
+    <button class="quiet" id="signout" type="button">Sign out</button>
+  </div>
+</header>
+
+<main id="signin" class="signin" hidden>
+  <h1>Build an agent by describing it.</h1>
+  <p>Sign in with your email and we send a link. There is a dollar of model time waiting for you: enough to shape an agent and talk to it a few hundred times.</p>
+  <form id="signin-form">
+    <label for="signin-email">Email</label>
+    <div class="row">
+      <input id="signin-email" type="email" autocomplete="email" required placeholder="you@example.com">
+      <button class="primary" type="submit">Send me a link</button>
+    </div>
+  </form>
+  <p class="status" id="signin-status" aria-live="polite"></p>
+</main>
+
+<main id="app" class="app" hidden>
+  <aside class="pane agents">
+    <div class="pane-head">
+      <h2>Your agents</h2>
+      <button class="quiet" id="new-agent" type="button">New</button>
+    </div>
+    <ul id="agent-list" class="agent-list"></ul>
+    <p class="hint" id="agents-empty" hidden>Nothing yet. Describe one on the right, or fill in the nodes.</p>
+  </aside>
+
+  <section class="canvas-wrap">
+    <div class="canvas-bar">
+      <span id="canvas-title" class="canvas-title">New agent</span>
+      <span id="dirty" class="dirty" hidden>unsaved</span>
+      <span class="grow"></span>
+      <button class="quiet" id="delete" type="button" hidden>Delete</button>
+      <button class="primary" id="save" type="button">Save</button>
+    </div>
+    <div class="canvas" id="canvas">
+      <svg class="edges" id="edges" aria-hidden="true"></svg>
+    </div>
+    <p class="endpoint" id="endpoint" hidden></p>
+  </section>
+
+  <aside class="pane side">
+    <section class="chat">
+      <div class="pane-head"><h2>Talk it into shape</h2></div>
+      <p class="hint">Say what the agent should be, or what to change. Each draft is a call on your grant and lands on the canvas for you to keep or undo.</p>
+      <ol id="chat-log" class="chat-log"></ol>
+      <form id="chat-form" class="chat-form">
+        <textarea id="chat-input" rows="3" placeholder="A steward for a small tea shop, who never quotes a price"></textarea>
+        <div class="row end">
+          <button class="quiet" id="undo" type="button" hidden>Undo last draft</button>
+          <button class="primary" type="submit" id="draft">Draft</button>
+        </div>
+      </form>
+    </section>
+    <section class="try" id="try" hidden>
+      <div class="pane-head"><h2>Try it</h2><button class="quiet" id="try-reset" type="button">New conversation</button></div>
+      <ol id="try-log" class="chat-log"></ol>
+      <form id="try-form" class="chat-form">
+        <input id="try-input" type="text" placeholder="Say something to it" autocomplete="off">
+        <button class="primary" type="submit">Send</button>
+      </form>
+      <p class="hint" id="try-status" aria-live="polite"></p>
+    </section>
+  </aside>
+</main>
+
+<p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+<script src="/static/builder.js"></script>
+</body>
+</html>

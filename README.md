@@ -1304,6 +1304,7 @@ for the things you type or read at runtime (`phylumd`, `phylumctl`, the
 | `internal/spec` | the agent spec: the one document a built agent is, and its wire format |
 | `internal/service` | the service runtime: built agents answering over HTTP, metered by the proxy |
 | `internal/account` | who is signed in and what they have to spend: magic-link sessions, one wallet per user minted with the grant, the waitlist |
+| `internal/builder` | the builder page: nodes for the spec, a chat that drafts it on the builder's grant, and a try-it pane on the agent's own endpoint |
 | `web` | the spectator surface, rendered from a trace file alone |
 | `generators/` | task generators (`arith`, `oracle`, `brief`), the reference agents, and importable suites |
 | `sdk/python` | the Python agent SDK |

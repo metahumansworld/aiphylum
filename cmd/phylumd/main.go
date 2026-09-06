@@ -195,7 +195,8 @@ type options struct {
 	// they answer; grant is each new user's whole bankroll; serveModel is the
 	// one real model on the price table, with its price; serveLocked are the
 	// models the catalogue shows behind a lock. accountsPath is the users'
-	// database, chosen next to the ledger.
+	// database and agentsPath the built agents', both chosen next to the
+	// ledger.
 	serve        bool
 	agents       []string
 	serveListen  string
@@ -203,6 +204,7 @@ type options struct {
 	serveModel   string
 	serveLocked  string
 	accountsPath string
+	agentsPath   string
 }
 
 const (
@@ -228,6 +230,7 @@ const (
 	// so with a key set the ledger goes to a file, and the users next to it.
 	serviceDB       = "phylum-service.db"
 	serviceAccounts = "phylum-accounts.db"
+	serviceAgents   = "phylum-agents.db"
 )
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
@@ -409,6 +412,7 @@ func serveBooks(ctx context.Context, log *slog.Logger, opt options) error {
 		}
 	}
 	opt.accountsPath = filepath.Join(filepath.Dir(dbPath), serviceAccounts)
+	opt.agentsPath = filepath.Join(filepath.Dir(dbPath), serviceAgents)
 
 	l, err := ledger.Open(dbPath)
 	if err != nil {

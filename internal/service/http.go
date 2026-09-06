@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,15 +17,21 @@ import (
 // the authenticator's own failure and answers as one.
 type Authenticator func(*http.Request) (Owner, error)
 
-// Control is the builder's surface: a signed-in person creates agents and
-// sees their own. Every route but the catalogue needs a session, and an
-// agent that is not the caller's is not there, which is a 404 and not a 403:
-// the surface does not confirm what it does not show.
+// Control is the builder's surface: a signed-in person creates agents,
+// edits and deletes their own, and asks the builder model for drafts. Every
+// route but the catalogue needs a session, and an agent that is not the
+// caller's is not there, which is a 404 and not a 403: the surface does not
+// confirm what it does not show.
 //
-//	GET  /v1/models                              → 200 {offered: [...], locked: [...]}
-//	POST /v1/agents        body: a spec          → 201 {id, owner, spec, wallet, created}
-//	GET  /v1/agents                              → 200 {agents: [...]}   the caller's
-//	GET  /v1/agents/{id}                         → 200 {id, owner, spec, wallet, created}
+//	GET    /v1/models                            → 200 {offered: [...], locked: [...]}
+//	POST   /v1/agents      body: a spec          → 201 {id, owner, spec, wallet, created}
+//	GET    /v1/agents                            → 200 {agents: [...]}   the caller's
+//	GET    /v1/agents/{id}                       → 200 {id, owner, spec, wallet, created}
+//	PUT    /v1/agents/{id} body: a spec          → 200 the agent, revised; its conversations end
+//	DELETE /v1/agents/{id}                       → 204
+//	POST   /v1/draft       {spec, request}       → 200 {spec, note, cost, balance}
+//	                                             → 402 when the grant cannot hold a draft
+//	                                             → 502 when the builder answered with no spec
 //	                                             → 401 without a session
 func (s *Service) Control(auth Authenticator) http.Handler {
 	mux := http.NewServeMux()
@@ -76,6 +83,81 @@ func (s *Service) Control(auth Authenticator) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, ag)
+	})
+	mux.HandleFunc("PUT /v1/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
+		if ag, ok := s.Get(r.PathValue("id")); !ok || ag.Owner != owner.ID {
+			httpError(w, http.StatusNotFound, ErrNoAgent.Error())
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "unreadable body")
+			return
+		}
+		a, err := spec.Parse(body)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		ag, err := s.Update(r.Context(), r.PathValue("id"), a)
+		if err != nil {
+			status := statusFor(err)
+			if errors.Is(err, ErrModelNotOffered) {
+				status = http.StatusBadRequest // as at creation: the caller's spec, not the proxy's refusal
+			}
+			httpError(w, status, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, ag)
+	})
+	mux.HandleFunc("DELETE /v1/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
+		if ag, ok := s.Get(r.PathValue("id")); !ok || ag.Owner != owner.ID {
+			httpError(w, http.StatusNotFound, ErrNoAgent.Error())
+			return
+		}
+		if err := s.Delete(r.Context(), r.PathValue("id")); err != nil {
+			httpError(w, statusFor(err), err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/draft", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
+		// The spec here is the one being edited, and it may be unfinished;
+		// it is read strictly and not validated. The draft that comes back
+		// is validated, and keeping it is a Create or an Update.
+		var in struct {
+			Spec    spec.Agent `json:"spec"`
+			Request string     `json:"request"`
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "unreadable body")
+			return
+		}
+		dec := json.NewDecoder(bytes.NewReader(body))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&in); err != nil {
+			httpError(w, http.StatusBadRequest, "body must be JSON with spec and request: "+err.Error())
+			return
+		}
+		d, err := s.Draft(r.Context(), owner, in.Spec, in.Request)
+		if err != nil {
+			httpError(w, statusFor(err), err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, d)
 	})
 	return mux
 }
@@ -149,14 +231,16 @@ func statusFor(err error) int {
 	switch {
 	case errors.Is(err, ErrNoAgent), errors.Is(err, ErrNoConversation):
 		return http.StatusNotFound
-	case errors.Is(err, ErrEmptyMessage), errors.Is(err, ErrMessageTooLong):
+	case errors.Is(err, ErrEmptyMessage), errors.Is(err, ErrMessageTooLong), errors.Is(err, spec.ErrInvalid):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrOutOfCredits):
 		return http.StatusPaymentRequired
 	case errors.Is(err, ErrRateLimited):
 		return http.StatusTooManyRequests
-	case errors.Is(err, ErrProviderDown):
+	case errors.Is(err, ErrProviderDown), errors.Is(err, ErrBadDraft):
 		return http.StatusBadGateway
+	case errors.Is(err, ErrNoBuilder):
+		return http.StatusServiceUnavailable
 	case errors.Is(err, ErrModelNotOffered):
 		return http.StatusForbidden
 	case errors.Is(err, ErrUnauthenticated):

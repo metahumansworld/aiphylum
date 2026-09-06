@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/metahumansworld/aiphylum/internal/account"
+	"github.com/metahumansworld/aiphylum/internal/builder"
 	"github.com/metahumansworld/aiphylum/internal/ledger"
 	"github.com/metahumansworld/aiphylum/internal/proxy"
 	"github.com/metahumansworld/aiphylum/internal/service"
@@ -32,7 +33,9 @@ var operator = service.Owner{ID: "operator", Wallet: "usr:operator"}
 
 // runServe runs built agents: the proxy in front of one provider, the service
 // in front of the proxy, the account store in front of the service's control
-// surface, and one HTTP listener carrying all of it. The price table decides
+// surface, the builder page in front of a person, and one HTTP listener
+// carrying all of it. The one real model is also the builder's: a draft is
+// a call on it like a reply is, from the same grant. The price table decides
 // what the agents may call. With no key it holds the stub's model beside the
 // real one, so a spec naming the real model runs offline unchanged — the stub
 // answers under whatever name it is asked for, and the accounting is the same
@@ -58,7 +61,15 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	}
 	p := proxy.New(l, table, prov, tw, log)
 	locked := splitList(opt.serveLocked)
-	svc := service.New(service.Config{Proxy: p, Ledger: l, Log: log, Locked: locked})
+	store, err := service.OpenStore(opt.agentsPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	svc, err := service.New(service.Config{Proxy: p, Ledger: l, Log: log, Locked: locked, Store: store, BuilderModel: model})
+	if err != nil {
+		return err
+	}
 
 	// The mailer is the one launch dependency not chosen yet; until it is,
 	// the link goes to the log, and the operator at the terminal is the mail.
@@ -75,8 +86,16 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	}
 	defer accounts.Close()
 
+	// The operator's agents come from files, and the files are the truth:
+	// what a previous boot stored for the operator is dropped and made again
+	// from the same files, so -agent is idempotent across restarts.
 	if len(opt.agents) > 0 {
 		if err := fundOperator(ctx, l, ledger.Credits(opt.grant)); err != nil {
+			return err
+		}
+	}
+	for _, ag := range svc.AgentsOf(operator.ID) {
+		if err := svc.Delete(ctx, ag.ID); err != nil {
 			return err
 		}
 	}
@@ -115,6 +134,7 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	mux.Handle("/waitlist", accounts.Handler())
 	mux.Handle("/v1/", svc.Control(auth))
 	mux.Handle("/a/", svc.Public())
+	mux.Handle("/", builder.Handler())
 	srv := &http.Server{Addr: opt.serveListen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -122,7 +142,7 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 		defer cancel()
 		srv.Shutdown(shutdownCtx)
 	}()
-	log.Info("service listening", "addr", opt.serveListen, "sign-in", "/auth/request", "control", "/v1/agents", "public", "/a/{id}")
+	log.Info("service listening", "addr", opt.serveListen, "builder", "http://"+opt.serveListen+"/", "control", "/v1/agents", "public", "/a/{id}")
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

@@ -35,9 +35,18 @@
 // so it is the one place with a rate limit: a token bucket per agent, sized
 // so a conversation feels unthrottled and a loop does not empty a dollar in
 // a minute. Conversations live in memory, capped per agent with the least
-// recently used forgotten first, and end with the process. A built agent has
-// no memory across conversations yet; that is a later addition, and so are
-// tools.
+// recently used forgotten first, and end with the process. Agents do not:
+// a Store keeps them, and a restart brings each one back under a fresh
+// proxy token, with its conversations gone. A built agent has no memory
+// across conversations yet; that is a later addition, and so are tools.
+//
+// Draft is the other way of building. A person describes a change in plain
+// language, the current spec and the request go to the builder model, and a
+// revised spec comes back for the person to keep or not. It is a metered
+// call like any other, on the owner's own grant: the platform does not pay
+// for the thinking, and a dollar buys a fixed amount of it. It buys less
+// than it buys of replies — a draft may write the whole spec back, so its
+// ceiling, and the hold behind it, is many times a reply's.
 package service
 
 import (
@@ -81,6 +90,12 @@ var (
 	// ErrUnauthenticated is the control surface's 401: no session, or one
 	// that has ended.
 	ErrUnauthenticated = errors.New("service: not signed in")
+	// ErrBadDraft is the builder model's failure: it answered, and what it
+	// answered was not a spec this platform reads. The call was charged, as a
+	// wrong answer from any model is.
+	ErrBadDraft = errors.New("service: the builder's draft is not a valid spec")
+	// ErrNoBuilder is a Draft with no builder model configured.
+	ErrNoBuilder = errors.New("service: no builder model")
 )
 
 // RateLimitError carries the wait. errors.Is(err, ErrRateLimited) holds.
@@ -103,6 +118,14 @@ const DefaultHistory = 12
 // DefaultConversations is how many open conversations one agent keeps before
 // the least recently used is forgotten to make room.
 const DefaultConversations = 1000
+
+// DraftMaxTokens is the reply ceiling of a chat-to-spec call. A draft carries
+// the whole revised spec, and a spec at its limits is several thousand
+// tokens, so the ceiling is the spec's own ceiling. The proxy holds this
+// much before every draft: on the launch model that is a few cents, roughly
+// ten replies' worth, and a grant with less than that left is refused a
+// draft while it can still answer messages.
+const DraftMaxTokens = spec.MaxReplyTokensCeiling
 
 // Rate is the public endpoint's token bucket, per agent. Burst is how many
 // messages an agent answers back-to-back from a standing start; PerMinute is
@@ -139,7 +162,12 @@ type Config struct {
 	// one in a spec is refused like any model off the price table; the
 	// builder shows them with a lock, and the lock joins the waitlist.
 	Locked []string
-	Log    *slog.Logger
+	// Store keeps agents across restarts; nil keeps them in memory only.
+	Store Store
+	// BuilderModel is the model Draft calls, on the owner's wallet. It must
+	// be on the price table. Empty refuses drafts with ErrNoBuilder.
+	BuilderModel string
+	Log          *slog.Logger
 	// Now is the clock the rate limit and the conversation cap read; nil
 	// means time.Now.
 	Now func() time.Time
@@ -165,6 +193,15 @@ type Agent struct {
 	tokens float64
 	filled time.Time
 	convs  map[string]*conversation
+}
+
+// Draft is one chat-to-spec exchange: the revised spec, the builder's note
+// on what it changed, and what the call cost the owner.
+type Draft struct {
+	Spec    spec.Agent     `json:"spec"`
+	Note    string         `json:"note"`
+	Cost    ledger.Credits `json:"cost"`
+	Balance ledger.Credits `json:"balance"`
 }
 
 // Turn is one exchange: what the agent said, and what it cost.
@@ -200,9 +237,16 @@ type Service struct {
 	mu     sync.Mutex
 	agents map[string]*Agent
 	convs  map[string]*conversation
+	// builders are the per-owner proxy tokens drafts are charged on, made
+	// on first use. An agent's token spends the same wallet; a draft has no
+	// agent yet, so the owner gets a token of their own.
+	builders map[string]string
 }
 
-func New(cfg Config) *Service {
+// New assembles the service and brings back every agent in its Store, each
+// under a fresh proxy token. A stored agent is not re-validated: the limits
+// are for what is written, and what was written stands.
+func New(cfg Config) (*Service, error) {
 	if cfg.History <= 0 {
 		cfg.History = DefaultHistory
 	}
@@ -220,14 +264,75 @@ func New(cfg Config) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{
-		cfg:    cfg,
-		log:    log,
-		client: &http.Client{Transport: inProcess{cfg.Proxy}},
-		now:    now,
-		agents: map[string]*Agent{},
-		convs:  map[string]*conversation{},
+	s := &Service{
+		cfg:      cfg,
+		log:      log,
+		client:   &http.Client{Transport: inProcess{cfg.Proxy}},
+		now:      now,
+		agents:   map[string]*Agent{},
+		convs:    map[string]*conversation{},
+		builders: map[string]string{},
 	}
+	if cfg.Store == nil {
+		return s, nil
+	}
+	records, err := cfg.Store.List(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("service: load agents: %w", err)
+	}
+	for _, r := range records {
+		if r.Spec.MaxReplyTokens == 0 {
+			r.Spec.MaxReplyTokens = spec.DefaultMaxReplyTokens
+		}
+		ag := s.run(r.ID, r.Owner, r.Wallet, r.Spec, r.Created)
+		s.agents[ag.ID] = ag
+		if _, ok := cfg.Proxy.Table.Lookup(r.Spec.Model); !ok {
+			log.Warn("agent's model is not offered; its messages will be refused", "agent", ag.ID, "model", r.Spec.Model)
+		}
+	}
+	log.Info("agents loaded", "count", len(records))
+	return s, nil
+}
+
+// run makes the in-memory agent for a spec — a token the proxy will honour
+// and a full bucket — and authorises it. Called for a new agent and for a
+// stored one alike; a revised agent is run again from its old token.
+func (s *Service) run(id, owner, wallet string, a spec.Agent, created time.Time) *Agent {
+	ag := &Agent{
+		ID: id, Owner: owner, Spec: a, Wallet: wallet, Created: created,
+		token: randomHex(32), tokens: float64(s.cfg.Rate.Burst), filled: s.now(),
+		convs: map[string]*conversation{},
+	}
+	s.cfg.Proxy.Authorize(ag.token, wallet)
+	return ag
+}
+
+// check is what Create and Update both ask of a spec: that it validates and
+// names a model on the table.
+func (s *Service) check(a *spec.Agent) error {
+	if a.MaxReplyTokens == 0 {
+		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
+	}
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
+		return fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
+	}
+	return nil
+}
+
+// save writes an agent to the store, if there is one.
+func (s *Service) save(ctx context.Context, ag *Agent) error {
+	if s.cfg.Store == nil {
+		return nil
+	}
+	r := Record{ID: ag.ID, Owner: ag.Owner, Wallet: ag.Wallet, Spec: ag.Spec, Created: ag.Created}
+	if err := s.cfg.Store.Put(ctx, r); err != nil {
+		s.log.Error("store put failed", "agent", ag.ID, "err", err)
+		return errStore
+	}
+	return nil
 }
 
 // Create validates a spec and starts running it on its owner's wallet. The
@@ -238,32 +343,82 @@ func (s *Service) Create(ctx context.Context, owner Owner, a spec.Agent) (*Agent
 	if owner.ID == "" || owner.Wallet == "" {
 		return nil, errors.New("service: an agent needs an owner with a wallet")
 	}
-	if a.MaxReplyTokens == 0 {
-		a.MaxReplyTokens = spec.DefaultMaxReplyTokens
-	}
-	if err := a.Validate(); err != nil {
+	if err := s.check(&a); err != nil {
 		return nil, err
-	}
-	if _, ok := s.cfg.Proxy.Table.Lookup(a.Model); !ok {
-		return nil, fmt.Errorf("%w: %s", ErrModelNotOffered, a.Model)
 	}
 	if _, err := s.cfg.Ledger.Get(ctx, owner.Wallet); err != nil {
 		return nil, fmt.Errorf("owner's wallet: %w", err)
 	}
 
-	now := s.now()
-	ag := &Agent{
-		ID: "a_" + randomHex(8), Owner: owner.ID, Spec: a, Wallet: owner.Wallet, Created: now,
-		token: randomHex(32), tokens: float64(s.cfg.Rate.Burst), filled: now,
-		convs: map[string]*conversation{},
+	ag := s.run("a_"+randomHex(8), owner.ID, owner.Wallet, a, s.now())
+	if err := s.save(ctx, ag); err != nil {
+		s.cfg.Proxy.Revoke(ag.token)
+		return nil, err
 	}
-	s.cfg.Proxy.Authorize(ag.token, owner.Wallet)
-
 	s.mu.Lock()
 	s.agents[ag.ID] = ag
 	s.mu.Unlock()
 	s.log.Info("agent created", "agent", ag.ID, "name", a.Name, "model", a.Model, "owner", owner.ID)
 	return ag, nil
+}
+
+// Update replaces an agent's spec, checked as a new one is. Its
+// conversations end with it: the history was with the agent it used to be.
+// The agent's token and its bucket carry over, so an edit is not a way to
+// refill the bucket, and a message in flight on the old spec finishes on
+// the old spec — the agent it was answering as is the one the caller heard.
+func (s *Service) Update(ctx context.Context, id string, a spec.Agent) (*Agent, error) {
+	if err := s.check(&a); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, ok := s.agents[id]
+	if !ok {
+		return nil, ErrNoAgent
+	}
+	// A new value rather than a write to the old one: pointers handed out
+	// by Get and AgentsOf are being encoded outside this lock, and they
+	// must go on reading the spec they were given.
+	ag := &Agent{
+		ID: old.ID, Owner: old.Owner, Spec: a, Wallet: old.Wallet, Created: old.Created,
+		token: old.token, tokens: old.tokens, filled: old.filled,
+		convs: map[string]*conversation{},
+	}
+	if err := s.save(ctx, ag); err != nil {
+		return nil, err
+	}
+	for cid := range old.convs {
+		delete(s.convs, cid)
+	}
+	s.agents[id] = ag
+	s.log.Info("agent updated", "agent", id, "name", a.Name, "model", a.Model)
+	return ag, nil
+}
+
+// Delete stops an agent: its token is revoked at the proxy, its
+// conversations are forgotten, and its endpoint answers 404 from now on. A
+// message in flight completes — the hold was taken — and is the last.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ag, ok := s.agents[id]
+	if !ok {
+		return ErrNoAgent
+	}
+	if s.cfg.Store != nil {
+		if err := s.cfg.Store.Delete(ctx, id); err != nil {
+			s.log.Error("store delete failed", "agent", id, "err", err)
+			return errStore
+		}
+	}
+	for cid := range ag.convs {
+		delete(s.convs, cid)
+	}
+	delete(s.agents, id)
+	s.cfg.Proxy.Revoke(ag.token)
+	s.log.Info("agent deleted", "agent", id, "name", ag.Spec.Name)
+	return nil
 }
 
 // Get returns a running agent.
@@ -369,6 +524,10 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 		return Turn{}, ErrNoConversation
 	}
 	conv.last = now
+	// What the call needs is copied out under the lock: an Update landing
+	// mid-call swaps the agent, and this message is answered by the agent
+	// it was sent to.
+	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: spec.Prompt(ag.Spec), token: ag.token}
 	s.mu.Unlock()
 
 	// One call on a conversation at a time. A second message that arrives
@@ -376,7 +535,7 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	conv.mu.Lock()
 	defer conv.mu.Unlock()
 	history := append(append([]message(nil), conv.messages...), message{"user", text})
-	reply, cost, balance, err := s.complete(ctx, ag, history)
+	reply, cost, balance, err := s.complete(ctx, c, history)
 	if err != nil {
 		return Turn{}, err
 	}
@@ -387,14 +546,80 @@ func (s *Service) Say(ctx context.Context, agentID, convID, text string) (Turn, 
 	return Turn{Conversation: convID, Reply: reply, Cost: cost, Balance: balance}, nil
 }
 
+// Draft asks the builder model to revise a spec as a person described, and
+// charges the owner for it. The current spec may be incomplete — a new
+// agent has no name yet — and goes to the model as it is; the model's
+// answer is a draft until the service has pinned what the model may not
+// choose (the version, and the model the agent runs on) and found it valid.
+// The draft is returned, not kept: keeping it is a Create or an Update,
+// which check it again.
+func (s *Service) Draft(ctx context.Context, owner Owner, current spec.Agent, request string) (Draft, error) {
+	request = strings.TrimSpace(request)
+	switch {
+	case s.cfg.BuilderModel == "":
+		return Draft{}, ErrNoBuilder
+	case owner.ID == "" || owner.Wallet == "":
+		return Draft{}, ErrUnauthenticated
+	case request == "":
+		return Draft{}, ErrEmptyMessage
+	case len(request) > MaxMessageBytes:
+		return Draft{}, ErrMessageTooLong
+	}
+	c := call{model: s.cfg.BuilderModel, maxTokens: DraftMaxTokens, system: spec.BuilderPrompt(current), token: s.builder(owner)}
+	reply, cost, balance, err := s.complete(ctx, c, []message{{"user", request}})
+	if err != nil {
+		return Draft{}, err
+	}
+	d, err := spec.ParseDraft(reply)
+	if err != nil {
+		s.log.Warn("builder reply was not a draft", "owner", owner.ID, "err", err, "reply", fmt.Sprintf("%.200s", reply))
+		return Draft{}, fmt.Errorf("%w: %v", ErrBadDraft, err)
+	}
+	d.Spec.Version = spec.Version
+	d.Spec.Model = current.Model
+	if d.Spec.Model == "" {
+		d.Spec.Model = s.cfg.BuilderModel
+	}
+	if d.Spec.MaxReplyTokens == 0 {
+		d.Spec.MaxReplyTokens = spec.DefaultMaxReplyTokens
+	}
+	if err := d.Spec.Validate(); err != nil {
+		return Draft{}, fmt.Errorf("%w: %v", ErrBadDraft, err)
+	}
+	return Draft{Spec: d.Spec, Note: d.Note, Cost: cost, Balance: balance}, nil
+}
+
+// builder is the owner's proxy token for drafts, made and authorised on
+// first use.
+func (s *Service) builder(owner Owner) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tok, ok := s.builders[owner.ID]
+	if !ok {
+		tok = randomHex(32)
+		s.cfg.Proxy.Authorize(tok, owner.Wallet)
+		s.builders[owner.ID] = tok
+	}
+	return tok
+}
+
+// call is one metered call's fixed part: the model and ceiling, the system
+// prompt, and the token that pays.
+type call struct {
+	model     string
+	maxTokens int64
+	system    string
+	token     string
+}
+
 // complete makes the one metered call. It is the Python SDK's Model.complete
 // in Go: the same body, the same bearer token, the same three refusals read
 // off the same status codes.
-func (s *Service) complete(ctx context.Context, ag *Agent, history []message) (string, ledger.Credits, ledger.Credits, error) {
+func (s *Service) complete(ctx context.Context, c call, history []message) (string, ledger.Credits, ledger.Credits, error) {
 	body, err := json.Marshal(map[string]any{
-		"model":      ag.Spec.Model,
-		"max_tokens": ag.Spec.MaxReplyTokens,
-		"system":     spec.Prompt(ag.Spec),
+		"model":      c.model,
+		"max_tokens": c.maxTokens,
+		"system":     c.system,
 		"messages":   history,
 	})
 	if err != nil {
@@ -404,7 +629,7 @@ func (s *Service) complete(ctx context.Context, ag *Agent, history []message) (s
 	if err != nil {
 		return "", 0, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+ag.token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
