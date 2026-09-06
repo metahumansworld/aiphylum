@@ -89,6 +89,15 @@ func main() {
 	window := flag.Duration("window", 1500*time.Millisecond, "sim: how long an auction takes bids")
 	runFor := flag.Duration("for", 0, "sim: stop after this long (0 = until the deck is spent)")
 	deck := flag.Int("deck", 16, "sim: how many bounties the world has to give")
+	serve := flag.Bool("serve", false, "run the service: built agents answering over HTTP — on the stub unless OPENROUTER_API_KEY is set, and then real spend behind each agent's grant")
+	var agents []string
+	flag.Func("agent", "serve: `path` to an agent spec (JSON) to run from boot — repeatable", func(v string) error {
+		agents = append(agents, v)
+		return nil
+	})
+	serveListen := flag.String("serve-listen", defaultServeListen, "serve: address for the control surface (/v1/agents) and the agents' public endpoints (/a/{id})")
+	grant := flag.Int64("grant", 1_000_000, "serve: credits minted to each new agent's wallet, in micro-USD (1000000 is $1)")
+	serveModel := flag.String("serve-model", defaultServeModel, "serve: the one real model offered, as id=input,output in nano-USD per token")
 	flag.Parse()
 
 	// The trace path's default names the arena. A run on another track that was
@@ -106,6 +115,11 @@ func main() {
 	})
 	if !traceSet {
 		switch {
+		case *serve:
+			// Its own file, and one `make clean` leaves alone: a service trace
+			// is the conversations strangers had with an agent, an audit
+			// record rather than a replayable artefact.
+			*tracePath = "service-trace.jsonl"
 		case *fairMode:
 			*tracePath = "fair-trace.jsonl"
 		case *townMode && *mindFlag:
@@ -130,6 +144,7 @@ func main() {
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
+		serve: *serve, agents: agents, serveListen: *serveListen, grant: *grant, serveModel: *serveModel,
 	}
 	if err := run(ctx, log, opts); err != nil {
 		log.Error("phylumd failed", "err", err)
@@ -172,6 +187,16 @@ type options struct {
 	// "open". Sealed is the default on every track; open is a fair thing,
 	// refused elsewhere the way -tiebreak lot is.
 	book string
+
+	// serve runs built agents instead of a world: no board, no ladder, no
+	// containers. agents are spec files to run from boot; serveListen is where
+	// they answer; grant is each new agent's whole bankroll; serveModel is the
+	// one real model on the price table, with its price.
+	serve       bool
+	agents      []string
+	serveListen string
+	grant       int64
+	serveModel  string
 }
 
 const (
@@ -179,6 +204,16 @@ const (
 	// an operator's console on the machine running the arena, not a public API.
 	defaultListen = "127.0.0.1:8141"
 	liveDB        = "phylum-live.db"
+
+	// The service binds to loopback too, for now: an agent's public endpoint
+	// is public in shape, not yet in reach. Putting it on the internet is the
+	// job of the milestone that brings accounts and rate limits with it.
+	defaultServeListen = "127.0.0.1:8151"
+	// The fixed model every built agent runs on, at OpenRouter's price for it
+	// ($1 per million input tokens, $5 per million output) in nano-USD per
+	// token. One row, set by hand; syncing the table from OpenRouter's
+	// catalogue comes with the milestone that unlocks other models.
+	defaultServeModel = "anthropic/claude-haiku-4.5=1000,5000"
 )
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
@@ -206,6 +241,14 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		}
 	default:
 		return fmt.Errorf("-book %q is not a policy; it is sealed or open", opt.book)
+	}
+	// The service is not a track: it runs built agents and no world at all,
+	// so every flag that shapes a world is refused alongside it.
+	if opt.serve && (opt.fair || opt.sim || opt.town || opt.imported || len(opt.guests) > 0) {
+		return fmt.Errorf("-serve runs built agents and nothing else; drop -fair, -sim, -town, -imported and -guest")
+	}
+	if len(opt.agents) > 0 && !opt.serve {
+		return fmt.Errorf("-agent belongs to the service; run it with -serve")
 	}
 
 	// The town is a different genre, not a fourth arena mode: no ledger, no
@@ -257,12 +300,25 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 			return err
 		}
 	}
+	// A service run with a key is spending real money, and its trace is the
+	// only record of conversations that cannot be had again: the same
+	// protection the live world gets, without the ledger half, since the
+	// service's wallets are minted fresh at boot.
+	if opt.serve && os.Getenv(openRouterKeyEnv) != "" {
+		if err := refuseUsedTrace(opt.tracePath); err != nil {
+			return err
+		}
+	}
 
 	tw, err := trace.NewWriter(opt.tracePath)
 	if err != nil {
 		return fmt.Errorf("open trace: %w", err)
 	}
 	defer tw.Close()
+
+	if opt.serve {
+		return runServe(ctx, log, l, tw, opt)
+	}
 
 	board := bounty.NewBoard()
 	for _, g := range generators.Dir(opt.genDir) {

@@ -14,9 +14,20 @@ import (
 
 	"github.com/metahumansworld/aiphylum/internal/judge"
 	"github.com/metahumansworld/aiphylum/internal/mind"
+	"github.com/metahumansworld/aiphylum/internal/spec"
 )
 
-// AnthropicProvider forwards Messages-API calls to Anthropic. It is the
+// OpenRouterBaseURL is the base under which OpenRouter serves an
+// Anthropic-compatible Messages endpoint: POST {base}/v1/messages, the same
+// request and response bytes, and the same usage block that the proxy meters
+// on. It accepts the x-api-key header and ignores anthropic-version, so the
+// AnthropicProvider reaches it unchanged — only the base URL and the model ids
+// differ, and those carry a vendor prefix ("anthropic/claude-haiku-4.5").
+// Verified against OpenRouter's documentation on 2026-09-06.
+const OpenRouterBaseURL = "https://openrouter.ai/api"
+
+// AnthropicProvider forwards Messages-API calls to Anthropic, or to any
+// provider that speaks the same wire format (see OpenRouterBaseURL). It is the
 // custody boundary: the key lives here and nowhere an agent can reach.
 type AnthropicProvider struct {
 	APIKey  string
@@ -96,8 +107,9 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 	}
 
 	var req struct {
-		Model     string `json:"model"`
-		MaxTokens int64  `json:"max_tokens"`
+		Model     string          `json:"model"`
+		MaxTokens int64           `json:"max_tokens"`
+		System    json.RawMessage `json:"system"`
 		Messages  []struct {
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
@@ -128,7 +140,9 @@ func (s *StubProvider) Invoke(ctx context.Context, model string, body []byte) ([
 	if len(req.Messages) > 0 {
 		var content string
 		if err := json.Unmarshal(req.Messages[len(req.Messages)-1].Content, &content); err == nil {
-			if graded, ok := stubGrade(content); ok {
+			if answered, ok := stubService(req.System, content); ok {
+				text = answered
+			} else if graded, ok := stubGrade(content); ok {
 				text = graded
 			} else if said, ok := stubMind(content); ok {
 				text = said
@@ -181,4 +195,21 @@ func stubMind(content string) (string, bool) {
 		return "", false
 	}
 	return mind.Answer(content), true
+}
+
+// stubService answers a built agent replying to a message, or reports that
+// this was not one. Unlike the judge and the mind, the agent is described in
+// the call's system prompt rather than its last message — that is where a
+// real model expects a standing instruction — so this is the one branch that
+// reads the system field. It is only ever a plain string here; a system given
+// as content blocks is not one this package wrote, and falls through.
+func stubService(system json.RawMessage, heard string) (string, bool) {
+	var s string
+	if len(system) == 0 || json.Unmarshal(system, &s) != nil {
+		return "", false
+	}
+	if !strings.HasPrefix(strings.TrimSpace(s), spec.Marker) {
+		return "", false
+	}
+	return spec.Answer(s, heard), true
 }

@@ -1301,6 +1301,8 @@ for the things you type or read at runtime (`phylumd`, `phylumctl`, the
 | `internal/suites` | importing public benchmark suites as supply |
 | `internal/judge` | model-graded bounties, and the wire format two seams must share |
 | `internal/town` | the living-world track |
+| `internal/spec` | the agent spec: the one document a built agent is, and its wire format |
+| `internal/service` | the service runtime: built agents answering over HTTP, metered by the proxy |
 | `web` | the spectator surface, rendered from a trace file alone |
 | `generators/` | task generators (`arith`, `oracle`, `brief`), the reference agents, and importable suites |
 | `sdk/python` | the Python agent SDK |

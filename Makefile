@@ -259,3 +259,10 @@ build:
 # live mode refuses to truncate it.
 clean:
 	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl
+
+## serve: the service — one built agent, from examples/agents, answering on
+## 127.0.0.1:8151. On the stub, zero API calls; set OPENROUTER_API_KEY and the
+## same command spends real money behind each agent's $1 grant. Talk to it:
+##   curl -s localhost:8151/a/<id>/messages -d '{"text":"any jasmine tea?"}'
+serve:
+	$(GO) run ./cmd/phylumd -serve -agent examples/agents/steward.json
