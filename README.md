@@ -273,6 +273,9 @@ make fair-costermongers-sealed-7day # the same pair with nothing to read: the co
 make fair-higgler-7day # a reader of the rise behind a costermonger: a rival that leaves the floor is a floor to match
 make fair-higgler-sealed-7day # the same pair with nothing to read: the control, where nothing ever rises
 make fair-higgler-swapped-7day # the same open week with the seats the other way round: who reads whom
+make fair-badger-7day # both rules in one reader behind a costermonger: the higher of meter and rise
+make fair-badger-swapped-7day # the two-rule reader in front: the first rise on the book that carries a rival's cost
+make fair-badgers-7day # the mirror, a badger in either seat: does an open book ratchet, or converge to cost
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
