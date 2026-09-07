@@ -210,6 +210,53 @@ func TestAUserWithoutAWalletIsFundedOnNextSignIn(t *testing.T) {
 	}
 }
 
+func TestDeadLinksAndSessionsArePruned(t *testing.T) {
+	s, _, mail, clk := newStore(t)
+	ctx := context.Background()
+	count := func(table string) (n int) {
+		t.Helper()
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	revoked := signIn(t, s, mail, clk, "jo@example.com") // 12:01: link 1 spent, session revoked below
+	if err := s.SignOut(ctx, revoked.Token); err != nil {
+		t.Fatal(err)
+	}
+	live := signIn(t, s, mail, clk, "jo@example.com") // 12:02: link 2 spent, session stays live
+
+	// 12:18: both links are expired but inside their TTL of grace, so a
+	// request prunes only the revoked session.
+	clk.advance(16 * time.Minute)
+	if err := s.Request(ctx, "ka@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("links"); n != 3 {
+		t.Errorf("links = %d, want all 3: expired links get a TTL of grace", n)
+	}
+	if n := count("sessions"); n != 1 {
+		t.Errorf("sessions = %d, want only the live one left", n)
+	}
+
+	// 12:49: everything is a full TTL past its expiry; only the link this
+	// request itself mints survives.
+	clk.advance(31 * time.Minute)
+	if err := s.Request(ctx, "ka@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("links"); n != 1 {
+		t.Errorf("links = %d, want only this request's own link", n)
+	}
+	if _, err := s.Authenticate(ctx, live.Token); err != nil {
+		t.Errorf("the live session was pruned: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, revoked.Token); !errors.Is(err, ErrNoSession) {
+		t.Errorf("a pruned revoked session = %v, want ErrNoSession", err)
+	}
+}
+
 func TestBadEmailsAreRefusedBeforeAnyMail(t *testing.T) {
 	s, _, mail, _ := newStore(t)
 	ctx := context.Background()
