@@ -45,7 +45,7 @@ walk.
 
 import json
 
-import aiphylum
+import soscitea
 from huckster import parse, read_book, read_note, solve
 from peddler import brief, consult
 
@@ -93,7 +93,7 @@ def act(observation, wallet):
             # The meter, read after the work: the attempt purse opened this
             # step at wallet.balance, and the chain is the only thing that
             # has drawn on it since.
-            spent = wallet.balance - aiphylum.Model().wallet().balance
+            spent = wallet.balance - soscitea.Model().wallet().balance
             tier = str(task["tier"])
             costs[tier] = max(costs.get(tier, 0), spent)
         else:
@@ -119,4 +119,4 @@ def act(observation, wallet):
 
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

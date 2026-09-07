@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/spec"
 )
 
 // A tool call is the platform making an HTTP request on an agent's behalf,

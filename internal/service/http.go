@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/metahumansworld/aiphylum/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/spec"
 )
 
 // Authenticator turns a request into the owner behind it. It returns

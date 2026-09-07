@@ -16,7 +16,7 @@ import (
 	"hash/fnv"
 	"sync"
 
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 var (

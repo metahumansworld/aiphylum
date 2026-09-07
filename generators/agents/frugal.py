@@ -10,7 +10,7 @@ scale superlinearly with tier, so grinding cheap certainties loses to whoever
 profitably takes the hard bounties. The ladder is built to punish exactly this.
 """
 
-import aiphylum
+import soscitea
 import demolib
 
 
@@ -32,9 +32,9 @@ def act(observation, wallet):
         # than burn money guessing.
         return []
     answer = demolib.solve_arith(spec["expr"])
-    demolib.ping(aiphylum.Model())
+    demolib.ping(soscitea.Model())
     return demolib.submit(task["bounty_id"], answer)
 
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

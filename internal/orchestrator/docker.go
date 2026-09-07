@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metahumansworld/aiphylum/internal/runner"
+	"github.com/metahumansworld/soscitea/internal/runner"
 )
 
 // ContainerAgent describes how to run one registered agent's image.

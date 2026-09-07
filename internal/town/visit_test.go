@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // The seam's contract: one call per tick, everyone named in roster order,

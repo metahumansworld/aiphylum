@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/metahumansworld/aiphylum/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/proxy"
 )
 
 // PlaybackProvider replays a recorded trace as if it were a live model.

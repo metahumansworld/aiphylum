@@ -46,7 +46,7 @@ of two balances and a memory of what happened in between.
 import json
 import re
 
-import aiphylum
+import soscitea
 
 # How many ticks to buy at a time — vigil's number, unchanged, so the two days
 # differ by when the buying stops and not by how much each purchase is worth.
@@ -159,13 +159,13 @@ def act(observation, wallet):
         # mostly to feel how the meter runs. It goes through the same proxy as
         # every model call on the platform and is priced against this wallet.
         try:
-            model = aiphylum.Model()
+            model = soscitea.Model()
             model.complete(
                 model=model.models()[0],
                 messages=[{"role": "user", "content": "ack"}],
                 max_tokens=1,
             )
-        except aiphylum.PhylumError:
+        except soscitea.PhylumError:
             pass  # a failed ping must never cost the attempt
 
         return [
@@ -204,4 +204,4 @@ def act(observation, wallet):
 
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

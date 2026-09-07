@@ -27,8 +27,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/metahumansworld/aiphylum/internal/trace"
-	"github.com/metahumansworld/aiphylum/web"
+	"github.com/metahumansworld/soscitea/internal/trace"
+	"github.com/metahumansworld/soscitea/web"
 )
 
 func main() {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/spec"
 )
 
 func withWebhook(instruction string) spec.Agent {

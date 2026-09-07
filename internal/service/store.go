@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/spec"
 	_ "modernc.org/sqlite"
 )
 

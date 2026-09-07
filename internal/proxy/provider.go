@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/judge"
-	"github.com/metahumansworld/aiphylum/internal/mind"
-	"github.com/metahumansworld/aiphylum/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/judge"
+	"github.com/metahumansworld/soscitea/internal/mind"
+	"github.com/metahumansworld/soscitea/internal/spec"
 )
 
 // OpenRouterBaseURL is the base under which OpenRouter serves an

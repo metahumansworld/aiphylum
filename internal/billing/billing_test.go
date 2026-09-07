@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/account"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/account"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 type memMailer struct{ token string }
@@ -179,8 +179,24 @@ func TestWebhookCreditsAPaidSessionOnce(t *testing.T) {
 	if code, _ := h.do("POST", "/billing/webhook", "", later, "Stripe-Signature", sign(h.secret, later, h.now)); code != 200 {
 		t.Fatal("a bank payment that succeeds later is a payment")
 	}
-	if got := h.balance(t); got != 1_000_000+credits(1500) {
+	// Two charges, two fixed fees: the topups add as credits, not as cents.
+	if got := h.balance(t); got != 1_000_000+credits(1000)+credits(500) {
 		t.Fatalf("balance = %d after the bank payment", got)
+	}
+}
+
+// The fees are passed through, and this pins the arithmetic: what a topup
+// mints is the charge less Stripe's 2.9%+30¢ and then OpenRouter's 5.5%,
+// rounded down. If the numbers move, move them here knowingly.
+func TestCreditsPassTheFeesThrough(t *testing.T) {
+	for cents, want := range map[int64]ledger.Credits{
+		MinCents: 4_304_475,  // $5 lands as ~$4.30
+		1000:     8_892_450,  // $10 as ~$8.89
+		MaxCents: 91_476_000, // $100 as ~$91.48
+	} {
+		if got := credits(cents); got != want {
+			t.Errorf("credits(%d) = %d, want %d", cents, got, want)
+		}
 	}
 }
 
@@ -200,6 +216,7 @@ func TestWebhookRefusesWhatIsNotAPaidSignedUSDSession(t *testing.T) {
 		{"not paid yet", h.event("checkout.session.completed", "unpaid", "usd", 1000, "cs_b"), "", 200},
 		{"euros", h.event("checkout.session.completed", "paid", "eur", 1000, "cs_c"), "", 200},
 		{"free", h.event("checkout.session.completed", "paid", "usd", 0, "cs_d"), "", 200},
+		{"fee-eaten", h.event("checkout.session.completed", "paid", "usd", 30, "cs_f"), "", 200},
 		{"other event", h.event("payment_intent.created", "paid", "usd", 1000, "cs_e"), "", 200},
 		{"stranger", strings.Replace(paid, h.user.ID, "u_nobody", 1), "", 200},
 	}

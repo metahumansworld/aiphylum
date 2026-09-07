@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // TestGuestPersona pins the body the town hands a user-authored agent: a room

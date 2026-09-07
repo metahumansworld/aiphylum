@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/bounty"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/rating"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/bounty"
+	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/rating"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // sayGen is the test task: "say exactly: <word>", where the word is a pure

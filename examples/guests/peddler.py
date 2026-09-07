@@ -50,7 +50,7 @@ read, and the difference between the two weeks is the book.
 
 import json
 
-import aiphylum
+import soscitea
 from huckster import parse, read_book, read_note, solve
 
 
@@ -59,7 +59,7 @@ def consult(spec):
     spec["model"] and spec["max_tokens"], each fed the last reply, starting
     from spec["message"]. The stub's answer is a hash of the exact request
     body, so nothing is added to the call and nothing is left out."""
-    model = aiphylum.Model()
+    model = soscitea.Model()
     content = spec["message"]
     for _ in range(spec["calls"]):
         reply = model.complete(
@@ -115,4 +115,4 @@ def act(observation, wallet):
 
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

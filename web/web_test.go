@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // miniTrace synthesises a two-round episode: agent a solves bounty x, agent b

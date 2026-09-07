@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // twoRounds posts one bounty per round, so an agent gets two bid steps and can

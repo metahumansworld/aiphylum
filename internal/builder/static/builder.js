@@ -48,10 +48,10 @@
     return { ok: resp.ok, status: resp.status, data: data || {}, headers: resp.headers };
   }
 
-  function money(micro) {
-    const d = micro / 1e6;
-    if (d >= 0.01 || d === 0) return "$" + d.toFixed(2);
-    return "$" + d.toFixed(4);
+  // The balance is credits, never dollars: the ledger's integer as-is, so
+  // there is no published exchange rate for a topup's fees to show through.
+  function credits(n) {
+    return Number(n).toLocaleString("en-US");
   }
 
   let toastTimer = 0;
@@ -138,7 +138,7 @@
 
   function renderWho() {
     $("email").textContent = state.me.email;
-    $("balance").textContent = money(state.me.balance) + (state.me.paid ? " left" : " of your grant left");
+    $("balance").textContent = credits(state.me.balance) + (state.me.paid ? " credits left" : " credits of your grant left");
   }
 
   // ---- recharge ------------------------------------------------------
@@ -759,7 +759,7 @@
     $("undo").hidden = false;
     state.spec = normalise(r.data.spec);
     markDirty();
-    logChat(log, "note", r.data.note || "Revised.", "cost " + money(r.data.cost) + " · " + money(r.data.balance) + " left");
+    logChat(log, "note", r.data.note || "Revised.", "cost " + credits(r.data.cost) + " · " + credits(r.data.balance) + " credits left");
     state.me.balance = r.data.balance;
     renderWho();
     buildNodes();

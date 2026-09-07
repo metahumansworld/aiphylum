@@ -18,14 +18,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/metahumansworld/aiphylum/internal/auction"
-	"github.com/metahumansworld/aiphylum/internal/bounty"
-	"github.com/metahumansworld/aiphylum/internal/judge"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
-	"github.com/metahumansworld/aiphylum/internal/orchestrator"
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/town"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/auction"
+	"github.com/metahumansworld/soscitea/internal/bounty"
+	"github.com/metahumansworld/soscitea/internal/judge"
+	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/orchestrator"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/town"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // fairPostMinutes are the office's posting hours: on the hour, nine to four.

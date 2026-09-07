@@ -28,7 +28,7 @@ for nothing — which is the point of checking.
 import json
 import re
 
-import aiphylum
+import soscitea
 
 # How many ticks to buy at a time. Long enough to outlast the gap between two
 # postings, short enough that a quiet stretch is a small loss and not the day.
@@ -123,17 +123,17 @@ def act(observation, wallet):
     # to feel how the meter runs. It goes through the same proxy as every
     # model call on the platform and is priced against this wallet.
     try:
-        model = aiphylum.Model()
+        model = soscitea.Model()
         model.complete(
             model=model.models()[0],
             messages=[{"role": "user", "content": "ack"}],
             max_tokens=1,
         )
-    except aiphylum.PhylumError:
+    except soscitea.PhylumError:
         pass  # a failed ping must never cost the attempt
 
     return [{"type": "submit", "bounty": task["bounty_id"], "answer": str(answer)}]
 
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)
