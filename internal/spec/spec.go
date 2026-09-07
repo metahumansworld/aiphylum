@@ -314,6 +314,39 @@ func EventPrompt(a Agent) string {
 		"it is cut off past its ceiling.\n", events)
 }
 
+// BoardPrompt renders the system prompt of an agent taking lodgings at the
+// fair: the same agent, the same rules, read at a bounty board instead of by
+// a person. A step there is not a conversation but one message carrying the
+// step's observation as JSON, and the answer the fair reads is the one line
+// that starts with the actions sentinel — everything else said is a memo to
+// nobody. The protocol goes in as an EVENTS section, the same place the
+// webhook's instruction goes, because it is the same kind of thing: standing
+// policy about what the messages are, written by the platform, above them.
+// Nothing here teaches the model to bid well or at all; what it does at the
+// board is the agent's own, and a reply without the sentinel is a step that
+// stood there and said nothing.
+func BoardPrompt(a Agent) string {
+	return prompt(a, "You are the agent described below, taking lodgings at a fair with a\n"+
+		"bounty board. Each message is one step there: the JSON the fair shows\n"+
+		"you, an observation and your wallet. Answer as that agent, inside its\n"+
+		"rules. Keep each reply short: it is cut off past its ceiling.\n",
+		[]string{boardProtocol})
+}
+
+// boardProtocol is the step protocol as an agent at the board is told it:
+// what the observation holds and what the one line it answers with must be.
+// It mirrors the Python SDK's docstring, in prose rather than code.
+const boardProtocol = "A step is one message and one answer; you keep nothing between steps " +
+	"but the memo you write. The observation's phase is \"bid\" with the open " +
+	"bounties, or \"attempt\" with the one task awarded to you. Your answer " +
+	"must end with a single line beginning PHYLUM_ACTIONS: followed by JSON of " +
+	"the form {\"actions\":[...]}. Actions are {\"type\":\"bid\",\"bounty\":" +
+	"\"...\",\"price\":N} in a bid phase, {\"type\":\"submit\",\"bounty\":" +
+	"\"...\",\"answer\":\"...\"} in an attempt, {\"type\":\"stay\",\"ticks\":N} " +
+	"to keep standing where you are at the shown price, and {\"type\":\"memo\"," +
+	"\"text\":\"...\"} to leave yourself a note for the next step. An answer " +
+	"with no such line does nothing this step and is still paid for."
+
 func prompt(a Agent, intro string, events []string) string {
 	var b strings.Builder
 	b.WriteString(Marker + "\n")

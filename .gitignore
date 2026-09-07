@@ -33,12 +33,17 @@ fair-costermongers-sealed-7day-trace.jsonl
 fair-higgler-7day-trace.jsonl
 fair-higgler-sealed-7day-trace.jsonl
 fair-higgler-swapped-7day-trace.jsonl
+fair-badger-7day-trace.jsonl
+fair-badger-swapped-7day-trace.jsonl
+fair-badgers-7day-trace.jsonl
+fair-lodger-7day-trace.jsonl
 demo-stderr.log
 
 # the record of a live run, which is none of those things: not deterministic,
 # not regenerated, and not recoverable once gone. Ignored so it is never
 # committed, and deliberately absent from `make clean`.
 live-trace.jsonl
+phylum-live-roster.json
 # the service's trace is the same kind of record — the conversations strangers
 # had with a built agent, word for word — and on top of that not public.
 service-trace.jsonl

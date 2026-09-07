@@ -669,6 +669,31 @@ func (s *Service) say(ctx context.Context, agentID, convID, text string, event b
 	return Turn{Conversation: convID, Reply: reply, Cost: cost, Balance: balance}, nil
 }
 
+// Step answers one step at the fair's board: the observation in, the reply
+// out, as one metered call under BoardPrompt with no history — a step is a
+// fresh process for a guest, and it is a fresh call here, so what the agent
+// keeps between steps is the memo the fair carries and nothing else. The
+// call is paid by token, the fair's step token, not the agent's own: on a
+// bid step that is the agent's fair wallet, in an attempt the attempt
+// purse, and money the owner put behind the agent for conversation never
+// reaches the board. No bucket either — the bucket is for people writing
+// in, and the fair asks once a tick by its own clock. Whatever the model
+// said is returned whole; reading the actions out of it is the fair's job,
+// as it is for a guest's stdout.
+func (s *Service) Step(ctx context.Context, agentID, token string, input []byte) (string, error) {
+	s.mu.Lock()
+	ag, ok := s.agents[agentID]
+	if !ok {
+		s.mu.Unlock()
+		return "", ErrNoAgent
+	}
+	c := call{model: ag.Spec.Model, maxTokens: ag.Spec.MaxReplyTokens, system: spec.BoardPrompt(ag.Spec),
+		token: token, agent: ag.ID, tools: ag.Spec.Tools}
+	s.mu.Unlock()
+	reply, _, _, err := s.converse(ctx, c, []message{{"user", string(input)}})
+	return reply, err
+}
+
 // Draft asks the builder model to revise a spec as a person described, and
 // charges the owner for it. The current spec may be incomplete — a new
 // agent has no name yet — and goes to the model as it is; the model's

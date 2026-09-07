@@ -24,6 +24,7 @@ import (
 	"github.com/metahumansworld/soscitea/internal/ledger"
 	"github.com/metahumansworld/soscitea/internal/orchestrator"
 	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/service"
 	"github.com/metahumansworld/soscitea/internal/town"
 	"github.com/metahumansworld/soscitea/internal/trace"
 )
@@ -90,6 +91,47 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 			"a guest at the Bell & Bushel; not of the cast — brought to the fair by its author"))
 		fmt.Printf("  + %-8s %5d credits — a guest, come for the board (yours: %s)\n",
 			g.id, guestGrant, filepath.Base(g.path))
+	}
+
+	// Lodger intake. The flag brought the spec; the service brings the
+	// agent, the same service that would answer for it on the builder page,
+	// built here over the fair's own proxy so every call it makes lands in
+	// the fair's trace and books. The lodger's owner is the lodger: its
+	// wallet is the fair wallet the grant went to, so there is no second
+	// purse for the board to miss — and the step token, not the owner's,
+	// pays each call, so an attempt's spend stays inside the attempt.
+	lodgers, err := lodgerRoster(opt.lodgers, taken)
+	if err != nil {
+		return err
+	}
+	if len(lodgers) > 0 {
+		svc, err := service.New(service.Config{Proxy: w.orch.Proxy, Ledger: l, Log: log})
+		if err != nil {
+			return err
+		}
+		ls := &lodgerSteps{svc: svc, ids: map[string]string{}, other: w.orch.Steps}
+		for _, ld := range lodgers {
+			// The spec names the model its author chose; offline that
+			// model is the stub under the author's name for it, priced as
+			// the stub is, the rule serve keeps for a locked catalogue.
+			if _, ok := w.orch.Proxy.Table.Lookup(ld.spec.Model); !ok {
+				w.orch.Proxy.Table.Set(ld.spec.Model, proxy.Price{InputPerTok: 1000, OutputPerTok: 1000})
+			}
+			if err := w.orch.AddAgent(ctx, ld.id, guestGrant); err != nil {
+				return err
+			}
+			ag, err := svc.Create(ctx, service.Owner{ID: ld.id, Wallet: ld.id}, ld.spec)
+			if err != nil {
+				return fmt.Errorf("lodger %s: %w", ld.id, err)
+			}
+			ls.ids[ld.id] = ag.ID
+			name := strings.ToUpper(ld.id[:1]) + ld.id[1:]
+			people = append(people, town.Guest(ld.id, name,
+				"a lodger at the Bell & Bushel; not of the cast — built on the builder's page and brought to the fair by its owner"))
+			fmt.Printf("  + %-8s %5d credits — a lodger, come for the board (yours: %s, on %s)\n",
+				ld.id, guestGrant, ld.spec.Name, ld.spec.Model)
+		}
+		w.orch.Steps = ls
 	}
 
 	// One card per posting hour per day: the deck is sized by the calendar,
