@@ -5,30 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chat</title>
 <style>
-  /* The builder's palette, the chat's layout. White, glass, one gold. */
+  /* The platform's palette, the chat's layout. The material is clay — see
+     web/static/style.css's header for the spec: one warm cream ground, the
+     header a slab of the Perano tint (--surface-voice, 40% Perano in the
+     raised cream — this is the agent's surface, so it takes the palette's
+     voice-of-the-agent), the agent's lines molded up off the ground in the
+     Perano wash, yours pressed into it, and a squish on the send button. */
   :root {
     color-scheme: light;
-    --surface-page: #ffffff; --surface-raised: #fbfaf7; --surface-sunken: #f4f2ec;
-    --ink: #35302a; --ink-secondary: #5b544a; --ink-muted: #6a655a;
-    --line: #e7e3da; --line-firm: #cdc7ba; --edge: #948c7e;
-    --accent: #7a5d10; --accent-bright: #cf9a24; --accent-wash: #fbf3de; --danger: #b3261e;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --surface-page: #f3ede3; --surface-raised: #faf5eb; --surface-sunken: #e9e2d3;
+    --ink: #35302a; --ink-secondary: #55493c; --ink-muted: #635a4c;
+    --accent: #5f4c05; --accent-bright: #ffeda2; --accent-wash: #fff7d9; --danger: #9c2a43;
+    --attention-wash: #e3e9ff; --surface-voice: #d7dbf3;
+    --clay-raise: inset 3px 3px 6px rgba(255, 255, 255, .65),
+                  inset -3px -3px 6px rgba(53, 48, 42, .08),
+                  4px 5px 12px rgba(53, 48, 42, .13);
+    --clay-sink: inset 4px 4px 9px rgba(53, 48, 42, .10),
+                 inset -4px -4px 9px rgba(255, 255, 255, .55);
+    --spring: cubic-bezier(.34, 1.56, .64, 1);
+    --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { font: 15px/1.45 var(--font); color: var(--ink); background: var(--surface-page); display: flex; flex-direction: column; }
-  header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); background: var(--surface-raised); }
+  header { padding: 0.75rem 1rem; background: var(--surface-voice); box-shadow: var(--clay-raise); position: relative; z-index: 1; }
   header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
-  ol { list-style: none; margin: 0; padding: 0.75rem 1rem; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 0.5rem; }
-  li { padding: 0.5rem 0.7rem; border-radius: 8px; background: var(--surface-raised); border: 1px solid var(--line); max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
-  li.you { align-self: flex-end; background: var(--surface-page); border-color: var(--line-firm); }
-  li.refused { border-color: var(--danger); color: var(--ink-secondary); }
-  form { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--line); }
-  input { flex: 1; font: inherit; color: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--edge); border-radius: 8px; background: var(--surface-page); }
-  button { font: inherit; font-weight: 600; color: var(--ink); background: var(--accent-bright); border: 1px solid var(--accent-bright); border-radius: 8px; padding: 0.45rem 0.9rem; cursor: pointer; }
-  button:disabled, input:disabled { opacity: 0.5; cursor: default; }
-  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
+  ol { list-style: none; margin: 0; padding: 1rem; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 0.6rem; }
+  li { padding: 0.5rem 0.8rem; border-radius: 14px; background: var(--attention-wash); box-shadow: var(--clay-raise); max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  li.you { align-self: flex-end; background: var(--surface-sunken); box-shadow: var(--clay-sink); }
+  li.refused { box-shadow: var(--clay-raise), inset 0 0 0 2px var(--danger); color: var(--ink-secondary); }
+  form { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; }
+  input { flex: 1; font: inherit; color: inherit; padding: 0.5rem 0.7rem; border: 0; border-radius: 12px; background: var(--surface-sunken); box-shadow: var(--clay-sink); }
+  button {
+    font: inherit; font-weight: 600; color: var(--ink); background: var(--accent-bright);
+    border: 0; border-radius: 12px; padding: 0.45rem 0.9rem; cursor: pointer;
+    box-shadow: inset 3px 3px 6px rgba(255, 250, 224, .8),
+                inset -3px -3px 6px rgba(95, 76, 5, .22),
+                4px 5px 12px rgba(53, 48, 42, .18);
+    transition: transform 320ms var(--spring), box-shadow 120ms ease;
+  }
+  button:active {
+    transform: scale(.95); transition-duration: 120ms;
+    box-shadow: inset 3px 3px 7px rgba(95, 76, 5, .3),
+                inset -3px -3px 7px rgba(255, 250, 224, .45),
+                2px 3px 6px rgba(53, 48, 42, .12);
+  }
+  button:disabled, input:disabled { opacity: 0.55; cursor: default; transform: none; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   p.status { margin: 0; padding: 0 1rem 0.5rem; color: var(--ink-muted); font-size: 0.8125rem; min-height: 1.2em; }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } button:active { transform: none; } }
+  @media (forced-colors: active) { li, input, button, header { border: 1px solid CanvasText; } }
 </style>
 </head>
 <body>

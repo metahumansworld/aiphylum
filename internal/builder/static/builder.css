@@ -1,31 +1,48 @@
 /* The builder's stylesheet. The token block is the arena viewer's, copied
-   rather than imported: the two pages share a palette and not a layout, and
-   a shared shell is a launch decision, not a stylesheet's. */
+   rather than imported: the two pages share a material and not a layout, and
+   a shared shell is a launch decision, not a stylesheet's. The material is
+   clay — see web/static/style.css's header for the spec; the short of it is
+   one warm cream ground, raised pieces molded up out of it, wells pressed
+   into it, big soft corners, no borders on slabs, and a squish on press. */
 :root {
   color-scheme: light;
-  --surface-page:   #ffffff;
-  --surface-raised: #fbfaf7;
-  --surface-sunken: #f4f2ec;
-  --surface-deep:   #eceae2;
-  --surface-hover:  #f7f5ef;
+  --surface-page:   #f3ede3;
+  --surface-raised: #faf5eb;
+  --surface-sunken: #e9e2d3;
+  --surface-deep:   #ded5c2;
+  --surface-hover:  #f7f2e7;
   --ink:            #35302a;
-  --ink-secondary:  #5b544a;
-  --ink-muted:      #6a655a;
-  --ink-disabled:   #948c7e;
-  --line:           #e7e3da;
-  --line-firm:      #cdc7ba;
-  --line-heavy:     #b8b1a1;
-  --edge:           #948c7e;
-  --accent:         #7a5d10;
-  --accent-bright:  #cf9a24;
-  --accent-wash:    #fbf3de;
-  --positive:       #276b44;
-  --danger:         #b3261e;
-  --glass:          rgba(255, 255, 255, 0.72);
-  --glass-edge:     rgba(53, 48, 42, 0.14);
-  --shadow:         0 1px 2px rgba(53, 48, 42, 0.05), 0 10px 28px rgba(53, 48, 42, 0.07);
-  --radius:         10px;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ink-secondary:  #55493c;
+  --ink-muted:      #635a4c;
+  --ink-disabled:   #8f8574;
+  --line:           #ddd3c1;
+  --line-firm:      #c4b8a1;
+  --line-heavy:     #a89c86;
+  --edge:           #8f8574;
+  --accent:         #5f4c05;
+  --accent-bright:  #ffeda2;
+  --accent-wash:    #fff7d9;
+  --positive:       #256018;
+  --danger:         #9c2a43;
+  --attention-wash: #e3e9ff;
+  --clay-raise: inset 5px 5px 10px rgba(255, 255, 255, .65),
+                inset -5px -5px 10px rgba(53, 48, 42, .07),
+                8px 10px 24px rgba(53, 48, 42, .13);
+  --clay-raise-sm: inset 3px 3px 6px rgba(255, 255, 255, .65),
+                   inset -3px -3px 6px rgba(53, 48, 42, .08),
+                   4px 5px 12px rgba(53, 48, 42, .13);
+  --clay-sink: inset 4px 4px 9px rgba(53, 48, 42, .10),
+               inset -4px -4px 9px rgba(255, 255, 255, .55);
+  --clay-press: inset 3px 3px 7px rgba(53, 48, 42, .12),
+                inset -3px -3px 7px rgba(255, 255, 255, .45),
+                2px 3px 6px rgba(53, 48, 42, .10);
+  --radius-sm:   10px;
+  --radius-md:   14px;
+  --radius:      18px;
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  --fast: 120ms;
+  --slow: 320ms;
+  --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -44,36 +61,54 @@ p { margin: 0 0 0.75rem; }
 a { color: var(--accent); }
 
 button, input, textarea, select { font: inherit; color: inherit; }
+/* A button is a piece of the material: no border, molded up, squished down. */
 button {
   cursor: pointer;
-  border: 1px solid var(--edge);
-  background: var(--surface-page);
-  border-radius: 8px;
+  border: 0;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
   padding: 0.4rem 0.9rem;
   line-height: 1.3;
+  font-weight: 500;
+  box-shadow: var(--clay-raise-sm);
+  transition: background var(--fast) ease, box-shadow var(--fast) ease,
+              transform var(--slow) var(--spring);
 }
 button:hover { background: var(--surface-hover); }
+button:active { transform: scale(.96); box-shadow: var(--clay-press); transition-duration: var(--fast); }
 button:focus-visible, input:focus-visible, textarea:focus-visible {
-  outline: 2px solid var(--accent-bright);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 button.primary {
   background: var(--accent-bright);
-  border-color: var(--accent-bright);
   color: var(--ink);
   font-weight: 600;
+  box-shadow: inset 3px 3px 6px rgba(255, 250, 224, .8),
+              inset -3px -3px 6px rgba(95, 76, 5, .22),
+              4px 5px 12px rgba(53, 48, 42, .18);
 }
 button.primary:hover { filter: brightness(1.04); }
-button.primary:disabled, button:disabled { opacity: 0.5; cursor: default; filter: none; }
-button.quiet { border-color: transparent; background: transparent; color: var(--ink-secondary); padding: 0.3rem 0.6rem; }
-button.quiet:hover { background: var(--surface-hover); color: var(--ink); }
+button.primary:active {
+  box-shadow: inset 3px 3px 7px rgba(95, 76, 5, .3),
+              inset -3px -3px 7px rgba(255, 250, 224, .45),
+              2px 3px 6px rgba(53, 48, 42, .12);
+}
+button.primary:disabled, button:disabled {
+  opacity: 0.55; cursor: default; filter: none;
+  transform: none; box-shadow: var(--clay-sink); background: var(--surface-sunken);
+}
+button.quiet { background: transparent; box-shadow: none; color: var(--ink-secondary); padding: 0.3rem 0.6rem; }
+button.quiet:hover { background: var(--surface-hover); color: var(--ink); box-shadow: var(--clay-raise-sm); }
 button.danger { color: var(--danger); }
+/* An input is the recipe inverted: a well pressed into the slab. */
 input, textarea {
   width: 100%;
-  border: 1px solid var(--line-firm);
-  border-radius: 8px;
-  padding: 0.45rem 0.6rem;
-  background: var(--surface-page);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  background: var(--surface-sunken);
+  box-shadow: var(--clay-sink);
 }
 textarea { resize: vertical; min-height: 2.5rem; }
 label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bottom: 0.25rem; }
@@ -84,11 +119,14 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
 .hint { color: var(--ink-muted); font-size: 0.875rem; }
 .status { color: var(--ink-secondary); min-height: 1.5rem; }
 
-/* Header */
+/* Header: a slab of the mark's own Vis Vis, square against the window —
+   the same material as the viewer's header. */
 .top {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid var(--line);
+  background: var(--accent-bright);
+  box-shadow: var(--clay-raise);
+  position: relative; z-index: 2;
 }
 .mark { font-weight: 600; text-decoration: none; color: var(--ink); font-size: 1.05rem; }
 .who { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-secondary); font-size: 0.9375rem; }
@@ -111,19 +149,21 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
 }
 .pane { min-width: 0; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
-.agent-list { list-style: none; margin: 0; padding: 0; }
-.agent-list li { border-top: 1px solid var(--line); }
-.agent-list li:last-child { border-bottom: 1px solid var(--line); }
+.agent-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .agent-list button {
-  width: 100%; text-align: left; border: 0; background: transparent; border-radius: 0;
-  padding: 0.55rem 0.5rem; display: flex; flex-direction: column; gap: 0.1rem;
+  width: 100%; text-align: left; background: transparent; box-shadow: none; border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem; display: flex; flex-direction: column; gap: 0.1rem;
+  transform: none;
 }
-.agent-list button:hover { background: var(--surface-hover); }
-.agent-list li.current button { background: var(--accent-wash); }
+.agent-list button:hover { background: var(--surface-hover); box-shadow: var(--clay-raise-sm); }
+/* The current agent is pressed into the shelf, in the gold wash: chosen
+   things sink, they don't float. */
+.agent-list li.current button { background: var(--accent-wash); box-shadow: var(--clay-sink); }
 .agent-list .name { font-weight: 600; }
 .agent-list .meta { color: var(--ink-muted); font-size: 0.8125rem; }
 
-/* Canvas */
+/* Canvas: the work board — the biggest well on the page, the slab the agent's
+   pieces sit on. */
 .canvas-wrap { display: flex; flex-direction: column; min-width: 0; }
 .canvas-bar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
 .canvas-title { font-weight: 600; }
@@ -132,78 +172,82 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
   position: relative;
   flex: 1;
   min-height: 40rem;
-  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background:
-    radial-gradient(ellipse at 30% 20%, #ffffff 0%, transparent 60%),
-    var(--surface-sunken);
+  background: var(--surface-sunken);
+  box-shadow: var(--clay-sink);
   overflow: auto;
 }
 .edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.edges line { stroke: var(--line-heavy); stroke-width: 1.25; }
+.edges line { stroke: var(--line-heavy); stroke-width: 1.5; stroke-linecap: round; }
+/* A node is a tile of clay set down on the board. Dragging lifts it — the
+   shadow grows and it scales up a touch — and letting go presses it back. */
 .node {
   position: absolute;
   width: 14.5rem;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--glass-edge);
+  background: var(--surface-raised);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--clay-raise);
+  transition: box-shadow var(--fast) ease;
 }
-.node.hub { width: 16rem; border-color: var(--accent-bright); }
-.node.dragging { box-shadow: 0 2px 4px rgba(53, 48, 42, 0.08), 0 18px 40px rgba(53, 48, 42, 0.14); }
+.node.hub { background: var(--accent-wash); }
+.node.dragging {
+  box-shadow: inset 5px 5px 10px rgba(255, 255, 255, .65),
+              inset -5px -5px 10px rgba(53, 48, 42, .07),
+              14px 20px 44px rgba(53, 48, 42, .22);
+}
 .node-head {
   display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
-  padding: 0.5rem 0.75rem 0.35rem;
+  padding: 0.6rem 0.9rem 0.4rem;
   cursor: grab;
   user-select: none;
-  border-bottom: 1px solid var(--line);
 }
 .node.dragging .node-head { cursor: grabbing; }
 .node-head h3 { margin: 0; font-size: 0.9375rem; font-weight: 600; }
 .node-head .count { color: var(--ink-muted); font-size: 0.8125rem; }
-.node-body { padding: 0.6rem 0.75rem 0.75rem; }
+.node-body { padding: 0.2rem 0.9rem 0.9rem; }
 .node-body .hint { margin: 0.35rem 0 0; font-size: 0.8125rem; }
 .node-body label { margin-top: 0.5rem; }
 .node-body label:first-child { margin-top: 0; }
 .rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .rules li { display: flex; gap: 0.25rem; align-items: center; }
-.rules .remove { padding: 0.2rem 0.45rem; border-color: transparent; color: var(--ink-muted); }
+.rules .remove { padding: 0.2rem 0.45rem; box-shadow: none; background: transparent; color: var(--ink-muted); }
 .rules .remove:hover { color: var(--danger); }
 .add-rule { margin-top: 0.5rem; padding: 0.3rem 0.7rem; }
 .tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
-.tools li { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); }
+.tools li { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.6rem; border-radius: var(--radius-sm); background: var(--surface-page); box-shadow: var(--clay-raise-sm); }
 .tools .tool-head { display: flex; gap: 0.25rem; align-items: center; }
 .tools .tool-head input { flex: 1; min-width: 0; }
-.tools .tool-head select { padding: 0.3rem; border: 1px solid var(--edge); border-radius: 6px; background: var(--surface-page); }
-.tools .remove { padding: 0.2rem 0.45rem; border-color: transparent; color: var(--ink-muted); }
+.tools .tool-head select { padding: 0.3rem; border: 0; border-radius: var(--radius-sm); background: var(--surface-sunken); box-shadow: var(--clay-sink); }
+.tools .remove { padding: 0.2rem 0.45rem; box-shadow: none; background: transparent; color: var(--ink-muted); }
 .tools .remove:hover { color: var(--danger); }
 .tools textarea { font-size: 0.875rem; }
 
 /* Model choice, inside the hub */
-.models { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; }
+.models { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; }
 .models button {
   display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;
-  text-align: left; padding: 0.4rem 0.6rem; border-radius: 8px;
-  background: var(--surface-page); border-color: var(--line-firm);
+  text-align: left; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm);
+  background: var(--surface-raised);
 }
-.models button.chosen { border-color: var(--accent-bright); background: var(--accent-wash); }
-.models button.locked { color: var(--ink-secondary); border-style: dashed; }
-.models .lock { color: var(--ink-muted); font-size: 0.8125rem; white-space: nowrap; }
+/* The chosen model sinks into the gold wash — chosen things are pressed in,
+   the same gesture as the current agent in the shelf. */
+.models button.chosen { background: var(--accent-wash); box-shadow: var(--clay-sink); }
+.models button.locked { color: var(--ink-secondary); background: var(--surface-sunken); box-shadow: var(--clay-sink); }
+.models .lock { color: var(--ink-muted); font-size: 0.8125rem; text-align: right; }
 .models code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; }
 
 .endpoint { margin: 0.5rem 0 0; color: var(--ink-secondary); font-size: 0.875rem; overflow-wrap: anywhere; }
-.endpoint code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; background: var(--surface-sunken); padding: 0.1rem 0.35rem; border-radius: 4px; }
+.endpoint code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; background: var(--surface-sunken); padding: 0.1rem 0.35rem; border-radius: 6px; }
 .node .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.75rem; word-break: break-all; }
 
-/* Chat and try */
+/* Chat and try: the agent's lines are pebbles molded up, yours are pressed
+   in — the two sides of the conversation are the two sides of the recipe. */
 .side { display: flex; flex-direction: column; gap: 1.5rem; }
 .chat-log { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; max-height: 22rem; overflow: auto; }
-.chat-log li { padding: 0.5rem 0.7rem; border-radius: 8px; background: var(--surface-raised); border: 1px solid var(--line); }
-.chat-log li.you { background: var(--surface-page); border-color: var(--line-firm); }
-.chat-log li.note { background: var(--accent-wash); border-color: transparent; }
-.chat-log li.refused { border-color: var(--danger); }
+.chat-log li { padding: 0.5rem 0.8rem; border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--clay-raise-sm); }
+.chat-log li.you { background: var(--surface-sunken); box-shadow: var(--clay-sink); }
+.chat-log li.note { background: var(--attention-wash); }
+.chat-log li.refused { box-shadow: var(--clay-raise-sm), inset 0 0 0 2px var(--danger); }
 .chat-log .cost { display: block; color: var(--ink-muted); font-size: 0.8125rem; margin-top: 0.2rem; }
 .chat-form { display: flex; flex-direction: column; gap: 0.5rem; }
 .try .chat-form { flex-direction: row; }
@@ -211,12 +255,26 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
 
 .toast {
   position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%);
-  background: var(--surface-page); border: 1px solid var(--line-firm); box-shadow: var(--shadow);
-  padding: 0.6rem 1rem; border-radius: 8px; max-width: min(90vw, 36rem); margin: 0;
+  background: var(--surface-raised); box-shadow: var(--clay-raise);
+  padding: 0.6rem 1.1rem; border-radius: var(--radius-md); max-width: min(90vw, 36rem); margin: 0;
 }
-.toast.bad { border-color: var(--danger); }
+.toast.bad { box-shadow: var(--clay-raise), inset 0 0 0 2px var(--danger); }
 
 @media (max-width: 1100px) {
   .app { grid-template-columns: 1fr; }
   .canvas { min-height: 36rem; }
+}
+
+/* The same three system settings the viewer honours. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .001ms !important; animation-duration: .001ms !important; }
+  button:active { transform: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --ink-muted: #46403a; --ink-secondary: #2c2823; --ink: #221f1a; }
+  .top, .node, .canvas, .toast, .chat-log li { border: 1px solid var(--line-heavy); }
+  .top { background: var(--surface-raised); }
+}
+@media (forced-colors: active) {
+  .top, .node, .canvas, .toast, .chat-log li, button, input, textarea, select { border: 1px solid CanvasText; }
 }
