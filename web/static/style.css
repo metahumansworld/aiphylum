@@ -1,44 +1,63 @@
-/* soscitea's one stylesheet.
+/* soscitea's one stylesheet. This header is the platform's design spec: any
+ * new surface — builder, widget, whatever comes after — follows it.
  *
  * The point of view, stated once so nothing below has to guess: every page
- * here is a rendering of a JSONL trace. Not a dashboard — a record. So it is
- * set like a record: hairline rules, alignment, figures in tabular monospace
- * so columns of numbers line up down the page. Structure comes from rules and
- * alignment, not from boxes. Nothing is put in a container unless the
- * container means something.
+ * here is a rendering of a JSONL trace. Not a dashboard — a record. The
+ * record itself is still set like one: alignment, soft warm rules between
+ * rows, figures in tabular monospace so columns of numbers line up down the
+ * page.
  *
- * The material is frosted paper. White is the ground and four slightly darker
- * whites are the whole depth system — there are no dark fills anywhere on the
- * site. Anything that floats over moving content is a pane of glass instead of
- * a panel: translucent white, blurred, with a lit top edge and a shadow soft
- * enough to be light rather than weight. Emphasis is therefore made by tier
- * and by edge, never by a black bar: the heaviest thing on any page is a 2px
- * rule in warm grey, and the one filled control on the site is filled gold.
+ * The material is clay. The page is a slab of warm cream, and everything the
+ * reader can touch — the header, the bars, the panels, every button — is a
+ * piece pressed out of that same slab. Depth is molded, not drawn: a raised
+ * piece carries light on its upper-left, shade on its lower-right, and a
+ * diffuse shadow underneath, all at once; a well — an input, the scrubber's
+ * groove — is the same recipe turned inside out. No glass, no blur, no
+ * hairline around a slab: the light on the material is the edge. Corners are
+ * big and soft, because nothing hand-molded is sharp.
  *
- * Colour is spent, not scattered. Ink and warm grey carry the whole interface;
- * the gold is the mark, the current row and the primary control; the four
- * status hues appear only on the status word itself. Saturated colour lives in
- * exactly one place — the town artwork, which is the only thing on the site
- * that is a picture.
+ * The material has to move like clay too: a pressed control squishes — it
+ * scales down and its shadow flattens, because a pressed thing is nearer the
+ * ground — and settles back on a soft spring. That squish is the whole
+ * tactile argument of the platform: the world is a toy you shape, the
+ * credits are play money, and the chrome should feel like it.
+ *
+ * Colour is spent, not scattered. Warm ink and cream carry the interface;
+ * the colour system is four pastels of equal weight — Vis Vis yellow,
+ * Pale Green, Perano blue, Wewak pink — each paired with a deep tone of
+ * its own hue, because an 82%-lightness pastel can fill but never carry
+ * text — and, sitting at the cream ground's own luminance, a pastel is a
+ * slab or a wash, never a hairline: deeps draw the lines and the words.
+ * Two pastels are chrome and two are status: Vis Vis is the mark, the
+ * primary control and the header's own slab; Perano, thinned toward the
+ * cream, is the material of the rails — the surfaces where the platform
+ * speaks; Pale Green is the good word and Wewak the bad one, and neither
+ * is ever a panel, because a green panel says "success" and a pink one
+ * says "alarm". Saturated colour beyond
+ * the four lives in exactly one place — the town artwork, which is the
+ * only thing on the site that is a picture, and which was always a
+ * hand-molded toy village: the one part of the old design that was clay
+ * before the rest of it.
  *
  * The system:
  *
- *   Type    16px root, a seven-step rem ramp (--text-*). Never px: a reader
- *           who enlarges their browser font enlarges this whole page.
+ *   Type    16px root, a seven-step rem ramp (--text-*), set in the rounded
+ *           system face. Never px: a reader who enlarges their browser font
+ *           enlarges this whole page.
  *   Space   4px unit, --space-1..8. Tight inside a block, generous between
  *           blocks — that is where density comes from.
  *   Colour  Semantic roles only. Raw hex appears in this block and in the
  *           town's art, nowhere else.
- *   Depth   Five whites and one glass recipe. Glass goes on the four things
- *           the page actually moves underneath — the header, the control bar
- *           and the two sticky side panels. On anything fixed it would be a
- *           lie, so it is not used there.
+ *   Depth   One clay ground, two recipes: --clay-raise for anything that
+ *           stands up off the slab, --clay-sink for anything pressed into
+ *           it. Content — tables, logs, feeds — sits directly on the ground
+ *           and is ruled, not boxed.
  *   States  Every control answers hover, focus-visible, active, disabled,
- *           busy.
+ *           busy. Active is always the squish.
  *
- * Contrast is checked, not asserted: every ink and accent clears 4.5:1 on all
- * five whites it can land on, and control edges clear 3:1. Ink is a warm dark
- * grey rather than black — softer than print, and still 13:1 on the page.
+ * Contrast is checked, not asserted: every ink and accent clears 4.5:1 on
+ * every cream it can land on, and the focus ring clears 3:1. Ink is a warm
+ * dark grey rather than black — softer than print, still 11:1 on the ground.
  */
 
 :root {
@@ -47,50 +66,81 @@
      its own chrome, and its own chrome is blue. */
   color-scheme: light;
 
-  /* --- surfaces: white, then four slightly darker whites. This ramp is the
-         entire depth system — there is no dark surface anywhere below. Each
-         step is small on purpose: the tiers should be felt as paper stacked,
-         not seen as boxes drawn. --- */
-  --surface-page:   #ffffff;  /* the paper */
-  --surface-raised: #fbfaf7;  /* a pane that cannot be glass */
-  --surface-sunken: #f4f2ec;  /* wells: code, track grooves */
-  --surface-deep:   #eceae2;  /* the darkest white — table heads, firm ground */
-  --surface-hover:  #f7f5ef;  /* the one step a row moves under a pointer */
-  --surface-solid:  #ffffff;
+  /* --- surfaces: one warm clay ground, and the creams a piece of it shows
+         when it stands up (lighter — it catches the light) or is pressed in
+         (deeper — it holds the shade). The steps are gentle on purpose: the
+         tiers should be felt as one material molded, not seen as boxes
+         drawn. --- */
+  --surface-page:   #f3ede3;  /* the slab everything is pressed from */
+  --surface-raised: #faf5eb;  /* a piece standing up into the light */
+  --surface-sunken: #e9e2d3;  /* wells: code, track grooves */
+  --surface-deep:   #ded5c2;  /* the deepest press — table heads, firm ground */
+  --surface-hover:  #f7f2e7;  /* the one step a row moves under a pointer */
+  --surface-solid:  #faf5eb;
+  /* The rails' material: Perano thinned 40% into the raised cream. Raw
+     Perano fails muted ink (3.4:1); at this mix muted reads 4.94 and every
+     deep clears 5.4. The number is the reason for the hex. */
+  --surface-voice:  #d7dbf3;
 
-  /* --- ink. Warm dark grey, not black: the brief is white and shades of
-         white, so even the type stops short of the bottom of the range. --- */
-  --ink:           #35302a;  /* 13.1:1 on white — body and headings */
-  --ink-secondary: #5b544a;  /*  7.5:1 — supporting copy */
-  --ink-muted:     #6a655a;  /*  5.8:1 — labels, captions, column heads */
-  --ink-disabled:  #948c7e;  /*  3.3:1 — disabled only, which is exempt */
+  /* --- ink. Warm dark grey, not black: type in this material stops short of
+         the bottom of the range. --- */
+  --ink:           #35302a;  /* 11.5:1 on the ground — body and headings */
+  --ink-secondary: #55493c;  /*  7.0:1 — supporting copy */
+  --ink-muted:     #635a4c;  /*  5.4:1 — labels, captions, column heads */
+  --ink-disabled:  #8f8574;  /*  ~2.9:1 — disabled only, which is exempt */
 
-  /* --- edges --- */
-  --line:      #e7e3da;  /* hairlines: row rules, dividers */
-  --line-firm: #cdc7ba;  /* a divider that has to be seen */
-  --line-heavy:#b8b1a1;  /* the heaviest mark on the site, at 2px */
-  --edge:      #948c7e;  /* 3.3:1 — control boundaries, per WCAG 1.4.11 */
+  /* --- rules. Not borders: a slab has no outline in this material. These
+         are the soft warm lines that divide rows *inside* the record. --- */
+  --line:      #ddd3c1;  /* row rules, dividers */
+  --line-firm: #c4b8a1;  /* a divider that has to be seen */
+  --line-heavy:#a89c86;  /* the heaviest mark on the site, at 2px */
+  --edge:      #8f8574;  /* the skip link's border; slabs have none */
 
-  /* --- accents. Every hue sits between 0° and 170°, or is neutral.
-         Nothing in this file is permitted into 200°–300°. --- */
-  --accent:        #7a5d10;  /* gold, the mark — 5.6:1 on white */
-  --accent-bright: #cf9a24;  /* the same gold for fills and strokes, not text */
-  --accent-wash:   #fbf3de;  /* gold at a whisper: selection, current row */
-  --positive:      #276b44;  /* 5.9:1 */
-  --danger:        #b3261e;  /* 6.0:1 */
-  --attention:     #94500a;  /* 6.1:1 */
-  --rose:          #a4325f;  /* 6.1:1 — hue 336°, rose, well clear of violet */
+  /* --- accents: the four-pastel system (the user's palette, 2026-09-08).
+         Four hues at equal saturation and lightness — Vis Vis #FFEDA2,
+         Pale Green #B4FFA2, Perano #A2B4FF, Wewak #FFA2B4. A pastel this
+         light can fill or wash but never carry text, so each hue is a pair:
+         the pastel itself, and a deep tone of the same hue for ink. The
+         roles: Vis Vis is the mark and the one thing you press; Pale Green
+         is the good word; Wewak is the bad one, and live; Perano is
+         attention and credit. The division of labour is by weight, not by
+         hue: a pastel is a slab or a wash — it sits at the ground's own
+         luminance (1.01:1 on cream), so a molded shadow must give it an
+         edge; a deep is a line or a word. A pastel hairline is invisible;
+         a deep slab is a bruise. --- */
+  --accent:        #5f4c05;  /* Vis Vis deep — the mark: text, lines, bars */
+  --accent-bright: #ffeda2;  /* Vis Vis — slabs and washes, never a hairline */
+  --accent-wash:   #fff7d9;  /* Vis Vis at a whisper: selection, current row */
+  --positive:      #256018;  /* Pale Green deep — 6.5:1 */
+  --positive-bright: #b4ffa2; /* Pale Green — a slab, when good is a place */
+  --positive-wash: #dcffd1;  /* Pale Green, quieted: solved rows (deep: 7.0) */
+  --danger:        #9c2a43;  /* Wewak deep — 6.4:1 (never on the pink itself) */
+  --danger-bright: #ffa2b4;  /* Wewak — the live slab; ink on it reads 6.9 */
+  --attention:     #2e3f94;  /* Perano deep — 8.0:1 */
+  --attention-bright: #a2b4ff; /* Perano — a slab, where the agent speaks */
+  --attention-wash: #e3e9ff; /* Perano, quieted: notes (deep on it: 7.7) */
+  --rose:          #b03750;  /* Wewak, half a step lighter — 5.1:1 */
 
-  /* --- glass. One recipe, four uses: the header, the control bar and the two
-         sticky side panels — every element the page's own content slides
-         behind. Three parts make it read as glass rather than as a pale box:
-         a translucent white, a real blur with a little saturation so what is
-         behind keeps its colour, and a lit top edge. The shadow is deliberately
-         weaker than the highlight, so the pane reads as light on light. --- */
-  --glass:        rgba(255, 255, 255, .68);
-  --glass-blur:   saturate(1.7) blur(18px);
-  --glass-edge:   inset 0 1px 0 rgba(255, 255, 255, .9);
-  --glass-shadow: 0 1px 2px rgba(53, 48, 42, .05), 0 8px 24px rgba(53, 48, 42, .045);
+  /* --- clay. Two recipes and a press, used everywhere so the whole site is
+         molded from one material. Three shadows at once make a raised piece:
+         light inside the upper-left where it catches the room, shade inside
+         the lower-right where it turns away, and a diffuse drop underneath.
+         A sunken piece is the same thing inverted. The alphas are quiet on
+         purpose — louder and it stops being clay and becomes a 2010 bevel.
+         The shade is never pure black: it is the ink, thinned. --- */
+  --clay-raise: inset 5px 5px 10px rgba(255, 255, 255, .65),
+                inset -5px -5px 10px rgba(53, 48, 42, .07),
+                8px 10px 24px rgba(53, 48, 42, .13);
+  --clay-raise-sm: inset 3px 3px 6px rgba(255, 255, 255, .65),
+                   inset -3px -3px 6px rgba(53, 48, 42, .08),
+                   4px 5px 12px rgba(53, 48, 42, .13);
+  --clay-sink: inset 4px 4px 9px rgba(53, 48, 42, .10),
+               inset -4px -4px 9px rgba(255, 255, 255, .55);
+  /* Pressed: the drop shadow collapses (a pressed thing is nearer the
+     ground) and the inner shade deepens. Pair it with scale(.97). */
+  --clay-press: inset 3px 3px 7px rgba(53, 48, 42, .12),
+                inset -3px -3px 7px rgba(255, 255, 255, .45),
+                2px 3px 6px rgba(53, 48, 42, .10);
 
   /* --- type: 16px root, ramp named for the job, not the size --- */
   --text-caption:  0.75rem;    /* 12 — sequence numbers, clock, meta */
@@ -116,17 +166,18 @@
   --space-7: 3rem;     /* 48 */
   --space-8: 4rem;     /* 64 */
 
-  /* --- radii: small. A rounded rectangle is a container; almost nothing here
-         is a container, and the few that are should not announce it. --- */
-  --radius-sm:   3px;
-  --radius-md:   5px;
-  --radius-lg:   8px;
+  /* --- radii: big and soft. Nothing hand-molded has a sharp corner. --- */
+  --radius-sm:   10px;
+  --radius-md:   14px;
+  --radius-lg:   22px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(22, 19, 15, .06);
+  --shadow-sm: 2px 3px 8px rgba(22, 19, 15, .10);
 
-  /* --- motion: one duration, one curve, honoured or dropped wholesale --- */
+  /* --- motion: one duration pair, one easing curve, and one spring for the
+         settle after a squish — honoured or dropped wholesale --- */
   --ease: cubic-bezier(.32, .72, 0, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
   --fast: 120ms;
   --slow: 320ms;
 
@@ -143,7 +194,10 @@ body {
   margin: 0;
   background: var(--surface-page);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* The rounded cut where the system has one: chunky, soft-cornered type is
+     the letterform the material asks for. The fallbacks are the plain stack,
+     which still sits fine on clay. */
+  font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: var(--text-body);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
@@ -153,7 +207,7 @@ body {
    any control drawn from accent-color. Overriding them is not decoration;
    it is the difference between a palette and an intention. */
 ::selection { background: var(--accent-wash); color: var(--ink); }
-:root { accent-color: var(--accent-bright); caret-color: var(--accent); }
+:root { accent-color: var(--accent); caret-color: var(--accent); }
 
 /* Every figure on the site is tabular, so columns of numbers line up whether
    they sit in a table, a readout or a sentence. */
@@ -191,7 +245,9 @@ body {
 }
 .skip:focus { top: var(--space-3); }
 
-/* --- header: a thin rule of a bar. Glass, because the page scrolls under it. */
+/* --- header: a bar of the material. It stays square across the top — a slab
+       the width of the window is the shelf the page hangs from, and rounding
+       its window-edge corners would just say "screenshot". */
 header.site {
   position: sticky;
   top: 0;
@@ -201,31 +257,29 @@ header.site {
   gap: var(--space-6);
   padding: 0 var(--space-5);
   min-height: var(--header-h);
-  border-bottom: 1px solid var(--line);
 }
 
-/* One recipe, four panes, written once so they cannot drift apart: the header,
-   the control bar and the two sticky rails — every element the page's own
-   content slides behind while you read. Nothing else on the site is glass,
-   because nothing else has anything moving behind it to refract. */
+/* One molded edge, four slabs, written once so they cannot drift apart: the
+   header, the control bar and the two sticky rails — the pieces of chrome
+   that stand up off the page. None of them has a border: the molded shadow
+   is the edge. The material differs by voice: the header is a slab of the
+   mark's own pastel, the rails are the Perano tint — the surfaces where
+   the platform speaks — and the control bar stays cream, because it is the
+   tray the yellow and pink controls sit on and tinting it would drown them. */
 header.site,
 .controls,
 .state,
 .townside {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-edge), var(--glass-shadow);
+  box-shadow: var(--clay-raise);
 }
-/* Wherever the blur cannot be drawn, the surface goes opaque rather than
-   translucent. Text over a half-transparent panel with no blur is the one
-   outcome a material must never produce. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  header.site, .controls, .state, .townside { background: var(--surface-raised); }
-}
+header.site { background: var(--accent-bright); }
+.controls { background: var(--surface-raised); }
+.state,
+.townside { background: var(--surface-voice); }
 
-/* The mark: a small gold lozenge and the word, set tight. It is the one piece
-   of pure ornament on the site, which is why it gets to be the only one. */
+/* The mark: a small deep-olive ball and the word, set tight. It is the one
+   piece of pure ornament on the site, which is why it gets to be the only
+   one. */
 .brand {
   display: inline-flex;
   align-items: center;
@@ -236,16 +290,19 @@ header.site,
   letter-spacing: -.02em;
   text-decoration: none;
 }
+/* The ball is the mark's deep, molded in miniature — on the header's own
+   Vis Vis slab a pastel ball would vanish. */
 .brand::before {
   content: "";
-  width: .5rem; height: .5rem;
-  background: var(--accent-bright);
-  border-radius: 1px;
-  transform: rotate(45deg);
+  width: .55rem; height: .55rem;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, .7),
+              inset -1px -1px 2px rgba(53, 48, 42, .25),
+              1px 2px 3px rgba(53, 48, 42, .2);
   flex: none;
 }
 .brand:hover { text-decoration: none; }
-.brand:hover::before { background: var(--accent); }
 
 header.site nav { display: flex; gap: var(--space-4); }
 header.site nav a {
@@ -346,7 +403,7 @@ p.sub { max-width: 44rem; }
 code {
   background: var(--surface-sunken);
   padding: .1em .35em;
-  border-radius: var(--radius-sm);
+  border-radius: 6px; /* tighter than --radius-sm: at pill radius an inline code span reads as a status chip */
   font-size: .875em;
 }
 
@@ -452,7 +509,7 @@ td.rank { font-weight: var(--weight-bold); color: var(--ink); }
 /* --- sparkline: a line and a baseline. A chart of one series does not need a
        frame around it. --- */
 .spark { width: 100%; max-width: 44rem; height: auto; display: block; margin-bottom: var(--space-2); }
-.spark-line { fill: none; stroke: var(--accent-bright); stroke-width: 2; stroke-linejoin: round; }
+.spark-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .spark-zero { stroke: var(--line-firm); stroke-width: 1; }
 .spark-dot  { fill: var(--accent); }
 
@@ -475,54 +532,59 @@ table.book th, table.book td { padding: var(--space-1) var(--space-4) var(--spac
 table.book td { border-bottom: 0; }
 table.book tbody tr:hover { background: none; }
 
-/* --- the control bar: glass, and sticky under the header, so the thing you
-       steer stays where you left it however far the page scrolls --- */
+/* --- the control bar: a clay slab, sticky under the header, so the thing
+       you steer stays where you left it however far the page scrolls --- */
 .controls {
   position: sticky;
-  top: var(--header-h);
+  top: calc(var(--header-h) + var(--space-2));
   z-index: 5;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-3);
   margin: 0 0 var(--space-5);
-  /* The bar bleeds a little past the measure so the glass reads as a sheet the
+  /* The slab bleeds a little past the measure so it reads as a shelf the
      column passes under, not as a card sitting inside the column. */
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
   margin-left: calc(var(--space-4) * -1);
   margin-right: calc(var(--space-4) * -1);
-  border-bottom: 1px solid var(--line);
   border-radius: var(--radius-lg);
 }
 
-/* --- buttons and selects: all six states, because a control that only has a
-       default state has not told you it is a control --- */
+/* --- buttons and selects: pieces of the material, borderless, molded up off
+       the bar. All six states, because a control that only has a default
+       state has not told you it is a control --- */
 .controls button, .controls select {
-  background: var(--surface-solid);
+  background: var(--surface-raised);
   color: var(--ink);
-  border: 1px solid var(--edge);
+  border: 0;
   border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-3);
-  min-height: 1.75rem;
+  min-height: 1.9rem;
   font: inherit;
   font-size: var(--text-label);
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
-              color var(--fast) var(--ease), transform var(--fast) var(--ease);
+  box-shadow: var(--clay-raise-sm);
+  /* The settle rides the spring: releasing a squished button lets it bounce
+     back up a touch past rest, which is what makes it read as soft. */
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+              box-shadow var(--fast) var(--ease), transform var(--slow) var(--spring);
 }
 .controls button:hover, .controls select:hover {
   background: var(--surface-hover);
-  border-color: var(--ink-muted);
 }
 .controls button:active {
-  background: var(--surface-sunken);
-  /* A press should feel like a press: the button goes down, not just darker. */
-  transform: translateY(1px);
+  /* The squish: the piece scales down, its drop shadow collapses, its inner
+     shade deepens. A press should feel like a thumb in clay. */
+  transform: scale(.96);
+  box-shadow: var(--clay-press);
+  transition-duration: var(--fast);
 }
 .controls button:disabled, .controls select:disabled {
   color: var(--ink-disabled);
   background: var(--surface-sunken);
-  border-color: var(--line-firm);
+  box-shadow: var(--clay-sink);
   cursor: not-allowed;
   transform: none;
 }
@@ -547,31 +609,39 @@ table.book tbody tr:hover { background: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Play is the one thing on these pages you are meant to press, so it is the
-   one filled control on the site. Everything beside it is an outline. With no
-   dark fills available the fill is gold — the mark's own colour, which makes
-   the primary action the only saturated thing in the chrome. Ink on it reads
-   5.2:1, so the glyph is legible rather than merely visible. */
+   one Vis Vis piece of clay on the site: the mark's own colour, molded with
+   the same recipe as everything else — its highlight is the yellow lightened,
+   its shade the yellow's own deep. Ink on it reads 11:1, so the glyph is
+   legible rather than merely visible. */
 #play {
   min-width: 2.5rem;
   background: var(--accent-bright);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--ink);
   font-size: var(--text-body);
-  box-shadow: var(--glass-edge);
+  box-shadow: inset 3px 3px 6px rgba(255, 250, 224, .8),
+              inset -3px -3px 6px rgba(95, 76, 5, .22),
+              4px 5px 12px rgba(53, 48, 42, .18);
 }
-#play:hover { background: #dba930; border-color: var(--accent); }
-#play:active { background: #c08d1c; border-color: var(--accent); }
-#play:disabled { background: var(--surface-sunken); border-color: var(--line-firm); color: var(--ink-disabled); box-shadow: none; }
+#play:hover { background: #ffe88a; }
+#play:active {
+  background: #f6da6e;
+  box-shadow: inset 3px 3px 7px rgba(95, 76, 5, .3),
+              inset -3px -3px 7px rgba(255, 250, 224, .45),
+              2px 3px 6px rgba(53, 48, 42, .12);
+}
+#play:disabled { background: var(--surface-sunken); color: var(--ink-disabled); box-shadow: var(--clay-sink); }
 #play[aria-busy="true"]::after { border-color: color-mix(in srgb, var(--ink) 25%, transparent); border-top-color: var(--ink); }
 
-/* --- the scrubber.
-   accent-color alone gets the fill right and the rest wrong: Chromium picks
-   the *unfilled* half of the track itself, and against a gold accent it picks
-   near-black — a hard dark bar across the one control the eye lands on. So
-   the track is drawn here rather than delegated. Played is gold, unplayed is
-   the deepest white, and the thumb is a white disc with a gold ring so it
-   stays findable over either half. --p is the played fraction, written by
-   replay.js on every move, because WebKit has no ::-moz-range-progress. --- */
+/* --- the scrubber: a groove pressed into the bar, with a pebble riding in
+   it. accent-color alone gets the fill right and the rest wrong: Chromium
+   picks the *unfilled* half of the track itself and invents its own
+   foreground, so the track is drawn here rather than delegated. Played is
+   the mark's deep — the pastel is the ground's own luminance and would
+   vanish in the groove — unplayed is the groove's own shade, and the thumb
+   is a raised cream pebble ringed in the same deep, so it stays findable
+   over either half. --p is the played
+   fraction, written by replay.js on every move, because WebKit has no
+   ::-moz-range-progress. --- */
 .controls input[type=range] {
   flex: 1;
   min-width: 8rem;
@@ -582,41 +652,45 @@ table.book tbody tr:hover { background: none; }
   background: transparent;
 }
 .controls input[type=range]::-webkit-slider-runnable-track {
-  height: 6px;
+  height: 8px;
   border-radius: var(--radius-pill);
   background: linear-gradient(to right,
-    var(--accent-bright) 0 var(--p, 0%), var(--surface-deep) var(--p, 0%) 100%);
-  box-shadow: inset 0 0 0 1px var(--line);
+    var(--accent) 0 var(--p, 0%), var(--surface-deep) var(--p, 0%) 100%);
+  box-shadow: inset 2px 2px 4px rgba(53, 48, 42, .16),
+              inset -1px -1px 3px rgba(255, 255, 255, .5);
 }
 .controls input[type=range]::-moz-range-track {
-  height: 6px;
+  height: 8px;
   border-radius: var(--radius-pill);
   background: var(--surface-deep);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 2px 2px 4px rgba(53, 48, 42, .16),
+              inset -1px -1px 3px rgba(255, 255, 255, .5);
 }
 .controls input[type=range]::-moz-range-progress {
-  height: 6px;
+  height: 8px;
   border-radius: var(--radius-pill);
-  background: var(--accent-bright);
+  background: var(--accent);
 }
 .controls input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 1rem;
-  height: 1rem;
+  width: 1.15rem;
+  height: 1.15rem;
   border-radius: 50%;
   background: var(--surface-solid);
   border: 2px solid var(--accent);
-  margin-top: -5px; /* centres the 16px thumb on the 6px track */
-  box-shadow: var(--shadow-sm);
+  margin-top: -5.2px; /* centres the ~18px pebble on the 8px groove */
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, .8),
+              2px 3px 6px rgba(53, 48, 42, .22);
 }
 .controls input[type=range]::-moz-range-thumb {
-  width: 1rem;
-  height: 1rem;
+  width: 1.15rem;
+  height: 1.15rem;
   border-radius: 50%;
   background: var(--surface-solid);
   border: 2px solid var(--accent);
-  box-shadow: var(--shadow-sm);
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, .8),
+              2px 3px 6px rgba(53, 48, 42, .22);
 }
 .controls input[type=range]:hover::-webkit-slider-thumb { background: var(--accent-wash); }
 .controls input[type=range]:hover::-moz-range-thumb { background: var(--accent-wash); }
@@ -628,9 +702,20 @@ table.book tbody tr:hover { background: none; }
 .controls input[type=range]:disabled::-webkit-slider-thumb { border-color: var(--line-firm); }
 .controls input[type=range]:disabled::-moz-range-thumb { border-color: var(--line-firm); }
 
-#livebtn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
-#livebtn:hover { background: color-mix(in srgb, var(--danger) 7%, var(--surface-solid)); border-color: var(--danger); }
-#livebtn.off { color: var(--ink-muted); border-color: var(--edge); }
+/* Live is the one state worth a whole pastel: while following, the button is
+   a slab of Wewak clay, molded like the play button — highlight the pink
+   lightened, shade the pink's own deep. The label is ink (6.9:1 on the
+   pastel); Wewak's deep never sits on its own pastel, it only clears 3.9.
+   Off, it goes back to being an ordinary cream button. */
+#livebtn {
+  color: var(--ink);
+  background: var(--danger-bright);
+  box-shadow: inset 2px 2px 5px rgba(255, 228, 234, .8),
+              inset -2px -2px 5px rgba(156, 42, 67, .22),
+              3px 4px 8px rgba(53, 48, 42, .15);
+}
+#livebtn:hover { background: #ff8fa5; }
+#livebtn.off { color: var(--ink-muted); background: var(--surface-raised); box-shadow: var(--clay-raise-sm); }
 #livebtn.off:hover { color: var(--ink); background: var(--surface-hover); }
 
 #pos { color: var(--ink-muted); font-size: var(--text-caption); }
@@ -644,8 +729,7 @@ table.book tbody tr:hover { background: none; }
 .state {
   position: sticky;
   top: calc(var(--header-h) + var(--space-4));
-  padding: var(--space-4);
-  border: 1px solid var(--line);
+  padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-lg);
 }
 /* In the rail the readout turns on its side: label left, figure right, one per
@@ -685,15 +769,15 @@ table.book tbody tr:hover { background: none; }
 .ag-bal { float: right; color: var(--ink-secondary); }
 .bar {
   height: 3px;
-  /* The groove needs the deepest white: on a glass panel over white paper the
-     sunken tier all but disappears, and an empty bar has to be visible as an
-     empty bar. */
+  /* The groove takes the deepest press of the material, so an empty bar is
+     visible as an empty bar. */
   background: var(--surface-deep);
+  box-shadow: inset 1px 1px 2px rgba(53, 48, 42, .14);
   margin-top: var(--space-1);
   overflow: hidden;
   border-radius: var(--radius-pill);
 }
-.bar .fill { height: 100%; background: var(--accent-bright); transition: width var(--slow) var(--ease); }
+.bar .fill { height: 100%; background: var(--accent); transition: width var(--slow) var(--ease); }
 .ag.dead .bar .fill { background: var(--danger); }
 
 .bo { padding: var(--space-1) 0; font-size: var(--text-footnote); }
@@ -729,12 +813,12 @@ table.book tbody tr:hover { background: none; }
 .ev .etext .who { color: var(--ink); font-weight: var(--weight-medium); }
 /* The current row is marked three ways — wash, rule and weight — so it survives
    both a colour-blind reader and a monochrome screen. */
-.ev.current { background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent-bright); }
+.ev.current { background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent); }
 .ev.current .etext { color: var(--ink); }
 .ev.future { opacity: .38; }
 
-/* --- event kinds. Five hues, none of them blue or violet, and each one always
-       accompanied by the kind in words. --- */
+/* --- event kinds. Five tones, every one a deep of the palette's own hues,
+       and each one always accompanied by the kind in words. --- */
 .t-bounty .etype     { color: var(--accent); }
 .t-bid .etype        { color: var(--positive); }
 .t-credit .etype     { color: var(--attention); }
@@ -761,14 +845,17 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 .townmap { position: relative; }
 .townmap svg { width: 100%; height: auto; display: block; }
 
-/* The outline. Every solid thing in the town is drawn with the same warm dark
-   edge — that single stroke is most of what makes the style read as one. */
-.townmap .ol  { stroke: #3b2a1d; stroke-width: 1.6; stroke-linejoin: round; }
-.townmap .ol2 { stroke: #3b2a1d; stroke-width: 2.6; stroke-linejoin: round; }
+/* The outline. Every solid thing in the town is drawn with the same warm
+   edge — that single stroke is most of what makes the style read as one. It
+   was always the toy-village idiom, which is to say the town was clay before
+   the chrome was: all the material change asks of it is a softer line, warm
+   brown rather than near-black, rounded at every end. */
+.townmap .ol  { stroke: #54402c; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.townmap .ol2 { stroke: #54402c; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
 
 /* the ground, and the earth it sits on */
 .townmap .plinth-shadow { fill: rgba(74, 54, 34, .22); }
-.townmap .plinth        { fill: #8a5f3a; stroke: #3b2a1d; stroke-width: 2.6; stroke-linejoin: round; }
+.townmap .plinth        { fill: #8a5f3a; stroke: #54402c; stroke-width: 2.6; stroke-linejoin: round; }
 .townmap .plinth-top    { fill: #5d8f3c; }
 .townmap .tuft   { stroke: #3f7a2c; stroke-width: 1.6; fill: none; stroke-linecap: round; }
 .townmap .curb   { stroke: #a8916a; stroke-width: 2; stroke-linecap: round; }
@@ -779,8 +866,9 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 .townmap .tilelip   { stroke: rgba(255, 244, 224, .3); stroke-width: 1.1; }
 .townmap .ridge     { stroke: #3b2a1d; stroke-width: 4; stroke-linecap: round; }
 
-/* A building whose resident is home turns to glass, so you can watch them in
-   it. Everything below the eaves — the footing and the floor — stays solid. */
+/* A building whose resident is home turns see-through, so you can watch them
+   in it. Everything below the eaves — the footing and the floor — stays
+   solid. */
 .townmap .shell { transition: opacity .45s; }
 .townmap .shell.open { opacity: .28; }
 .townmap .plank { stroke: #8a5f3a; stroke-width: 1.4; }
@@ -825,13 +913,12 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
   letter-spacing: -.02em;
 }
 
-/* --- the side rail: a column, divided from the map by one line. Not a panel:
-       a panel floating beside a picture is two boxes where one page will do. */
+/* --- the side rail: a slab of the material standing beside the world, the
+       shelf its roster and feed sit on. --- */
 .townside {
   position: sticky;
   top: calc(var(--header-h) + var(--space-4));
-  padding: var(--space-4);
-  border: 1px solid var(--line);
+  padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-lg);
 }
 .townside h2 { font-size: var(--text-label); margin-bottom: var(--space-1); }
@@ -885,8 +972,9 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
    ink of a notice board for the office's own doings. */
 .feedline.posted { font-style: italic; }
 .feedline.posted b, .feedline.shelved b, .feedline.nobids b, .feedline.voided b { color: var(--ink-secondary); }
-.feedline.awarded b, .feedline.solved b { color: var(--accent); font-weight: var(--weight-bold); }
-.feedline.solved { background: var(--accent-wash); border-radius: var(--radius-sm, 6px); padding-inline: var(--space-1); }
+.feedline.awarded b { color: var(--accent); font-weight: var(--weight-bold); }
+.feedline.solved b { color: var(--positive); font-weight: var(--weight-bold); }
+.feedline.solved { background: var(--positive-wash); border-radius: var(--radius-sm, 6px); padding-inline: var(--space-1); }
 .feedline.failed b, .feedline.bankrupt b { color: var(--danger); }
 .feedline.nobids, .feedline.shelved { color: var(--ink-muted); }
 /* Money spent on nothing but presence: named in the accent so it reads as a
@@ -943,8 +1031,10 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
   display: block;
   margin: var(--space-4) 0;
   padding: var(--space-3) var(--space-4);
-  border-left: 2px solid var(--ink-muted);
+  border-left: 3px solid var(--ink-muted);
   background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--clay-raise-sm);
   font-size: var(--text-label);
   color: var(--ink-secondary);
 }
@@ -968,26 +1058,15 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 }
 @media (max-width: 56rem) {
   .townpage { grid-template-columns: 1fr; }
-  /* Stacked under the map the rail has nothing sliding behind it any more, so
-     it stops pretending to be glass and becomes a plain pane. */
-  .townside {
-    position: static;
-    background: var(--surface-raised);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    box-shadow: none;
-  }
+  /* Stacked under the map the rail stays a slab — the material does not
+     change with the width — it just stops being sticky: a sticky panel on a
+     short screen is a panel that covers the thing it describes. */
+  .townside { position: static; }
   .feed { max-height: 22rem; }
 }
 @media (max-width: 50rem) {
   .replay { grid-template-columns: 1fr; gap: var(--space-5); }
-  .state {
-    position: static;
-    background: var(--surface-raised);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    box-shadow: none;
-  }
+  .state { position: static; }
   .log { max-height: 60vh; }
 }
 @media (max-width: 40rem) {
@@ -1018,10 +1097,13 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
 }
 
 /* ===================== user preferences =====================
-   Four system settings, honoured properly rather than gestured at. */
+   Three system settings, honoured properly rather than gestured at. (The
+   glass system also answered prefers-reduced-transparency; clay is opaque
+   everywhere, so that block earned its deletion.) */
 
 /* Motion. Everything animated here is ornament — a shimmer, a flicker, a
-   pulsing live dot, a button that dips — so under Reduce Motion it all stops. */
+   pulsing live dot, a button that squishes — so under Reduce Motion it all
+   stops, the squish transform included: a scale change is motion too. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
@@ -1035,40 +1117,33 @@ body:has(.townpage) main { max-width: var(--measure-wide); }
   .controls button:active { transform: none; }
 }
 
-/* Transparency. This is the setting glass exists to answer: when a reader has
-   asked for less of it, both bars become opaque surfaces. Blur is a nicety;
-   legibility is not. */
-@media (prefers-reduced-transparency: reduce) {
-  header.site, .controls, .state, .townside {
-    background: var(--surface-raised);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-/* Contrast. Ink darkens, edges firm up, and the hairlines become visible
-   rules. */
+/* Contrast. Ink darkens, the row rules firm up, and every slab gets the edge
+   the material normally does without — molded shadows are exactly the kind
+   of low-contrast boundary this setting exists to overrule. */
 @media (prefers-contrast: more) {
   :root {
     --ink-muted: #46403a;
     --ink-secondary: #2c2823;
     --ink: #221f1a;
-    --line: #c4beb0;
-    --line-firm: #9a9284;
-    --line-heavy: #6b6459;
-    --edge: #6b6459;
-    --glass: rgba(255, 255, 255, .96);
+    --line: #b3a88f;
+    --line-firm: #8a7f68;
+    --line-heavy: #665d4d;
+    --edge: #665d4d;
   }
+  header.site, .controls, .state, .townside, .notice { border: 1px solid var(--line-heavy); }
+  /* The tinted chrome falls back to cream: more contrast means the ink
+     ramp at full strength, not a coloured panel underneath it. */
+  header.site, .state, .townside { background: var(--surface-raised); }
   .ev.future { opacity: .6; }
   a:hover { text-decoration-thickness: 2px; }
 }
 
-/* Forced colours (Windows high contrast). Stop painting; let the OS paint,
-   and keep the focus ring and the current row visible in whatever palette it
-   chose. */
+/* Forced colours (Windows high contrast). Stop painting; let the OS paint.
+   Clay's shadows vanish under a forced palette, and a slab with no border
+   and no shadow is invisible — so every slab takes a drawn edge here. */
 @media (forced-colors: active) {
-  .controls, .townside, .log, .stats { border-color: CanvasText; }
-  #play { border: 1px solid CanvasText; }
+  header.site, .controls, .state, .townside, .notice, .log, .stats { border: 1px solid CanvasText; }
+  #play, .controls button, .controls select { border: 1px solid CanvasText; }
   /* The hand-drawn track exists to avoid one dark fill; under a palette the OS
      chose there is no such fill to avoid, so give the slider back to the UA. */
   .controls input[type=range] { -webkit-appearance: auto; appearance: auto; }
