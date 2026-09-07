@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -244,6 +244,32 @@ fair-costermongers-7day:
 fair-costermongers-sealed-7day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/costermonger.py -guest examples/guests/packman.py -trace fair-costermongers-sealed-7day-trace.jsonl
 
+## fair-higgler-7day: a reader of the rise, seated behind a costermonger for
+## seven open days. The higgler is the peddler with one thing added, read from
+## the book and not from a wallet: a rival that stood at the reserve on the
+## last card of a tier and stands above it now has left the floor, and its ask
+## is the higgler's floor for that tier from then on. The costermonger's week
+## put an unpaid reader behind a reader whose floor had just risen; this is
+## the same week with the back seat reading the rise instead of undercutting
+## it, and what that is worth to the back seat and to the posters is what
+## the trace is for.
+fair-higgler-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/costermonger.py -guest examples/guests/higgler.py -trace fair-higgler-7day-trace.jsonl
+
+## fair-higgler-sealed-7day: the control — the line above without "-book
+## open". No result carries a book, so nothing ever rises on one, and a
+## higgler with nothing to read is the peddler under another name.
+fair-higgler-sealed-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/costermonger.py -guest examples/guests/higgler.py -trace fair-higgler-sealed-7day-trace.jsonl
+
+## fair-higgler-swapped-7day: the open week with the flags the other way
+## round — the higgler in front, the costermonger behind. The front seat wins
+## every tie and runs every chain; whether the seat that reads its meter ever
+## gets to rise when it is never paid, and so whether the seat that reads the
+## book ever has a rise to read, is the corner this target runs.
+fair-higgler-swapped-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/higgler.py -guest examples/guests/costermonger.py -trace fair-higgler-swapped-7day-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -258,7 +284,7 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode refuses to truncate it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl
 
 ## serve: the service — the builder page and one built agent, from
 ## examples/agents, on 127.0.0.1:8151. Open http://127.0.0.1:8151/ and sign

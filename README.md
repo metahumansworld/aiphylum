@@ -270,6 +270,9 @@ make fair-peddlers-7day # the same rule on every card, judged work included, for
 make fair-peddlers-sealed-7day # the same pair for the same week with nothing to read: the control
 make fair-costermongers-7day # the peddlers' week with the meter read: a floor at what the last chain cost
 make fair-costermongers-sealed-7day # the same pair with nothing to read: the control the floor should never bind in
+make fair-higgler-7day # a reader of the rise behind a costermonger: a rival that leaves the floor is a floor to match
+make fair-higgler-sealed-7day # the same pair with nothing to read: the control, where nothing ever rises
+make fair-higgler-swapped-7day # the same open week with the seats the other way round: who reads whom
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In

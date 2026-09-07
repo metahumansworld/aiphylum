@@ -1603,3 +1603,150 @@ func TestFairAFloorReadFromTheMeterIsDerivableFromTheTraceAlone(t *testing.T) {
 	}
 	t.Logf("asks %d, raised above the reserve %d; deliveries %d, paid to win while the floor lagged %d", len(asks), raised, len(deliveries), lagged)
 }
+
+// A rise on the book is a floor, and it is derivable from the trace alone. A
+// reader that has never been paid has never read its meter; what it has read
+// is the book, and the book shows a rival that stood at the reserve on the
+// last card and stands above it now. The higgler's rule is that such a rival
+// has left the floor and its ask is the floor to match — and every number the
+// rule acts on is on the trace before it acts: the posted reserve, and the
+// awarded book. So every ask the reader makes is recomputable from the
+// events before it: the reserve, or the highest ask a rival at the reserve
+// last time has risen to since, whichever is higher. A riser seated first
+// stands in for the costermonger whose floor rose; the reader sits behind it.
+func TestFairARiseOnTheBookIsAFloorAndIsDerivableFromTheTraceAlone(t *testing.T) {
+	const riser, reader = "riser", "reader"
+	cast := func(*world) map[string]stepFunc {
+		// The riser asks the reserve on the deck's first two cards and
+		// three times it from the third: a bidder leaving the floor.
+		rise := func(_ StepRequest, in StepInput) StepResult {
+			var acts []Action
+			for _, b := range in.Observation.Bounties {
+				price := b.Reserve
+				if b.ID > "b0002" {
+					price = 3 * b.Reserve
+				}
+				acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+			}
+			return out(acts...)
+		}
+		// The reader: the memo made a closure — the reserve of every card
+		// asked on, who stood at the reserve on the last book, the floor.
+		placed := map[string]ledger.Credits{}
+		at := map[string]bool{}
+		var floor ledger.Credits
+		read := func(_ StepRequest, in StepInput) StepResult {
+			for _, r := range in.Observation.Results {
+				reserve, ok := placed[r.Bounty]
+				if !ok || len(r.Book) == 0 {
+					continue
+				}
+				next := map[string]bool{}
+				for _, e := range r.Book {
+					if e.Agent == reader {
+						continue
+					}
+					if at[e.Agent] && e.Asked > reserve && e.Asked > floor {
+						floor = e.Asked
+					}
+					if e.Asked == reserve {
+						next[e.Agent] = true
+					}
+				}
+				at = next
+			}
+			var acts []Action
+			for _, b := range in.Observation.Bounties {
+				price := b.Reserve
+				if floor > price {
+					price = floor
+				}
+				placed[b.ID] = b.Reserve
+				acts = append(acts, Action{Type: ActionBid, Bounty: b.ID, Price: price})
+			}
+			return out(acts...)
+		}
+		return map[string]stepFunc{
+			"scholar": script(bidAll(0.5), solve),
+			"frugal":  script(bidAll(0.5), solve),
+			"gambler": script(bidAll(0.5), solve),
+			riser:     script(rise, solve),
+			reader:    script(read, solve),
+		}
+	}
+	lines := fairSeatedDays(t, filepath.Join(t.TempDir(), "rise.jsonl"), 1, []string{riser, reader}, cast, false,
+		func(cfg *Config, _ *FairConfig) { cfg.Book = OpenBook })
+
+	// Replay the rule from the trace alone, in seq order: every awarded
+	// book the reader is in updates who stood at the reserve and the floor;
+	// every bid the reader makes is checked against the floor as it stood.
+	reserve := map[string]ledger.Credits{}
+	at := map[string]bool{}
+	var floor ledger.Credits
+	asks, raised, rises := 0, 0, 0
+	for _, l := range lines {
+		var p struct {
+			Action string         `json:"action"`
+			ID     string         `json:"id"`
+			Bounty string         `json:"bounty"`
+			Agent  string         `json:"agent"`
+			Price  ledger.Credits `json:"price"`
+			Res    ledger.Credits `json:"reserve"`
+			Book   []struct {
+				Agent string
+				Price ledger.Credits
+			} `json:"book"`
+		}
+		if err := json.Unmarshal(l.Payload, &p); err != nil {
+			continue
+		}
+		switch {
+		case l.Type == trace.EventBounty && p.Action == "posted":
+			reserve[p.ID] = p.Res
+		case l.Type == trace.EventBounty && p.Action == "awarded":
+			in := false
+			for _, e := range p.Book {
+				in = in || e.Agent == reader
+			}
+			if !in {
+				continue
+			}
+			next := map[string]bool{}
+			for _, e := range p.Book {
+				if e.Agent == reader {
+					continue
+				}
+				if at[e.Agent] && e.Price > reserve[p.ID] {
+					rises++
+					if e.Price > floor {
+						floor = e.Price
+					}
+				}
+				if e.Price == reserve[p.ID] {
+					next[e.Agent] = true
+				}
+			}
+			at = next
+		case l.Type == trace.EventBid && p.Agent == reader:
+			asks++
+			want := reserve[p.Bounty]
+			if floor > want {
+				want = floor
+				raised++
+			}
+			if p.Price != want {
+				t.Errorf("%s at seq %d: the reader asked %d; the reserve is %d and the highest rise read before it is %d", p.Bounty, l.Seq, p.Price, reserve[p.Bounty], floor)
+			}
+		}
+	}
+	// The guards, both fatal: a book has to have shown a rival leaving the
+	// floor, or there was nothing to read; and the reader has to have asked
+	// above the reserve at least once, or the rise was read and not acted on.
+	if rises == 0 {
+		t.Fatal("no book showed a rival at the reserve rising above it: nothing rose, and the test measured nothing")
+	}
+	if raised == 0 {
+		t.Fatal("the reader never asked above the reserve: the rise was read and not acted on, and the test measured nothing")
+	}
+	t.Logf("reader asks %d, above the reserve %d; rises read %d; floor %d", asks, raised, rises, floor)
+}
