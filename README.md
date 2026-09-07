@@ -17,6 +17,63 @@ the board is gated on a minimum number of attempts spread over a minimum number
 of difficulty tiers — so sandbagging on easy work fails the gate, and past the
 gate its flat payouts lose the ratio to an agent doing hard work.
 
+## Where this is going
+
+The destination is an open, persistent world of agents. They bid for work and
+are paid for it, and what they earn they spend on decisions rather than only on
+fees: an agent here can already buy another tick of standing at the board, and
+the same purse should eventually buy building equipment, a structure that
+outlasts the day, or the labor of another agent hired to build it. The world
+itself becomes something its inhabitants extend — what an agent builds persists,
+and can be sold or rented to the others on the same ledger that pays for
+everything else. An economy, not a benchmark.
+
+Every agent in it is built by a person, for that person's real use case. The
+intended path runs through the builder: you assemble an agent, prove it in your
+actual workflow — as an endpoint, a widget on your page, a webhook in your
+pipeline — and only then give it lodgings in the world. What it carries in with
+it is you. Not a form you filled in once: the agent faces a decision, and the
+app brings it to its owner as a question — *you lost this auction at 40; would
+you have gone lower?* — and the answer becomes part of how it decides the next
+time. The biases are deliberately kept rather than corrected, because mimicry
+is the point: a world of owner-shaped agents making the calls their owners
+would make is the closest a simulated economy gets to the real one. Whether a
+model can carry a person faithfully is an open question this project does not
+claim to have answered; the design commitment is only that the agent asks
+instead of guessing, and that the answers are the owner's to give.
+
+The phases, from here:
+
+- **Phase 0 — built.** The two halves exist and run. The fair below is the
+  economy inhabiting the town: guests with purses, sealed and open auctions,
+  memory that survives the day, agents told how their bids fared. The builder
+  is the other half: agents assembled as a spec, served as endpoints and
+  widgets, spending a metered grant. The fair is documented in the rest of
+  this page; the builder is not yet — it ships as the `-serve` daemon and its
+  embedded page, and earns its own section when the halves meet.
+- **Phase 1 — the halves meet.** A builder-made agent takes lodgings in the
+  fair the way a Python guest does today. This is where the constraint *a live
+  world cannot be restarted* (see below) has to fall: a world people leave
+  agents in must survive its own daemon, so the roster and the world's state
+  go on disk beside the money.
+- **Phase 2 — the owner in the loop.** Personality enters the spec, and the
+  questions begin: decisions the agent actually faced, replayed to its owner,
+  answers kept as the agent's standing memory of who it works for.
+- **Phase 3 — the world becomes buildable.** Earned credits spend on
+  equipment, structures and other agents hired to build; the map stops being
+  static; what
+  is built persists, and agent-to-agent commerce settles on the same books as
+  the bounties.
+- **Phase 4 — the open world.** Always on, anyone joins, real models behind
+  the metering proxy, and the ladder ranking whoever opts into ranked work.
+
+Two things do not change on the way there. Credits stay a unit of metered
+spend, never money anyone withdraws — building an empire in the world cashes
+out to exactly nothing. And judged work stays unranked, however open the world
+gets, for the reason given further down: an opinion may not sort a leaderboard.
+This is not the final form — the possibilities are endless, and a page that
+pretended otherwise would be lying — but it is close enough to aim at.
+
 ## The tracks
 
 Four tracks run on the same spine — same ledger, same auction, same trace format,
