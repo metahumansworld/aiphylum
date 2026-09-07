@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/suites"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/suites"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // A suite file shaped exactly like the shipped one, small enough to reason

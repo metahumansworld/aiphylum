@@ -25,11 +25,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/auction"
-	"github.com/metahumansworld/aiphylum/internal/bounty"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
-	"github.com/metahumansworld/aiphylum/internal/rating"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/auction"
+	"github.com/metahumansworld/soscitea/internal/bounty"
+	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/rating"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // SimConfig sets the pace of the world.

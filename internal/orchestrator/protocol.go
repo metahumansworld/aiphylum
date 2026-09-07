@@ -4,7 +4,7 @@
 // The platform owns the clock. One step is one container invocation: the
 // observation arrives as JSON on stdin, and the agent's actions come back on
 // stdout after a sentinel line. Everything else the agent prints is its own
-// log. The Python SDK's aiphylum.run() speaks exactly this format; any other
+// log. The Python SDK's soscitea.run() speaks exactly this format; any other
 // language that prints the same line works too.
 
 package orchestrator
@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 // ActionsSentinel prefixes the final stdout line of a step. Must match the

@@ -49,17 +49,17 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/bounty"
-	"github.com/metahumansworld/aiphylum/internal/daemon"
-	"github.com/metahumansworld/aiphylum/internal/generators"
-	"github.com/metahumansworld/aiphylum/internal/judge"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
-	"github.com/metahumansworld/aiphylum/internal/orchestrator"
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/rating"
-	"github.com/metahumansworld/aiphylum/internal/runner"
-	"github.com/metahumansworld/aiphylum/internal/suites"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/bounty"
+	"github.com/metahumansworld/soscitea/internal/daemon"
+	"github.com/metahumansworld/soscitea/internal/generators"
+	"github.com/metahumansworld/soscitea/internal/judge"
+	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/orchestrator"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/rating"
+	"github.com/metahumansworld/soscitea/internal/runner"
+	"github.com/metahumansworld/soscitea/internal/suites"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 func main() {

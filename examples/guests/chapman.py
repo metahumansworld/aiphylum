@@ -16,8 +16,8 @@ Whether the back seat is paid anything at all when the cards are the ones
 the money is on is one of the things the trace is for.
 """
 
-import aiphylum
+import soscitea
 from peddler import act
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

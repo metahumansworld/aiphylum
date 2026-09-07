@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/account"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/account"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 // Config wires the recharge to Stripe and to the users it credits.
@@ -64,14 +64,19 @@ const (
 	tolerance = 5 * time.Minute
 )
 
-// credits is what a cent paid buys, in credits (micro-USD). One-for-one
-// means the platform absorbs Stripe's fee and OpenRouter's 5.5% (80 cents
-// minimum) on the credits it buys to cover the spend; passing either
-// through means a $5 topup lands as less than $5 of model time, and the
-// balance the person sees says so. This is the pricing decision, in one
-// line, and the only place it is made.
+// credits is what a cent paid buys, in credits (micro-USD). The fees are
+// passed through (decided 2026-09-07): Stripe keeps 2.9% plus 30 cents of
+// the charge, and OpenRouter keeps 5.5% when the platform buys the credits
+// that cover the spend, so what lands is what survives both — a $5 topup
+// is about $4.30 of model time. The person sees a balance in credits with
+// no published dollar rate, so the fee surfaces only as the exchange rate.
+// This is the pricing decision and the only place it is made. Integer
+// arithmetic rounds down, so the platform never mints a fee away.
+// ponytail: OpenRouter's 80-cent minimum is per platform purchase, not per
+// topup — bulk buying amortises it; a floor here would double-charge it.
 func credits(cents int64) ledger.Credits {
-	return ledger.Credits(cents * 10_000)
+	afterStripe := cents*10_000*971/1000 - 30*10_000
+	return ledger.Credits(afterStripe * 945 / 1000)
 }
 
 // Billing is the recharge surface.
@@ -216,7 +221,11 @@ func (b *Billing) webhook(w http.ResponseWriter, r *http.Request) {
 	case ev.Type != "checkout.session.completed" && ev.Type != "checkout.session.async_payment_succeeded":
 	case o.Status != "paid":
 		log.Info("session not paid yet", "status", o.Status)
-	case o.Currency != "usd" || o.Amount <= 0 || o.User == "":
+	// The credits guard, not an amount guard: below ~31¢ the fixed fee eats
+	// the whole charge and the mint would be zero or negative. Unreachable
+	// through the platform's own checkout (MinCents is 500), but a session
+	// made with the same key by hand is not the platform's checkout.
+	case o.Currency != "usd" || o.User == "" || credits(o.Amount) <= 0:
 		log.Error("paid session the platform cannot credit; refund it by hand", "currency", o.Currency, "amount", o.Amount, "user", o.User)
 	default:
 		err := b.cfg.Accounts.Recharge(r.Context(), o.User, o.ID, credits(o.Amount))

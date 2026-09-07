@@ -70,9 +70,9 @@ asymmetry both of these are built on: losing tells you the price, winning tells
 you nothing.
 """
 
-import aiphylum
+import soscitea
 
 from haggler import act
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

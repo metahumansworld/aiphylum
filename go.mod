@@ -1,4 +1,4 @@
-module github.com/metahumansworld/aiphylum
+module github.com/metahumansworld/soscitea
 
 go 1.27
 

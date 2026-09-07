@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 // memMailer keeps the tokens it was asked to send, which is what a test

@@ -15,8 +15,8 @@ seat reads its own meter, and while every tie goes to the front only the
 front seat's chains are run — is one of the things the trace is for.
 """
 
-import aiphylum
+import soscitea
 from costermonger import act
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

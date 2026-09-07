@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/account"
-	"github.com/metahumansworld/aiphylum/internal/billing"
-	"github.com/metahumansworld/aiphylum/internal/builder"
-	"github.com/metahumansworld/aiphylum/internal/ledger"
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/service"
-	"github.com/metahumansworld/aiphylum/internal/spec"
-	"github.com/metahumansworld/aiphylum/internal/trace"
-	"github.com/metahumansworld/aiphylum/internal/widget"
+	"github.com/metahumansworld/soscitea/internal/account"
+	"github.com/metahumansworld/soscitea/internal/billing"
+	"github.com/metahumansworld/soscitea/internal/builder"
+	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/service"
+	"github.com/metahumansworld/soscitea/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/widget"
 )
 
 // openRouterKeyEnv names the platform's OpenRouter key. It is read from the

@@ -19,8 +19,8 @@ there, the book did that. That is what the reserve is for, and why the book
 stays sealed by default.
 """
 
-import aiphylum
+import soscitea
 from huckster import act
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

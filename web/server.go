@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/metahumansworld/aiphylum/internal/ledger"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 //go:embed templates static

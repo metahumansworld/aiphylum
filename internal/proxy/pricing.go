@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 // Price is the cost of one model in nano-USD per token. Nano rather than micro

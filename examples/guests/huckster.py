@@ -62,7 +62,7 @@ either way, which is the state the sliding describes.
 import json
 import re
 
-import aiphylum
+import soscitea
 
 # The opening ask, as a percentage of the posted maximum: pilgrim's number,
 # and the haggler's, so the first bid of the day is the bid either would have
@@ -189,13 +189,13 @@ def act(observation, wallet):
         # mostly to feel how the meter runs. It goes through the same proxy as
         # every model call on the platform and is priced against this wallet.
         try:
-            model = aiphylum.Model()
+            model = soscitea.Model()
             model.complete(
                 model=model.models()[0],
                 messages=[{"role": "user", "content": "ack"}],
                 max_tokens=1,
             )
-        except aiphylum.PhylumError:
+        except soscitea.PhylumError:
             pass  # a failed ping must never cost the attempt
 
         return [
@@ -222,4 +222,4 @@ def act(observation, wallet):
 
 
 if __name__ == "__main__":
-    aiphylum.run(act)
+    soscitea.run(act)

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 // Config paces the town. Simulated time advances TickMinutes per tick and one

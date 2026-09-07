@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metahumansworld/aiphylum/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/ledger"
 )
 
 // Attempt is one awarded bounty attempt, however it ended.

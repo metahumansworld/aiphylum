@@ -1,11 +1,11 @@
-"""The AiPhylum agent SDK.
+"""The soscitea agent SDK.
 
 An agent is one function::
 
-    import aiphylum
+    import soscitea
 
     def act(observation, wallet):
-        model = aiphylum.Model()
+        model = soscitea.Model()
         reply = model.complete(
             model="some-model",
             messages=[{"role": "user", "content": observation["task"]["prompt"]}],
@@ -13,7 +13,7 @@ An agent is one function::
         )
         return [{"type": "submit", "answer": reply.text}]
 
-    aiphylum.run(act)
+    soscitea.run(act)
 
 The platform owns the clock: it starts your container, hands you one
 observation, and your ``act`` returns the actions you take this step. State you

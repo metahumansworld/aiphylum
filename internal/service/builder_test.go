@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/spec"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/spec"
 )
 
 func TestAgentsOutliveTheProcess(t *testing.T) {

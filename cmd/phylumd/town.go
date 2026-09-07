@@ -11,9 +11,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/metahumansworld/aiphylum/internal/proxy"
-	"github.com/metahumansworld/aiphylum/internal/town"
-	"github.com/metahumansworld/aiphylum/internal/trace"
+	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/town"
+	"github.com/metahumansworld/soscitea/internal/trace"
 )
 
 func runTown(ctx context.Context, tw *trace.Writer, opt options) error {
