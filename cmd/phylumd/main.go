@@ -89,14 +89,13 @@ func main() {
 	window := flag.Duration("window", 1500*time.Millisecond, "sim: how long an auction takes bids")
 	runFor := flag.Duration("for", 0, "sim: stop after this long (0 = until the deck is spent)")
 	deck := flag.Int("deck", 16, "sim: how many bounties the world has to give")
-	serve := flag.Bool("serve", false, "run the service: built agents answering over HTTP — on the stub unless OPENROUTER_API_KEY is set, and then real spend behind each user's grant")
+	serve := flag.Bool("serve", false, "run the service: built agents answering over HTTP — on the stub unless OPENROUTER_API_KEY is set, and then real spend behind each user's credits")
 	var agents []string
 	flag.Func("agent", "serve: `path` to an agent spec (JSON) to run from boot — repeatable", func(v string) error {
 		agents = append(agents, v)
 		return nil
 	})
 	serveListen := flag.String("serve-listen", defaultServeListen, "serve: address for the control surface (/v1/agents) and the agents' public endpoints (/a/{id})")
-	grant := flag.Int64("grant", 1_000_000, "serve: credits minted to each new user's wallet at first sign-in, in micro-USD (1000000 is $1); every agent they build spends from it")
 	serveModel := flag.String("serve-model", defaultServeModel, "serve: the one real model offered, as id=input,output in nano-USD per token")
 	serveLocked := flag.String("serve-locked", defaultServeLocked, "serve: models shown in the catalogue and not offered, comma-separated; a builder's click on one joins the waitlist")
 	serveSite := flag.String("serve-site", "", "serve: the public base URL of the builder, for the addresses a Stripe checkout returns to; empty means http://<serve-listen>")
@@ -147,7 +146,7 @@ func main() {
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
-		serve: *serve, agents: agents, serveListen: *serveListen, grant: *grant, serveModel: *serveModel,
+		serve: *serve, agents: agents, serveListen: *serveListen, serveModel: *serveModel,
 		serveLocked: *serveLocked, serveSite: *serveSite, serveInsecureTools: *serveInsecureTools,
 	}
 	if err := run(ctx, log, opts); err != nil {
@@ -194,7 +193,7 @@ type options struct {
 
 	// serve runs built agents instead of a world: no board, no ladder, no
 	// containers. agents are spec files to run from boot; serveListen is where
-	// they answer; grant is each new user's whole bankroll; serveModel is the
+	// they answer; serveModel is the
 	// one real model on the price table, with its price; serveLocked are the
 	// models the catalogue shows behind a lock. accountsPath is the users'
 	// database and agentsPath the built agents', both chosen next to the
@@ -202,7 +201,6 @@ type options struct {
 	serve       bool
 	agents      []string
 	serveListen string
-	grant       int64
 	serveModel  string
 	serveLocked string
 	// serveSite is where the builder is reachable from outside, which a
@@ -226,7 +224,7 @@ const (
 	// is public in shape, not yet in reach. Accounts and rate limits are here;
 	// a public bind and TLS are the job of the milestone that puts it online.
 	defaultServeListen = "127.0.0.1:8151"
-	// The model every grant runs on, with OpenRouter's price for it ($1 per
+	// The model every wallet runs on, with OpenRouter's price for it ($1 per
 	// million input tokens, $5 per million output) in nano-USD per token as
 	// the fallback: live, the price comes from OpenRouter's catalogue at boot,
 	// and this row stands in when the catalogue cannot be read.
@@ -236,7 +234,7 @@ const (
 	// credits; until then, or with the recharge closed, the lock joins the
 	// waitlist.
 	defaultServeLocked = "anthropic/claude-sonnet-5,anthropic/claude-opus-5,openai/gpt-5,google/gemini-2.5-pro"
-	// A live service keeps its books: users' grants must survive a restart,
+	// A live service keeps its books: users' credits must survive a restart,
 	// so with a key set the ledger goes to a file, and the users next to it.
 	serviceDB       = "phylum-service.db"
 	serviceAccounts = "phylum-accounts.db"
@@ -290,7 +288,7 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		return runTown(ctx, tw, opt)
 	}
 
-	// The service is not an episode either. Its books are people's grants and
+	// The service is not an episode either. Its books are people's credits and
 	// its trace is every conversation they had, and both must outlive the
 	// process: a service that will not restart over its own record is not a
 	// service. So it takes neither of the live guards below — a used ledger
