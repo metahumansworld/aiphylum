@@ -49,11 +49,17 @@ const (
 // audit sees one kind of wallet.
 var operator = service.Owner{ID: "operator", Wallet: "usr:operator"}
 
+// operatorGrant funds the operator's wallet when -agent files are loaded at
+// boot, so those agents can answer. It is the operator's own spend — real
+// only when the operator sets a real key. Users get no such grant: a new
+// wallet starts empty and fills at the recharge.
+const operatorGrant = ledger.Credits(1_000_000) // $1
+
 // runServe runs built agents: the proxy in front of one provider, the service
 // in front of the proxy, the account store in front of the service's control
 // surface, the builder page in front of a person, and one HTTP listener
 // carrying all of it. The one real model is also the builder's: a draft is
-// a call on it like a reply is, from the same grant. The price table decides
+// a call on it like a reply is, from the same wallet. The price table decides
 // what the agents may call: the offered model and the locked ones, priced
 // live from OpenRouter's catalogue, with the -serve-model price standing in
 // for the one model when the catalogue cannot be read. With no key it holds
@@ -78,8 +84,8 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 		} else if len(missing) > 0 {
 			log.Warn("openrouter's catalogue does not price these models; a spec naming one is refused", "models", missing)
 		}
-		log.Info("service is live: real spend behind each user's grant",
-			"provider", "openrouter", "model", model, "grant", ledger.Credits(opt.grant))
+		log.Info("service is live: real spend behind each user's credits",
+			"provider", "openrouter", "model", model)
 	} else {
 		stub := proxy.Price{InputPerTok: 1000, OutputPerTok: 1000}
 		for _, m := range append([]string{"stub-1"}, locked...) {
@@ -117,8 +123,10 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	for _, m := range locked {
 		reasons = append(reasons, "model:"+m)
 	}
+	// No Grant: a new user's wallet starts empty. Credits come from the
+	// recharge, and until then the locked models' waitlist is the offer.
 	accounts, err := account.Open(opt.accountsPath, account.Config{
-		Ledger: l, Grant: ledger.Credits(opt.grant), Mailer: mailer,
+		Ledger: l, Mailer: mailer,
 		Log: log, Reasons: reasons,
 	})
 	if err != nil {
@@ -154,7 +162,7 @@ func runServe(ctx context.Context, log *slog.Logger, l *ledger.Ledger, tw *trace
 	// what a previous boot stored for the operator is dropped and made again
 	// from the same files, so -agent is idempotent across restarts.
 	if len(opt.agents) > 0 {
-		if err := fundOperator(ctx, l, ledger.Credits(opt.grant)); err != nil {
+		if err := fundOperator(ctx, l, operatorGrant); err != nil {
 			return err
 		}
 	}

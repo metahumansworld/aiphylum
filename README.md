@@ -1364,8 +1364,8 @@ a rename.
 | `internal/town` | the living-world track |
 | `internal/spec` | the agent spec: the one document a built agent is, and its wire format |
 | `internal/service` | the service runtime: built agents answering over HTTP, metered by the proxy |
-| `internal/account` | who is signed in and what they have to spend: magic-link sessions, one wallet per user minted with the grant, the waitlist |
-| `internal/builder` | the builder page: nodes for the spec, a chat that drafts it on the builder's grant, and a try-it pane on the agent's own endpoint |
+| `internal/account` | who is signed in and what they have to spend: magic-link sessions, one wallet per user (empty until recharged), the waitlist |
+| `internal/builder` | the builder page: nodes for the spec, a chat that drafts it on the owner's credits, and a try-it pane on the agent's own endpoint |
 | `internal/widget` | the embeddable widget: a one-line loader for any page, and the chat page it frames on the agent's own origin |
 | `web` | the spectator surface, rendered from a trace file alone |
 | `generators/` | task generators (`arith`, `oracle`, `brief`), the reference agents, and importable suites |

@@ -138,7 +138,7 @@
 
   function renderWho() {
     $("email").textContent = state.me.email;
-    $("balance").textContent = credits(state.me.balance) + (state.me.paid ? " credits left" : " credits of your grant left");
+    $("balance").textContent = credits(state.me.balance) + " credits left";
   }
 
   // ---- recharge ------------------------------------------------------
@@ -568,8 +568,8 @@
     const locked = state.models.locked || [];
     const redraw = () => {
       wrap.replaceChildren();
-      // A person who has added credits picks from every model; the grant
-      // covers only the offered one, and the tag says which is which.
+      // A person who has added credits picks from every model; otherwise
+      // only the offered one is on the table.
       for (const id of [...(state.models.offered || []), ...(paid ? locked : [])]) {
         const b = document.createElement("button");
         b.type = "button";
@@ -580,7 +580,7 @@
         if (state.spec.model === id) {
           const tag = document.createElement("span");
           tag.className = "lock";
-          tag.textContent = locked.includes(id) ? "on your credits" : "on your grant";
+          tag.textContent = "on your credits";
           b.append(tag);
         }
         b.addEventListener("click", () => { state.spec.model = id; markDirty(); redraw(); });
@@ -750,7 +750,7 @@
     $("draft").disabled = false;
     if (!r.ok) {
       const why = r.status === 402
-        ? "Not enough of the grant is left to hold a draft. Messages are smaller; those may still go through."
+        ? "Not enough credits are left to hold a draft. Messages are smaller; those may still go through."
         : (r.data.error || "The builder could not answer.");
       logChat(log, "refused", why);
       return;
@@ -793,7 +793,7 @@
     if (!r.ok) {
       let why = r.data.error || "No reply.";
       if (r.status === 429) why = "Its public endpoint is being messaged faster than it answers — you share that bucket with strangers. Try again in " + (r.headers.get("Retry-After") || "a few") + " s.";
-      if (r.status === 402) why = "Your grant is spent. The agent stays reachable and answers nobody until it is topped up.";
+      if (r.status === 402) why = "Your credits are spent. The agent stays reachable and answers nobody until it is topped up.";
       logChat(log, "refused", why);
       return;
     }
