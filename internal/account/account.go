@@ -233,6 +233,7 @@ func (s *Store) Request(ctx context.Context, email string) error {
 	}
 	s.asked[email] = now
 	s.mu.Unlock()
+	s.prune(ctx, now)
 	token := randomToken()
 	expires := now.Add(s.cfg.LinkTTL)
 	if _, err := s.db.ExecContext(ctx,
@@ -241,6 +242,24 @@ func (s *Store) Request(ctx context.Context, email string) error {
 		return fmt.Errorf("record link: %w", err)
 	}
 	return s.cfg.Mailer.Send(ctx, email, token)
+}
+
+// prune deletes rows nothing will read again: links a full TTL past their
+// expiry, and sessions that are expired or revoked. It rides on Request —
+// every row either table gains starts there, so the tables cannot outgrow
+// their traffic and no ticker goroutine is needed. Links keep one TTL of
+// grace because Verify spends a link and reads its email back as two
+// statements; a prune squeezing between them must not take a row that was
+// valid a moment ago. Failure only warns: dead rows are dead either way.
+func (s *Store) prune(ctx context.Context, now time.Time) {
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM links WHERE expires_at <= ?`, now.Add(-s.cfg.LinkTTL).Unix()); err != nil {
+		s.cfg.Log.Warn("prune links", "err", err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL`, now.Unix()); err != nil {
+		s.cfg.Log.Warn("prune sessions", "err", err)
+	}
 }
 
 // Verify presents a mailed token. The link is spent whether or not anything
