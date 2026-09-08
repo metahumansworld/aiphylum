@@ -250,6 +250,16 @@ label { display: block; color: var(--ink-muted); font-size: 0.875rem; margin-bot
 .chat-log li.refused { box-shadow: var(--clay-raise-sm), inset 0 0 0 2px var(--danger); }
 .chat-log .cost { display: block; color: var(--ink-muted); font-size: 0.8125rem; margin-top: 0.2rem; }
 .chat-form { display: flex; flex-direction: column; gap: 0.5rem; }
+/* The owner's questions: one exchange per slab — what it heard sunken
+   like a person's message, what it said raised — with the answer field
+   pressed into the slab beneath. Same material as the two logs above. */
+.questions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; max-height: 26rem; overflow: auto; }
+.questions li { padding: 0.6rem 0.8rem; border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--clay-raise-sm); }
+.questions .heard, .questions .said { margin: 0 0 0.4rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.questions .heard { padding: 0.4rem 0.7rem; border-radius: var(--radius-md); background: var(--surface-sunken); box-shadow: var(--clay-sink); }
+.questions .said { color: var(--ink-secondary); }
+.questions form { display: flex; gap: 0.5rem; }
+.questions form input { flex: 1; }
 .try .chat-form { flex-direction: row; }
 .try .chat-form input { flex: 1; }
 

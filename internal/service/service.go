@@ -227,7 +227,29 @@ type Agent struct {
 	// said. It ends with the spec, as the others do.
 	events   *conversation
 	eventsID string
+
+	// asked are the decisions this agent has made and its owner has not
+	// yet spoken to: the newest MaxQuestions, kept in memory like the
+	// conversations they came from. The answer, not the question, is what
+	// lasts — it lands in the spec and so in the store.
+	asked []Question
 }
+
+// Question is one exchange the agent had, put to its owner: what it heard,
+// what it said. The owner's answer becomes a line of the agent's memory.
+type Question struct {
+	ID    string    `json:"id"`
+	Asked time.Time `json:"asked"`
+	Heard string    `json:"heard"`
+	Said  string    `json:"said"`
+}
+
+// MaxQuestions is how many unanswered exchanges an agent keeps for its
+// owner. Older ones go; the owner sees the latest, not the log.
+const MaxQuestions = 16
+
+// ErrNoQuestion is an answer to a question the agent is not asking.
+var ErrNoQuestion = errors.New("service: no such question")
 
 // Draft is one chat-to-spec exchange: the revised spec, the builder's note
 // on what it changed, and what the call cost the owner.
@@ -461,7 +483,7 @@ func (s *Service) Update(ctx context.Context, id string, a spec.Agent) (*Agent, 
 	ag := &Agent{
 		ID: old.ID, Owner: old.Owner, Spec: a, Wallet: old.Wallet, Created: old.Created,
 		token: old.token, tokens: old.tokens, filled: old.filled,
-		convs: map[string]*conversation{},
+		convs: map[string]*conversation{}, asked: old.asked,
 	}
 	if err := s.save(ctx, ag); err != nil {
 		return nil, err
@@ -666,7 +688,81 @@ func (s *Service) say(ctx context.Context, agentID, convID, text string, event b
 	if keep := s.cfg.History * 2; len(conv.messages) > keep {
 		conv.messages = conv.messages[len(conv.messages)-keep:]
 	}
+	s.ask(agentID, text, reply)
 	return Turn{Conversation: convID, Reply: reply, Cost: cost, Balance: balance}, nil
+}
+
+// ask puts an exchange to the agent's owner. Only a completed one: a call
+// the proxy refused is a wallet fact, not a decision the agent made. The
+// agent is looked up again rather than kept — an Update may have swapped
+// it mid-call, and the question belongs to the agent that is there now.
+func (s *Service) ask(agentID, heard, said string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ag, ok := s.agents[agentID]
+	if !ok {
+		return
+	}
+	ag.asked = append(ag.asked, Question{ID: "q_" + randomHex(8), Asked: s.now(), Heard: heard, Said: said})
+	if len(ag.asked) > MaxQuestions {
+		ag.asked = ag.asked[len(ag.asked)-MaxQuestions:]
+	}
+}
+
+// Questions are the exchanges the owner has not yet answered, oldest
+// first. The slice is a copy; the owner reads it outside the lock.
+func (s *Service) Questions(agentID string) ([]Question, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ag, ok := s.agents[agentID]
+	if !ok {
+		return nil, false
+	}
+	return append([]Question(nil), ag.asked...), true
+}
+
+// Answer is the owner speaking to one decision: the text becomes a line of
+// the agent's memory, the question is retired, and every call from here on
+// renders the new line. Not an Update — conversations keep their history,
+// since the agent is the same agent, told one more thing. The store is
+// written before the map, as everywhere else.
+func (s *Service) Answer(ctx context.Context, agentID, qid, text string) (*Agent, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, ErrEmptyMessage
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, ok := s.agents[agentID]
+	if !ok {
+		return nil, ErrNoAgent
+	}
+	at := -1
+	for i, q := range old.asked {
+		if q.ID == qid {
+			at = i
+		}
+	}
+	if at < 0 {
+		return nil, ErrNoQuestion
+	}
+	a := old.Spec
+	a.Memory = append(append([]string(nil), old.Spec.Memory...), text)
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
+	ag := &Agent{
+		ID: old.ID, Owner: old.Owner, Spec: a, Wallet: old.Wallet, Created: old.Created,
+		token: old.token, tokens: old.tokens, filled: old.filled,
+		convs: old.convs, events: old.events, eventsID: old.eventsID,
+		asked: append(append([]Question(nil), old.asked[:at]...), old.asked[at+1:]...),
+	}
+	if err := s.save(ctx, ag); err != nil {
+		return nil, err
+	}
+	s.agents[agentID] = ag
+	s.log.Info("owner answered", "agent", agentID, "question", qid)
+	return ag, nil
 }
 
 // Step answers one step at the fair's board: the observation in, the reply
@@ -691,6 +787,9 @@ func (s *Service) Step(ctx context.Context, agentID, token string, input []byte)
 		token: token, agent: ag.ID, tools: ag.Spec.Tools}
 	s.mu.Unlock()
 	reply, _, _, err := s.converse(ctx, c, []message{{"user", string(input)}})
+	if err == nil {
+		s.ask(agentID, string(input), reply)
+	}
 	return reply, err
 }
 
@@ -726,6 +825,8 @@ func (s *Service) Draft(ctx context.Context, owner Owner, current spec.Agent, re
 	}
 	d.Spec.Version = spec.Version
 	d.Spec.Model = current.Model
+	// What the owner answered is theirs to keep; the model may not rewrite it.
+	d.Spec.Memory = current.Memory
 	if d.Spec.Model == "" {
 		d.Spec.Model = s.cfg.BuilderModel
 	}

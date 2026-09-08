@@ -26,7 +26,7 @@
   };
 
   function blankSpec() {
-    return { version: 1, name: "", model: "", persona: "", greeting: "", rules: [], max_reply_tokens: DEFAULT_CEILING, tools: [], webhook: "" };
+    return { version: 1, name: "", model: "", persona: "", greeting: "", rules: [], memory: [], max_reply_tokens: DEFAULT_CEILING, tools: [], webhook: "" };
   }
 
   // ---- storage, which may be absent ----------------------------------
@@ -227,6 +227,7 @@
       persona: s.persona || "",
       greeting: s.greeting || "",
       rules: Array.isArray(s.rules) ? s.rules.slice() : [],
+      memory: Array.isArray(s.memory) ? s.memory.slice() : [],
       max_reply_tokens: s.max_reply_tokens || DEFAULT_CEILING,
       tools: Array.isArray(s.tools) ? s.tools.map((t) => ({
         name: t.name || "", description: t.description || "", url: t.url || "", method: t.method === "POST" ? "POST" : "GET",
@@ -245,6 +246,7 @@
     { key: "persona", title: "Persona" },
     { key: "greeting", title: "Greeting" },
     { key: "rules", title: "Rules" },
+    { key: "memory", title: "Memory" },
     { key: "ceiling", title: "Reply ceiling" },
     { key: "tools", title: "Tools" },
     { key: "webhook", title: "Webhook" },
@@ -263,7 +265,8 @@
     return {
       hub: { x: Math.round((w - hub) / 2), y: 40 },
       persona: { x: pad, y: 40 },
-      greeting: { x: pad, y: Math.max(340, h - 230) },
+      memory: { x: pad, y: Math.max(340, h - 230) },
+      greeting: { x: pad, y: Math.max(560, h - 10) },
       rules: { x: w - pad - side, y: 40 },
       ceiling: { x: w - pad - side, y: ceilingY },
       tools: { x: Math.round((w - hub) / 2), y: Math.max(500, h - 140) },
@@ -287,6 +290,8 @@
     $("delete").hidden = !state.current;
     $("delete").textContent = "Delete";
     $("try").hidden = !state.current;
+    $("asked").hidden = !state.current;
+    loadQuestions();
     renderEndpoint();
     renderDirty();
     renderAgentList();
@@ -436,6 +441,41 @@
         if (last) last.focus();
       });
       body.append(ul, add);
+      redraw();
+      return;
+    }
+    if (key === "memory") {
+      // Only what the owner answered lands here, so there is no add button;
+      // a bad answer can be struck out, and the next save lets it go.
+      const ul = document.createElement("ul");
+      ul.className = "rules";
+      const redraw = () => {
+        ul.replaceChildren();
+        s.memory.forEach((line, i) => {
+          const li = document.createElement("li");
+          const inp = document.createElement("input");
+          inp.type = "text";
+          inp.maxLength = 256;
+          inp.value = line;
+          inp.addEventListener("input", () => { s.memory[i] = inp.value; markDirty(); });
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "remove";
+          rm.textContent = "×";
+          rm.setAttribute("aria-label", "Forget line " + (i + 1));
+          rm.addEventListener("click", () => { s.memory.splice(i, 1); markDirty(); redraw(); });
+          li.append(inp, rm);
+          ul.append(li);
+        });
+        count.textContent = s.memory.length + " of 16";
+        drawEdges();
+      };
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = s.memory.length
+        ? "What you have told it about its own decisions. It reads this on every call, and pays for it."
+        : "Empty until it decides something and you answer for it, on the right.";
+      body.append(ul, hint);
       redraw();
       return;
     }
@@ -677,6 +717,7 @@
       persona: s.persona,
       greeting: s.greeting,
       rules: s.rules.map((r) => r.trim()).filter(Boolean),
+      memory: s.memory.map((m) => m.trim()).filter(Boolean),
       max_reply_tokens: s.max_reply_tokens,
       tools: s.tools.filter((t) => t.name.trim() || t.url.trim()).map((t) => ({
         name: t.name.trim(), description: t.description.trim(), url: t.url.trim(), method: t.method,
@@ -721,6 +762,55 @@
     toast("Deleted. Its endpoint is gone.");
     if (state.agents.length) selectAgent(state.agents[0]); else selectNew();
   });
+
+  // ---- the owner in the loop -------------------------------------------
+  // What the agent decided, put to its owner. An answer is a line of memory
+  // from the next call on; it lands on the canvas as the saved version, so
+  // it is not an unsaved change and cannot be lost to a Save of the rest.
+  async function loadQuestions() {
+    const list = $("questions");
+    if (!state.current) { list.replaceChildren(); $("questions-empty").hidden = true; return; }
+    const r = await api("GET", "/v1/agents/" + state.current.id + "/questions");
+    const qs = r.ok && Array.isArray(r.data.questions) ? r.data.questions : [];
+    list.replaceChildren();
+    $("questions-empty").hidden = qs.length > 0;
+    qs.forEach((q) => {
+      const li = document.createElement("li");
+      const heard = document.createElement("p");
+      heard.className = "heard";
+      heard.textContent = q.heard;
+      const said = document.createElement("p");
+      said.className = "said";
+      said.textContent = q.said;
+      const form = document.createElement("form");
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.maxLength = 256;
+      inp.placeholder = "Was that right? Tell it what you would have done.";
+      inp.setAttribute("aria-label", "Your answer");
+      const send = document.createElement("button");
+      send.type = "submit";
+      send.className = "primary";
+      send.textContent = "Answer";
+      form.append(inp, send);
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const answer = inp.value.trim();
+        if (!answer) return;
+        send.disabled = true;
+        const a = await api("POST", "/v1/agents/" + state.current.id + "/questions/" + q.id, { answer });
+        if (!a.ok) { toast(a.data.error || "It did not take that.", true); send.disabled = false; return; }
+        state.current.spec = a.data.spec;
+        state.spec.memory = Array.isArray(a.data.spec.memory) ? a.data.spec.memory.slice() : [];
+        buildNodes();
+        drawEdges();
+        toast("Remembered. It reads that from its next reply on.");
+        loadQuestions();
+      });
+      li.append(heard, said, form);
+      list.append(li);
+    });
+  }
 
   // ---- chat to spec --------------------------------------------------
   function logChat(list, cls, text, cost) {
@@ -800,6 +890,7 @@
     state.conv = r.data.conversation;
     logChat(log, "agent", r.data.reply);
     refreshMe();
+    loadQuestions();
   });
 
   boot();
