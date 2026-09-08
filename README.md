@@ -79,6 +79,10 @@ The phases, from here:
   the piece that is not.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
+  The first piece of it is built and read at the foot of this page: a guest
+  joins a fair that is already running, through the same control plane the
+  live daemon serves, and is seated on the next tick. What arriving late
+  costs is read there too.
 
 Two things do not change on the way there. Credits stay a unit of metered
 spend, never money anyone withdraws — building an empire in the world cashes
@@ -295,7 +299,15 @@ make fair-diarist-7day        # the first thing for sale: a notebook at 400, bou
 make fair-diarist-unsold-7day # the same week with nothing on sale: the same diary, cut to the page
 make fair-stallholder-7day        # the map stops being static: a stall at 400, bought once, drawn on the square for the rest of the record
 make fair-stallholder-unsold-7day # the same week with nothing on sale: the same agent, the same map
+make fair-pilgrim-7day   # the worked example seated at boot for seven days: the control for the week below
+make fair-newcomer-7day  # nobody at boot; the pilgrim knocks a few seconds in (phylumctl join) and is seated on the next tick
 ```
+
+Any running fair has a door: `phylumctl join <guest.py>` seats a guest in it
+on the next tick, on the same address the live daemon's control plane uses
+(`-listen`, default `127.0.0.1:8141`). Every fair binds it, so two fairs at
+once, or a fair beside a live daemon, need distinct `-listen` values — a busy
+port is refused at boot rather than run without a door.
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
 another shell:
@@ -1722,6 +1734,140 @@ than buried.
   at a resumed world is still the question the entry above left it. And
   not the lodger shown a stall: its pinned week is its identity claim, run
   here twice to prove it.
+
+- **The door opens mid-week.** Every guest so far was seated at boot: the
+  `-guest` flag named a file, the fair registered the process, minted the
+  grant and gave the body a room before the first tick, and from then on
+  the roster was fixed. The live daemon has always had the other shape — a
+  control plane on `-listen` that `phylumctl submit` puts agents into — and
+  the fair never served it. This piece gives the fair the same door, and it
+  is the first piece of Phase 4: a world that is already running takes a
+  newcomer, seats it on the next tick, and closes its week at drift 0 with
+  the newcomer counted from the tick it came.
+
+  The town gets its second inward seam, `town.Config.Arrive`, the twin of
+  `Hold` and money-free in the same way: asked once per tick before anyone
+  moves, it hands back whoever has come to town, and the town seats each
+  one at home, writes one `joined` line carrying what a `founded` frame
+  carries plus the day and the clock, and from then on walks, holds,
+  visits and counts them like everyone founded with the map. Arriving is
+  the newcomer's founding, not a meeting: whoever they find at home is not
+  `met` on the way in, the same rule the opening state keeps — and it has
+  to be, because with a mind on a `met` opens a conversation, the
+  conversation lands in memory, and every later reflection diverges. The
+  fair mode binds `-listen` before the run — a busy port is an error now,
+  not a knock that silently never lands, and a second fair on the same
+  machine wants its own address — and serves one route, `POST /v1/guests`
+  with a path. The handler carries the knock to the town's goroutine and
+  waits; the town drains the door at the top of its next tick, runs the
+  same filename rules against the same taken map boot used, seats the
+  guest through the same function boot used, and answers with the day and
+  the minute. A knock after closing time is refused rather than left
+  waiting for a tick that will never come. `phylumctl join <guest.py>` is
+  the verb: it absolutizes the path and prints the reply. The wire carries
+  a path the daemon will exec, so every check on it runs on the daemon's
+  side, never the client's. The spectator's page keeps a `joined` resident
+  in the state it rebuilds from event zero, syncs the map's walkers from
+  that state on every render, and gives the newcomer the look after the
+  founders'; scrub back before the join and the body comes off the map.
+
+  Two identity checks, run before the week. First, joined before the first
+  tick is seated at boot: the pilgrim's one-day fair with `-guest`, and the
+  same fair with nobody at boot and `phylumctl join` landing before tick
+  one, are 651 and 652 lines, and outside the clock and the sequence
+  number they differ in three places only — the `spawned` line moved from
+  before the founding to after it, the founded roster is seven bodies
+  instead of eight, and there is one `joined` line. Every bid, award, walk,
+  meeting, line said and reflection is the same, the wallets total the
+  same 260,518, and both close at drift 0. The town's own test says the same thing
+  with a mind on, which is the check that matters. Second, the door left
+  alone leaves no mark: the diarist's unsold week, run on this change with
+  the listener up and nobody knocking, is the pinned trace to the byte
+  outside the clock — zero masked lines over 7 days.
+
+  Then the fair itself turned out to half-count a newcomer. Its per-agent
+  accounts were opened at construction for everyone it found and for
+  nobody after, so a guest seated mid-week stepped, bid, won and paid like
+  anyone, and its attempts tallied to nothing and its row was missing from
+  the closing table. The one-day check above closed at drift 0 with the
+  same wallets as boot and a table with no pilgrim on it, which is how it
+  was found. The accounts open on first use now, and
+  `TestFairNewcomerIsCounted` seats an agent after `NewFair`, bids it once
+  at the board, and finds its attempt and its row. That is the only
+  change to `internal/orchestrator/fair.go` in this piece; every other
+  map the fair keeps already treated an unseen id as zero.
+
+  The week is the worked example, `examples/guests/pilgrim.py`, twice at
+  seed 1 for seven days: `make fair-pilgrim-7day` seats it at boot and is
+  the control; `make fair-newcomer-7day` starts the fair with the cast
+  alone and the pilgrim knocks a few seconds in. The tick it lands in is
+  wall clock, which makes this the one week on the list that its seed does
+  not pin — the trace says which tick, and the reading below is of the run
+  read, not of a number the target asserts. In that run the pilgrim joined
+  at tick 62 of 1,008, day one at 17:20, after the last posting hour's
+  window had closed, so its whole first day is what arriving late cost.
+
+  It cost exactly that day and nothing after it. Seated at boot the
+  pilgrim closes 18 boards bid and won, 18 solved, 4,410 earned, 396
+  burned, 6,014 in the purse; joined at 17:20 it closes 15, 15, 3,675,
+  330, 5,345. The difference is 3 attempts, 735 earned, 66 burned — the
+  pilgrim's one-day tallies to the credit — and from day two on the two
+  weeks are the same fifteen boards for the same 3,675. The three cards
+  it missed went to the frugal, who had asked more for each of them and
+  lost to the pilgrim's ask in the control: 60 against 48, 250 against
+  200, 608 against 487, so the frugal's week goes from nothing to 3 won,
+  3 solved, 918 earned, 66 burned, closing 3,352 instead of 2,500. The
+  scholar and the gambler are the same to the credit in both weeks, 31 of
+  31 and 1 of 50, bankrupt. The mint differs by 183, which is 918 less
+  735, the frugal's asks over the pilgrim's on the same three cards; the
+  grant minted at tick 62 is in the figure, and both weeks close at drift
+  0. The town paid for the empty room too: 349 meetings and 1,047 lines
+  said against 357 and 1,071, eight meetings and twenty-four lines that
+  sixty-one ticks without a body did not have.
+
+  Outside the clock and the sequence number the two traces differ in the
+  `spawned` line's place, the founded roster, one `joined` line, the
+  pilgrim's seven day-one bids and the seven awards whose book carried
+  its ask, the three solved lines and payouts that went to the frugal
+  instead, the eighteen model calls that carry the balance, sixty-seven
+  tick frames — the sixty-one without the pilgrim and the six it spent
+  walking in from the tavern to where its day had already put it in the
+  control — the town's day-one walking and talking for one body, and the
+  two end lines. Days two to seven of the pilgrim's bids, awards, solves
+  and payouts are the same lines in the same order; only its model calls
+  differ, by the 669 in the balance they carry.
+
+  Five tests are the seam. `TestArriveSeatsANewcomer` hands a guest back
+  at tick five and finds it at the tavern's anchor from that tick on, one
+  `joined` line before that tick's frame, and no `met` on the tick it
+  came. `TestArriveBeforeTickOneIsBootSeating` runs the fair's map with a
+  mind on, once with the guest founded and once with it joined before
+  tick one, and requires the same stream after the founding, save the one
+  `joined` line. `TestArriveNobodyLeavesTheStreamAlone` is the no-seam
+  control. `TestJoinHandler` knocks on the door and finds the town's
+  answer, the town's refusal, a bad body refused, and closing time
+  refused. `TestFairNewcomerIsCounted` is the bug above, pinned. The
+  viewer's part is checked by hand in this entry: the page served on the
+  newcomer week has seven walkers before the join and eight from it, the
+  eighth tagged Pilgrim in a colour the roster's swatch agrees with,
+  standing in its depth row once the walkers are drawn; a scrub back
+  before the join takes it off the map and out of the roster and the
+  feed; the feed line at 17:20 says who came and where they took a room.
+
+  What is deliberately not here. Not a lodger at the door: the service a
+  lodger runs on exists only when `-lodger` was passed at boot, and a door
+  for it is a door into the service, which is the live daemon's question.
+  Not leaving: a body that arrives can be counted from its tick, and a
+  body that leaves mid-week is a wallet with a balance and a roster with a
+  gap, both of which are the persistence question the lodger's entry
+  left. Not the join tick pinned by a flag: a flag that seats a guest at
+  tick N is the `-guest` flag with a delay, and the whole point of the
+  door is that the tick is not the fair's to choose. Not a lock on the
+  door: it is loopback and unauthenticated like the live control plane,
+  and the platform's opinion of the file it is handed is the same three
+  checks it has always had. And not the live daemon: it has no town, so
+  it has no tick to seat anyone on, and its own submit is already the
+  door this one was modelled on.
 
 ## Layout
 

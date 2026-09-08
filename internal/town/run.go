@@ -44,6 +44,20 @@ type Config struct {
 	// burns the fee, and none of that reaches in here. There is still no
 	// money in this package. Nil is the town as it was before the seam.
 	Hold func(id string) bool
+
+	// Arrive, if set, is asked once per tick, before anyone moves, whether
+	// anybody new has come to town. Each Persona it hands back is seated at
+	// their Home that minute, written to the trace as a "joined" line, and
+	// from then on walked, held, visited and counted like everyone founded
+	// with the map. Arriving is that resident's founding, not a meeting:
+	// whoever they find at home is not "met" on the way in, the same way the
+	// opening state fires no met — so a body that joins before the first
+	// tick tells the same story as one seated at boot.
+	//
+	// It is the second inward seam, money-free like Hold: the town learns
+	// that somebody came, never who let them in or what they paid for the
+	// room. Nil is the town exactly as it was before the seam existed.
+	Arrive func(day, mod int, clock string) []Persona
 }
 
 // Standing is one resident's whereabouts as the Visit hook sees them: the
@@ -117,6 +131,8 @@ type resident struct {
 // viewer reserves: time, label, seq, type):
 //
 //	founded  the map and the roster, always the first line
+//	joined   a resident arrived after the founding, seated at home; only
+//	         with an Arrive seam
 //	depart   a resident leaves a place for the street
 //	arrive   a resident reaches the place their schedule names
 //	met      two residents are newly in the same place — the hook the memory
@@ -141,24 +157,25 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 	// Everyone starts where their schedule says they are, standing at the
 	// anchor — the town wakes mid-story rather than everyone materialising
 	// at home.
-	rs := make([]*resident, 0, len(people))
-	for _, p := range people {
-		slot := p.At(cfg.StartMinute % DayMinutes)
-		pl, ok := m.Place(slot.Place)
-		if !ok {
-			pl, _ = m.Place(p.Home)
-		}
-		x, y := pl.Anchor()
-		rs = append(rs, &resident{p: p, x: x, y: y, place: pl.ID, goal: pl.ID})
-	}
-
 	// A presence key is made of ids, so the met fold below deals in ids.
 	// Conversation needs the residents themselves; one index costs less than
 	// scanning the roster twice per meeting. Indexed, never ranged over —
 	// nothing map-ordered may reach a prompt.
-	byID := make(map[string]*resident, len(rs))
-	for _, r := range rs {
-		byID[r.p.ID] = r
+	rs := make([]*resident, 0, len(people))
+	byID := make(map[string]*resident, len(people))
+	seat := func(p Persona, at string) *resident {
+		pl, ok := m.Place(at)
+		if !ok {
+			pl, _ = m.Place(p.Home)
+		}
+		x, y := pl.Anchor()
+		r := &resident{p: p, x: x, y: y, place: pl.ID, goal: pl.ID}
+		rs = append(rs, r)
+		byID[p.ID] = r
+		return r
+	}
+	for _, p := range people {
+		seat(p, p.At(cfg.StartMinute%DayMinutes).Place)
 	}
 
 	type frame struct {
@@ -227,6 +244,38 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		day := minute/DayMinutes + 1
 		mod := minute % DayMinutes
 		clock := HHMM(mod)
+
+		// Newcomers first, so the rest of the minute — the hold, the walk,
+		// the frame, the visit — already counts them. Seated at home: the
+		// schedule is theirs from the next step on, but a body arriving in
+		// town arrives at its lodgings, not wherever its day says it should
+		// have been by now.
+		if cfg.Arrive != nil {
+			var came []*resident
+			for _, p := range cfg.Arrive(day, mod, clock) {
+				came = append(came, seat(p, p.Home))
+			}
+			if len(came) > 0 {
+				// Whoever they find at home is not met on the way in — the
+				// arrival is their founding — so the pairs they make go
+				// straight into the set, as the opening state's did. Nobody
+				// else has moved since the last fold, so every other key
+				// here is already present.
+				for k := range presence(rs) {
+					together[k] = true
+				}
+			}
+			for _, r := range came {
+				if err := tw.Append(trace.EventTown, map[string]any{
+					"action": "joined", "resident": r.p.ID, "name": r.p.Name,
+					"blurb": r.p.Blurb, "home": r.p.Home,
+					"x": r.x, "y": r.y, "place": r.place,
+					"day": day, "clock": clock,
+				}); err != nil {
+					return rep, err
+				}
+			}
+		}
 
 		// Asked once per resident per tick, before anyone moves, and reused
 		// for both the walking and the frame: Hold is somebody else's code,

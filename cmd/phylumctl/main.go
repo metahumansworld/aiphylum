@@ -19,6 +19,11 @@
 //	                                 ask for an episode and wait for it
 //	phylumctl tail                  watch the live trace as it is written
 //	phylumctl status                world state, episodes, and the roster
+//
+// Against a running phylumd -fair (same -addr; the fair's door):
+//
+//	phylumctl join <guest.py>       seat a guest in the week that is already
+//	                                 running — it lands on the next tick
 package main
 
 import (
@@ -60,6 +65,8 @@ func main() {
 		tail(os.Args[2:])
 	case "status":
 		status(os.Args[2:])
+	case "join":
+		join(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -74,7 +81,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  phylumctl run [-seed n] [-rounds n] [-detach]")
 	fmt.Fprintln(os.Stderr, "  phylumctl tail")
 	fmt.Fprintln(os.Stderr, "  phylumctl status")
-	fmt.Fprintln(os.Stderr, "\nthe last four take -addr (default "+defaultAddr+") and talk to a running phylumd")
+	fmt.Fprintln(os.Stderr, "  phylumctl join <guest.py>")
+	fmt.Fprintln(os.Stderr, "\nthe last five take -addr (default "+defaultAddr+") and talk to a running phylumd; join talks to one running -fair")
 }
 
 func readTrace(path string) []trace.Line {

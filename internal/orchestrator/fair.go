@@ -207,9 +207,6 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		held:      map[string]int{},
 		owned:     map[string][]string{},
 	}
-	for _, ag := range o.live() {
-		f.standing[ag.ID] = &SimStanding{Agent: ag.ID}
-	}
 	// The tally rides the same record() call the ladder would have taken —
 	// the fair counts exactly what the benchmark counts and refuses to
 	// divide the two numbers, same as the sim.
@@ -262,13 +259,24 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	return f, nil
 }
 
+// stand is an agent's account, opened the first time anyone asks for it.
+// On demand rather than seeded at construction because the roster is not
+// fixed at construction: a guest can come through the door mid-week, and a
+// week that dropped its attempts on the floor and left it off the closing
+// table would be a week that half-counted it.
+func (f *Fair) stand(id string) *SimStanding {
+	st, ok := f.standing[id]
+	if !ok {
+		st = &SimStanding{Agent: id}
+		f.standing[id] = st
+	}
+	return st
+}
+
 // tally folds one settled attempt into its agent's account. Settlement runs
 // on the town's goroutine, inside Visit, so the map needs no lock.
 func (f *Fair) tally(a rating.Attempt) {
-	st, ok := f.standing[a.Agent]
-	if !ok {
-		return
-	}
+	st := f.stand(a.Agent)
 	st.Attempts++
 	st.Earned += a.Earned
 	st.Burned += a.Burned
@@ -460,11 +468,7 @@ func (f *Fair) Close() (FairReport, error) {
 	})
 	rep = FairReport{Ticks: f.tick, Posted: f.posted, Shelved: len(f.shelved), Conservation: con}
 	for _, ag := range f.o.agents {
-		st, ok := f.standing[ag.ID]
-		if !ok {
-			continue
-		}
-		out := *st
+		out := *f.stand(ag.ID)
 		out.Retired = ag.Retired
 		out.Owned = f.owned[ag.ID]
 		if !out.Retired {

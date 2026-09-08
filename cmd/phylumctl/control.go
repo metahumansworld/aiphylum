@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -231,4 +232,34 @@ func tail(args []string) {
 func fail(err error) {
 	fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 	os.Exit(1)
+}
+
+// join puts a guest into a fair that is already running: the path goes to
+// phylumd's door, phylumd seats the body on its next tick, and the answer
+// names the minute it landed in. Absolute so the daemon's working directory
+// is not the client's problem; everything else about the file is checked on
+// the far side, where it will be exec'd.
+func join(args []string) {
+	fs := flag.NewFlagSet("join", flag.ExitOnError)
+	addr := fs.String("addr", defaultAddr, "phylumd control address")
+	fs.Parse(args)
+	if fs.NArg() != 1 {
+		usage()
+		os.Exit(2)
+	}
+	path, err := filepath.Abs(fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
+		os.Exit(1)
+	}
+	var out struct {
+		ID    string `json:"id"`
+		Day   int    `json:"day"`
+		Clock string `json:"clock"`
+	}
+	if err := call("POST", *addr, "/v1/guests", map[string]string{"path": path}, &out); err != nil {
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%s joined the fair on day %d at %s\n", out.ID, out.Day, out.Clock)
 }

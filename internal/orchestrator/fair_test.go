@@ -2177,3 +2177,55 @@ func TestFairStallAfterNotebookKeepsThePage(t *testing.T) {
 		t.Errorf("conservation broken: %s", rep.Conservation)
 	}
 }
+
+// A guest who comes through the door mid-week is counted like anyone seated
+// at boot: seated after the fair is built, stepping at the board from its
+// first tick, its attempts land in its account and its row is on the closing
+// table. Before this the fair opened an account for everyone it found at
+// construction and for nobody after, so a newcomer's whole week tallied to
+// nothing and its row was missing.
+func TestFairNewcomerIsCounted(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	w.steps.fns["pat"] = (&buyer{}).step
+
+	f := stayFair(t, w, FairConfig{})
+
+	// The door: after NewFair, before the first tick.
+	w.add(t, "quinn", 2000)
+	w.steps.fns["quinn"] = (&buyer{script: [][]Action{
+		{{Type: ActionBid, Bounty: "b0001", Price: 50}},
+	}}).step
+
+	at := []town.Standing{{ID: "pat", Place: "office"}, {ID: "quinn", Place: "office"}}
+	for i, mod := range []int{540, 550, 560, 570, 580, 590} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = read()
+
+	var quinn *SimStanding
+	for i := range rep.Standings {
+		if rep.Standings[i].Agent == "quinn" {
+			quinn = &rep.Standings[i]
+		}
+	}
+	if quinn == nil {
+		t.Fatalf("the newcomer is missing from the closing table: %+v", rep.Standings)
+	}
+	if quinn.Attempts != 1 {
+		t.Errorf("newcomer tallied %d attempts, want 1", quinn.Attempts)
+	}
+	if quinn.Balance == 0 {
+		t.Error("newcomer's balance not read")
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}

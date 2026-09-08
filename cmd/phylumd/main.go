@@ -87,7 +87,7 @@ func main() {
 	seed := flag.Int64("seed", 1, "episode seed; same seed, same episode")
 	tracePath := flag.String("trace", "demo-trace.jsonl", "trace output path")
 	dbPath := flag.String("db", "", "ledger database path (default: temp file offline, "+liveDB+" live)")
-	listen := flag.String("listen", defaultListen, "live: control-plane address for phylumctl")
+	listen := flag.String("listen", defaultListen, "live: control-plane address for phylumctl; fair: the door phylumctl join knocks on")
 	genDir := flag.String("generators", "generators", "path to the generators directory")
 	imported := flag.Bool("imported", false, "also draw bounties from the imported suites in <generators>/suites — ranked, with an asterisk")
 	latency := flag.Duration("latency", 0, "per-call stub latency, for believable pacing")

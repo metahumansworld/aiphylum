@@ -570,6 +570,8 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				if rs, ok := p["residents"].([]any); ok {
 					v.Town.Residents = len(rs)
 				}
+			case "joined":
+				v.Town.Residents++ // came after the founding; the header counts everyone who lived here
 			case "tick":
 				v.Town.Day = int(num("day"))
 				v.Town.Clock = str("clock")

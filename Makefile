@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day fair-pilgrim-7day fair-newcomer-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -331,6 +331,26 @@ fair-diarist-7day:
 fair-diarist-unsold-7day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/diarist.py -trace fair-diarist-unsold-7day-trace.jsonl
 
+## fair-pilgrim-7day: the worked example (examples/guests/pilgrim.py) seated
+## at boot for seven days — the control for the week below.
+fair-pilgrim-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/pilgrim.py -trace fair-pilgrim-7day-trace.jsonl
+
+## fair-newcomer-7day: the same guest, the same seed, but nobody at boot: the
+## fair starts with the cast alone and the pilgrim knocks on the door as
+## soon as it is open, through phylumctl join, and is seated on the next
+## tick. The tick it lands in is wall clock — the trace says which — so this
+## is the one week on this list that is not pinned to its seed alone; the
+## paired control above is. The knock retries until the door answers, and a
+## knock that never lands fails the week rather than running it without the
+## pilgrim. Binds -listen (127.0.0.1:8141); a fair or a live daemon already
+## on it must be given another.
+fair-newcomer-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -trace fair-newcomer-7day-trace.jsonl & \
+	n=0; until $(GO) run ./cmd/phylumctl join examples/guests/pilgrim.py; do \
+	  n=$$((n+1)); if [ $$n -ge 30 ]; then echo "fair-newcomer-7day: the knock never landed"; kill $$!; wait; exit 1; fi; sleep 1; \
+	done; wait
+
 ## fair-stallholder-7day: the first thing bought that the town can see.
 ## examples/guests/stallholder.py is examples/guests/scribe.py plus exactly
 ## one behaviour — it buys a stall when the office has one and the purse holds
@@ -344,7 +364,7 @@ fair-stallholder-7day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -stall 400 -guest examples/guests/stallholder.py -trace fair-stallholder-7day-trace.jsonl
 
 fair-stallholder-unsold-7day:
-	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/stallholder.py -trace fair-stallholder-unsold-7day-trace.jsonl
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/stallholder.py -trace fair-stallholder-unsold-7day-trace.jsonl fair-pilgrim-7day-trace.jsonl fair-newcomer-7day-trace.jsonl
 
 test:
 	$(GO) test ./...
