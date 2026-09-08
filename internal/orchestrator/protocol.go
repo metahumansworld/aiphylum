@@ -32,6 +32,7 @@ const (
 	ActionStay   = "stay"
 	ActionMemo   = "memo"
 	ActionBuy    = "buy"
+	ActionStock  = "stock"
 )
 
 // MaxMemoBytes caps a memo. It is a constant rather than a field of every
@@ -106,6 +107,12 @@ type Observation struct {
 	// sizes its work by what it owns carries that fact in its own memo.
 	ForSale []Offer  `json:"for_sale,omitempty"`
 	Owned   []string `json:"owned,omitempty"`
+	// Stocked is what this agent's own stall currently sells, for the
+	// StayTicksLeft reason once more: a seller that cannot see its own
+	// shelf would stock it again every step. Nil until the agent owns a
+	// stall and has stocked it, and omitted then, so nobody who never sold
+	// anything observes a new key.
+	Stocked *Offer `json:"stocked,omitempty"`
 	// Memo is what this agent wrote to itself last step, handed back verbatim.
 	//
 	// It is the platform keeping a promise the SDK already made to agent
@@ -224,6 +231,13 @@ type Offer struct {
 	// carries one, and it is a place and not a cell because the cell is
 	// assigned when the money moves, not when the price is quoted.
 	Place string `json:"place,omitempty"`
+	// Seller is the agent whose stall this line is from. The office's own
+	// lines carry none; a stall's ware always does, because the price goes
+	// to the seller and not to the sink, and a buyer is told whose wallet
+	// it is about to fill. Two stalls may stock the same name, so a buy may
+	// name the seller too; one that does not takes the first in roster
+	// order, the tie-break everything else at the fair takes.
+	Seller string `json:"seller,omitempty"`
 }
 
 // FairOffer is the fair's addition to a bid step: where the agent is standing,
@@ -236,6 +250,7 @@ type FairOffer struct {
 	TicksLeft int
 	ForSale   []Offer
 	Owned     []string
+	Stocked   *Offer
 }
 
 // BountyView is a bounty as shown on the board: everything public, never the
@@ -272,7 +287,7 @@ type TaskView struct {
 
 // Action is one thing an agent asks the platform to do.
 type Action struct {
-	Type   string         `json:"type"` // "bid", "submit", "stay", "memo" or "buy"
+	Type   string         `json:"type"` // "bid", "submit", "stay", "memo", "buy" or "stock"
 	Bounty string         `json:"bounty,omitempty"`
 	Price  ledger.Credits `json:"price,omitempty"`
 	Answer string         `json:"answer,omitempty"`
@@ -283,7 +298,13 @@ type Action struct {
 	// Item is what a "buy" buys, by the name the catalogue showed. Charged in
 	// full and burned like a stay; refused, not owed, when the wallet is
 	// short, when it is not for sale, or when the agent already has one.
+	// A "stock" names the one item its stall sells, at Price, and a buy of
+	// a stall's ware transfers the price to its seller instead of burning
+	// it — the first purchase at the fair with anyone on the other side.
 	Item string `json:"item,omitempty"`
+	// Seller is which stall a "buy" of a ware means, when two stock the
+	// same name; empty takes the first in roster order.
+	Seller string `json:"seller,omitempty"`
 	// Text is what a "memo" writes for the agent's next step to read. Empty
 	// clears the memo — forgetting is a thing an agent may want to do, and it
 	// falls out of the same action rather than needing its own. The last memo
