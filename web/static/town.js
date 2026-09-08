@@ -51,6 +51,7 @@ function reduce(upto) {
     if (e.type === "note" && e.note === "bounty shelved") { money("shelved", [], { bounty: e.bounty, windows: e.windows }); continue; }
     if (e.type === "agent" && e.action === "bankrupt") { money("bankrupt", [e.agent]); continue; }
     if (e.type === "credit" && e.action === "stayed") { money("stayed", [e.agent], { place: e.place, ticks: e.ticks, amount: e.amount }); continue; }
+    if (e.type === "credit" && e.action === "bought") { money("bought", [e.agent], { place: e.place, item: e.item, amount: e.amount }); continue; }
     if (e.type === "agent" && e.action === "memo") { money("memo", [e.agent], { text: e.memo }); continue; }
     if (e.type !== "town") continue;
     switch (e.action) {
@@ -975,10 +976,12 @@ function render(s) {
     failed: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> failed <b>${esc(f.bounty)}</b>, burning ${esc(f.burned)}`,
     voided: (f) => `<b>${esc(f.bounty)}</b> was voided${f.reason ? ` — ${esc(f.reason)}` : ""}`,
     bankrupt: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> went bankrupt`,
-    // The only line here for something an agent bought rather than won: it
-    // paid to still be standing where it already stood.
+    // The two lines here for something an agent bought rather than won: it
+    // paid to still be standing where it already stood, or it paid for the
+    // one thing the office sells.
     stayed: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> paid ${esc(f.amount)} to stay at ` +
       `${esc(place)} — ${esc(f.ticks)} more ${f.ticks === 1 ? "tick" : "ticks"}`,
+    bought: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bought a ${esc(f.item)} at ${esc(place)} for ${esc(f.amount)}`,
     // An agent writing to its own next step. Shown verbatim and never parsed:
     // the platform does not read these and neither does this page. It is here
     // because watching an agent's memory change is the only way to see it

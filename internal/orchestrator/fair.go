@@ -64,6 +64,13 @@ type FairConfig struct {
 	// not let anyone sleep in the lobby; it also means one malformed action
 	// cannot burn a wallet dry in a single tick. Zero means the default 6.
 	MaxStayTicks int
+	// Notebook is the price of a notebook at the office, or zero to sell
+	// none — the default, and what every fair before this one ran with. A
+	// notebook raises its owner's memo cap from MaxMemoBytes to
+	// NotebookBytes for the rest of the run. Burned like a stay: the agent
+	// is buying room in the platform's own book, and nobody is on the
+	// other side of that either.
+	Notebook ledger.Credits
 	// Tie is the policy an auction at this fair uses when two bids arrive
 	// at the same lowest price. The zero value is auction.ByArrival — the
 	// earliest bid wins, which is what every fair before this one did
@@ -130,6 +137,11 @@ type Fair struct {
 	// held maps an agent to the last tick its standing is paid through. Read
 	// by Hold, written by chargeStays, both on the town's goroutine.
 	held map[string]int
+	// owned is what each agent has bought, in purchase order. Shown back to
+	// it on every board, reported in its standing, and written to the trace
+	// once per purchase — which is the copy of record: a reader holds this
+	// map by collecting the bought events.
+	owned map[string][]string
 }
 
 // NewFair wires a fair onto an orchestrator and announces the episode. Like
@@ -175,6 +187,7 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		draws:     map[string]int{},
 		standing:  map[string]*SimStanding{},
 		held:      map[string]int{},
+		owned:     map[string][]string{},
 	}
 	for _, ag := range o.live() {
 		f.standing[ag.ID] = &SimStanding{Agent: ag.ID}
@@ -216,6 +229,13 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		// was. A sealed day carries no key at all — a policy that was not
 		// in force should not be in the record.
 		start["book"] = "open"
+	}
+	if cfg.Notebook > 0 {
+		// The book's rule again: what was for sale is an input. A purchase
+		// records its own price, but a day nobody bought on would otherwise
+		// not say whether nobody wanted a notebook or nobody was offered
+		// one — and a fair that sold nothing keeps its opening line.
+		start["notebook"] = cfg.Notebook
 	}
 	o.traceEvent(trace.EventEpisode, start)
 	return f, nil
@@ -315,11 +335,15 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		// The agent is told where it is standing and what standing there
 		// longer costs, and answers with one action list holding both what it
 		// wants to bid on and whether it wants to still be here.
-		acts := f.o.performBidStep(f.runCtx, ag, f.tick, views, &StayOffer{
+		acts := f.o.performBidStep(f.runCtx, ag, f.tick, views, &FairOffer{
 			Place: st.Place, Price: f.cfg.StayPrice, TicksLeft: f.staying(ag.ID),
+			ForSale: f.catalogue(), Owned: f.owned[ag.ID],
 		})
 		f.o.placeBids(ag, acts, aucs)
 		if err := f.chargeStays(ag, st.Place, acts); err != nil {
+			return err
+		}
+		if err := f.chargeBuys(ag, st.Place, acts); err != nil {
 			return err
 		}
 	}
@@ -421,6 +445,7 @@ func (f *Fair) Close() (FairReport, error) {
 		}
 		out := *st
 		out.Retired = ag.Retired
+		out.Owned = f.owned[ag.ID]
 		if !out.Retired {
 			if out.Balance, err = f.o.Ledger.Balance(f.settleCtx, ag.ID); err != nil {
 				return rep, err
@@ -512,6 +537,77 @@ func (f *Fair) chargeStays(ag *Agent, place string, actions []Action) error {
 		f.o.traceEvent(trace.EventCredit, map[string]any{
 			"action": "stayed", "agent": ag.ID, "place": place,
 			"ticks": n, "amount": cost, "until": f.held[ag.ID],
+		})
+		return nil
+	}
+	return nil
+}
+
+// catalogue is what the office has for sale: nil when nothing is, which is
+// what keeps the observation of every fair that sells nothing unchanged.
+func (f *Fair) catalogue() []Offer {
+	if f.cfg.Notebook <= 0 {
+		return nil
+	}
+	return []Offer{{Item: "notebook", Price: f.cfg.Notebook, MemoBytes: NotebookBytes}}
+}
+
+// chargeBuys is chargeStays for the catalogue: the first buy in a step wins,
+// a refusal is a note and not a debt, and nothing here can fail the tick.
+// It runs after the stays because a stay is about this tick and a notebook
+// is about the rest of the run.
+func (f *Fair) chargeBuys(ag *Agent, place string, actions []Action) error {
+	for _, a := range actions {
+		if a.Type != ActionBuy {
+			continue
+		}
+		var offer *Offer
+		for _, o := range f.catalogue() {
+			if o.Item == a.Item {
+				offer = &o // a copy: catalogue builds a fresh slice each call
+				break
+			}
+		}
+		if offer == nil {
+			f.o.traceEvent(trace.EventNote, map[string]any{
+				"note": "buy refused: not for sale", "agent": ag.ID, "item": a.Item,
+			})
+			return nil
+		}
+		for _, have := range f.owned[ag.ID] {
+			if have == a.Item {
+				// One each. A second notebook would be the first one again,
+				// and a loop in somebody's code should not be able to pay
+				// for the same page twice.
+				f.o.traceEvent(trace.EventNote, map[string]any{
+					"note": "buy refused: already owned", "agent": ag.ID, "item": a.Item,
+				})
+				return nil
+			}
+		}
+		bal, err := f.o.Ledger.Balance(f.settleCtx, ag.ID)
+		if err != nil {
+			return err
+		}
+		if bal < offer.Price {
+			f.o.traceEvent(trace.EventNote, map[string]any{
+				"note": "buy refused", "agent": ag.ID, "item": a.Item,
+				"cost": offer.Price, "balance": bal,
+			})
+			return nil
+		}
+		// Burned, for the stay's reason: there is no seller. The agent is
+		// buying room in the platform's own book, and the platform is not
+		// a party that keeps the money. When another agent is on the other
+		// side of a trade, that trade will transfer; this one does not.
+		if _, err := f.o.Ledger.Burn(f.settleCtx, ag.ID, offer.Price, "buy", a.Item); err != nil {
+			return err
+		}
+		f.owned[ag.ID] = append(f.owned[ag.ID], a.Item)
+		f.o.memos.grant(ag.ID, offer.MemoBytes)
+		f.o.traceEvent(trace.EventCredit, map[string]any{
+			"action": "bought", "agent": ag.ID, "place": place, "item": a.Item,
+			"amount": offer.Price, "memo_bytes": offer.MemoBytes,
 		})
 		return nil
 	}

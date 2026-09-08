@@ -100,6 +100,9 @@ type SimStanding struct {
 	Burned   ledger.Credits
 	Balance  ledger.Credits
 	Retired  bool
+	// Owned is what the agent bought at the fair and still has; nil on the
+	// sim, which sells nothing.
+	Owned []string
 }
 
 // SimReport is the chronicle a finished world leaves behind.

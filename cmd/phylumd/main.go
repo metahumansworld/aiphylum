@@ -78,6 +78,7 @@ func main() {
 		return nil
 	})
 	tiebreak := flag.String("tiebreak", "arrival", "fair: how a tie at the lowest ask is broken — arrival (the earlier bid wins) or lot (a seeded draw among the tied names)")
+	notebook := flag.Int64("notebook", 0, "fair: put a notebook up for sale at the office at this many credits — a memo of 4,096 bytes instead of 512, for the rest of the run; 0 sells none")
 	book := flag.String("book", "sealed", "fair: what each bidder is told of the auction book with its result — sealed (your ask, the clearing price, the winner, the head-count) or open (every name and every ask)")
 	days := flag.Int("days", 1, "town: how many simulated days to run")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
@@ -149,7 +150,7 @@ func main() {
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
-		days: *days, tick: *tick, guests: guests, lodgers: lodgers, tiebreak: *tiebreak, book: *book,
+		days: *days, tick: *tick, guests: guests, lodgers: lodgers, tiebreak: *tiebreak, book: *book, notebook: ledger.Credits(*notebook),
 		serve: *serve, agents: agents, serveListen: *serveListen, serveModel: *serveModel,
 		serveLocked: *serveLocked, serveSite: *serveSite, serveInsecureTools: *serveInsecureTools,
 	}
@@ -197,6 +198,9 @@ type options struct {
 	// "open". Sealed is the default on every track; open is a fair thing,
 	// refused elsewhere the way -tiebreak lot is.
 	book string
+	// notebook is the fair's catalogue, which so far is one item: the price
+	// of a notebook, or 0 for none. Every track but the fair sells nothing.
+	notebook ledger.Credits
 
 	// serve runs built agents instead of a world: no board, no ladder, no
 	// containers. agents are spec files to run from boot; serveListen is where
@@ -277,6 +281,12 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		}
 	default:
 		return fmt.Errorf("-book %q is not a policy; it is sealed or open", opt.book)
+	}
+	if opt.notebook < 0 {
+		return fmt.Errorf("-notebook %d: a price is not negative", opt.notebook)
+	}
+	if opt.notebook > 0 && !opt.fair {
+		return fmt.Errorf("-notebook belongs to the fair; run it with -fair")
 	}
 	// The service is not a track: it runs built agents and no world at all,
 	// so every flag that shapes a world is refused alongside it.

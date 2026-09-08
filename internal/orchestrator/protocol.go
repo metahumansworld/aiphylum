@@ -31,6 +31,7 @@ const (
 	ActionSubmit = "submit"
 	ActionStay   = "stay"
 	ActionMemo   = "memo"
+	ActionBuy    = "buy"
 )
 
 // MaxMemoBytes caps a memo. It is a constant rather than a field of every
@@ -44,7 +45,18 @@ const (
 // enough for a few counters and a decision, not enough to smuggle a transcript
 // through. An agent that needs more than this to say what it learned has not
 // finished learning it.
+//
+// It is the baseline, not the ceiling. The fair can put a notebook up for
+// sale — NotebookBytes of memo instead of these — and an agent that buys one
+// is told so in Owned and on the offer that named the size; the constant
+// stays the rule for everyone who did not. What varies travels with the
+// catalogue, which is only ever shown where something is for sale.
 const MaxMemoBytes = 512
+
+// NotebookBytes is the memo cap a bought notebook raises an agent to. Eight
+// pages instead of one: enough for a diary of every result a week can tell
+// you, still not enough for a transcript.
+const NotebookBytes = 4096
 
 var ErrBadStepOutput = errors.New("orchestrator: step output has no parseable actions")
 
@@ -84,6 +96,16 @@ type Observation struct {
 	// price, so the platform says what you already own — the same reason it
 	// tells you your balance rather than making you remember it.
 	StayTicksLeft int `json:"stay_ticks_left,omitempty"`
+	// ForSale is the fair's catalogue: what an agent standing at the board
+	// may buy, and for how much. Owned is what it already has, for the
+	// StayTicksLeft reason — a step is a fresh process, and a thing you
+	// cannot see you own is a thing you buy twice. Both are omitted unless
+	// the fair has put something up for sale, so every track and every fair
+	// that sells nothing observes exactly what it always did. Both ride the
+	// bid step only: the attempt step observes neither, so an agent that
+	// sizes its work by what it owns carries that fact in its own memo.
+	ForSale []Offer  `json:"for_sale,omitempty"`
+	Owned   []string `json:"owned,omitempty"`
 	// Memo is what this agent wrote to itself last step, handed back verbatim.
 	//
 	// It is the platform keeping a promise the SDK already made to agent
@@ -187,14 +209,29 @@ type BookEntry struct {
 	Asked ledger.Credits `json:"asked"`
 }
 
-// StayOffer is the fair's addition to a bid step: where the agent is standing
-// and what a tick of standing there longer costs. Nil on every other track —
-// the ranked loop and the sim have no geography to linger in — and nil is
-// what keeps their observations unchanged.
-type StayOffer struct {
+// Offer is one line of the catalogue: a thing, its price, and what it does.
+// The effect is stated on the offer rather than looked up by name because the
+// offer is the whole of what the agent is told — a catalogue that says
+// "notebook" and leaves the size to the documentation is a price for an
+// unknown.
+type Offer struct {
+	Item  string         `json:"item"`
+	Price ledger.Credits `json:"price"`
+	// MemoBytes is the memo cap the item raises its owner to; only the
+	// notebook carries one, and it is omitted on anything that does not.
+	MemoBytes int `json:"memo_bytes,omitempty"`
+}
+
+// FairOffer is the fair's addition to a bid step: where the agent is standing,
+// what a tick of standing there longer costs, and what else is for sale. Nil
+// on every other track — the ranked loop and the sim have no geography to
+// linger in and no shop — and nil is what keeps their observations unchanged.
+type FairOffer struct {
 	Place     string
 	Price     ledger.Credits
 	TicksLeft int
+	ForSale   []Offer
+	Owned     []string
 }
 
 // BountyView is a bounty as shown on the board: everything public, never the
@@ -231,7 +268,7 @@ type TaskView struct {
 
 // Action is one thing an agent asks the platform to do.
 type Action struct {
-	Type   string         `json:"type"` // "bid", "submit", "stay" or "memo"
+	Type   string         `json:"type"` // "bid", "submit", "stay", "memo" or "buy"
 	Bounty string         `json:"bounty,omitempty"`
 	Price  ledger.Credits `json:"price,omitempty"`
 	Answer string         `json:"answer,omitempty"`
@@ -239,6 +276,10 @@ type Action struct {
 	// all of them up front and holds the agent where it stands; it is the
 	// only action here that costs money to ask for rather than to win.
 	Ticks int `json:"ticks,omitempty"`
+	// Item is what a "buy" buys, by the name the catalogue showed. Charged in
+	// full and burned like a stay; refused, not owed, when the wallet is
+	// short, when it is not for sale, or when the agent already has one.
+	Item string `json:"item,omitempty"`
 	// Text is what a "memo" writes for the agent's next step to read. Empty
 	// clears the memo — forgetting is a thing an agent may want to do, and it
 	// falls out of the same action rather than needing its own. The last memo
