@@ -1959,5 +1959,221 @@ func TestFairSellingNothingShowsNothing(t *testing.T) {
 		if l.Type == trace.EventEpisode && strings.Contains(string(l.Payload), `"notebook"`) {
 			t.Errorf("episode line names a notebook on a fair that sold none: %s", l.Payload)
 		}
+		if l.Type == trace.EventEpisode && strings.Contains(string(l.Payload), `"stall"`) {
+			t.Errorf("episode line names a stall on a fair that sold none: %s", l.Payload)
+		}
+	}
+}
+
+// A stall is the first thing bought that the town can see. The office
+// assigns the cell — the next pitch in the order it was handed — and the
+// purchase carries it; nothing else changes for the buyer: the price is
+// burned, the memo cap is exactly what it was, and a second stall is the
+// first one again.
+func TestFairStallStandsOnThePitchTheOfficeAssigns(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	long := strings.Repeat("d", MaxMemoBytes+100)
+	b := &buyer{script: [][]Action{
+		{{Type: ActionBuy, Item: "stall"}},
+		{{Type: ActionMemo, Text: long}, {Type: ActionBuy, Item: "stall"}},
+	}}
+	w.steps.fns["pat"] = b.step
+
+	pitches := []town.Cell{{X: 7, Y: 7}, {X: 8, Y: 7}}
+	f := stayFair(t, w, FairConfig{Stall: 400, StallPlace: "square", Pitches: pitches})
+	at := []town.Standing{{ID: "pat", Place: "office"}}
+	for i, mod := range []int{540, 550, 560} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	if got, want := w.balance(t, "pat"), ledger.Credits(3000-400); got != want {
+		t.Errorf("balance %d, want %d — one stall at the list price of 400", got, want)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 1 {
+		t.Errorf("%d bought events, want the one purchase", n)
+	}
+	if n := count(lines, trace.EventNote, "buy refused: already owned"); n != 1 {
+		t.Errorf("%d already-owned refusals, want 1", n)
+	}
+	// A stall is not a page: the oversize memo written after the purchase
+	// is refused the way it always was.
+	if n := count(lines, trace.EventNote, "memo refused: over limit"); n != 1 {
+		t.Errorf("%d memo refusals, want 1 — a stall grants no page", n)
+	}
+
+	// The event carries the cell, and it is the first pitch, not a cell of
+	// the buyer's choosing — the buy named the item and nothing else.
+	var cells []town.Cell
+	for _, l := range lines {
+		if l.Type != trace.EventCredit {
+			continue
+		}
+		var ev struct {
+			Action, Item string
+			Amount       ledger.Credits
+			X, Y         *int
+			MemoBytes    *int `json:"memo_bytes"`
+		}
+		if err := json.Unmarshal(l.Payload, &ev); err != nil {
+			t.Fatal(err)
+		}
+		if ev.Action != "bought" {
+			continue
+		}
+		if ev.Item != "stall" || ev.Amount != 400 || ev.X == nil || ev.Y == nil {
+			t.Fatalf("bought event %s, want a stall for 400 with a cell on it", l.Payload)
+		}
+		if ev.MemoBytes != nil {
+			t.Errorf("bought event %s carries memo_bytes; a stall is not a page", l.Payload)
+		}
+		cells = append(cells, town.Cell{X: *ev.X, Y: *ev.Y})
+	}
+	if want := pitches[:1]; !reflect.DeepEqual(cells, want) {
+		t.Errorf("stall at %v, want the first pitch %v", cells, want)
+	}
+
+	// The offer names the place and never the cell, on every board; the
+	// second pitch is still for sale after the first is taken.
+	for _, obs := range b.shown() {
+		want := []Offer{{Item: "stall", Price: 400, Place: "square"}}
+		if !reflect.DeepEqual(obs.ForSale, want) {
+			t.Errorf("for sale %+v, want %+v", obs.ForSale, want)
+		}
+	}
+	if len(rep.Standings) != 1 || !reflect.DeepEqual(rep.Standings[0].Owned, []string{"stall"}) {
+		t.Errorf("standings %+v, want pat owning a stall", rep.Standings)
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// The ground runs out before the money does. With one pitch and two buyers
+// in the same tick, the first in roster order gets the cell and the second
+// is refused as not for sale — the line leaves the catalogue with the
+// ground, so the refusal is the plain one and never a debt.
+func TestFairStallRefusedWhenThePitchesAreGone(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	w.add(t, "quinn", 3000)
+	pat := &buyer{script: [][]Action{{{Type: ActionBuy, Item: "stall"}}}}
+	quinn := &buyer{script: [][]Action{{{Type: ActionBuy, Item: "stall"}}}}
+	w.steps.fns["pat"], w.steps.fns["quinn"] = pat.step, quinn.step
+
+	f := stayFair(t, w, FairConfig{Stall: 400, StallPlace: "square", Pitches: []town.Cell{{X: 7, Y: 7}}})
+	at := []town.Standing{{ID: "pat", Place: "office"}, {ID: "quinn", Place: "office"}}
+	for i, mod := range []int{540, 550} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	if n := count(lines, trace.EventCredit, "bought"); n != 1 {
+		t.Errorf("%d bought events, want one — there was one pitch", n)
+	}
+	if n := count(lines, trace.EventNote, "buy refused: not for sale"); n != 1 {
+		t.Errorf("%d not-for-sale refusals, want 1 — the second buyer found the ground gone", n)
+	}
+	if a, b := w.balance(t, "pat"), w.balance(t, "quinn"); a+b != 6000-400 {
+		t.Errorf("balances %d and %d, want one stall paid for between them", a, b)
+	}
+	// The next board after the last pitch went shows no stall at all: an
+	// item that cannot be had is not an offer.
+	for _, b := range []*buyer{pat, quinn} {
+		shown := b.shown()
+		if last := shown[len(shown)-1]; last.ForSale != nil {
+			t.Errorf("for sale %+v on the board after the ground ran out, want nothing", last.ForSale)
+		}
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// A stall for sale with nowhere to stand is refused at construction.
+func TestFairStallNeedsPitches(t *testing.T) {
+	tw, _ := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	cfg := FairConfig{Stall: 400, Deck: []Posting{post(1, 1)}, PostMinutes: []int{540}, Office: "office"}
+	if _, err := NewFair(w.ctx, w.orch, cfg); err == nil {
+		t.Fatal("a stall priced with no pitches was accepted")
+	}
+}
+
+// Both lines on the board, bought in order. The notebook grants a page and
+// the stall must not take it back: the grant is an overwrite, so the stall's
+// purchase grants nothing rather than granting zero. The long memo written
+// after both purchases is kept, and the catalogue lists the two lines in
+// the office's order on every board.
+func TestFairStallAfterNotebookKeepsThePage(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	long := strings.Repeat("e", MaxMemoBytes+100)
+	b := &buyer{script: [][]Action{
+		{{Type: ActionBuy, Item: "notebook"}},
+		{{Type: ActionBuy, Item: "stall"}},
+		{{Type: ActionMemo, Text: long}},
+	}}
+	w.steps.fns["pat"] = b.step
+
+	f := stayFair(t, w, FairConfig{Notebook: 400, Stall: 400, StallPlace: "square", Pitches: []town.Cell{{X: 7, Y: 7}}})
+	at := []town.Standing{{ID: "pat", Place: "office"}}
+	for i, mod := range []int{540, 550, 560, 570} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	if got, want := w.balance(t, "pat"), ledger.Credits(3000-800); got != want {
+		t.Errorf("balance %d, want %d — a notebook and a stall", got, want)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 2 {
+		t.Errorf("%d bought events, want 2", n)
+	}
+	if n := count(lines, trace.EventNote, "memo refused: over limit"); n != 0 {
+		t.Errorf("%d memo refusals, want none — the stall took the page back", n)
+	}
+	if got := w.orch.memos.get("pat"); got != long {
+		t.Errorf("memo held is %d bytes, want the %d-byte one the notebook made room for", len(got), len(long))
+	}
+	shown := b.shown()
+	if len(shown) == 0 {
+		t.Fatal("no boards shown")
+	}
+	both := []Offer{{Item: "notebook", Price: 400, MemoBytes: NotebookBytes}, {Item: "stall", Price: 400, Place: "square"}}
+	if !reflect.DeepEqual(shown[0].ForSale, both) {
+		t.Errorf("first board for sale %+v, want %+v", shown[0].ForSale, both)
+	}
+	// The notebook stays listed once owned (the refusal says so); the stall
+	// leaves with its ground.
+	if last, want := shown[len(shown)-1].ForSale, both[:1]; !reflect.DeepEqual(last, want) {
+		t.Errorf("last board for sale %+v, want %+v — the pitch is gone, the page is still on offer", last, want)
+	}
+	if want := []string{"notebook", "stall"}; len(rep.Standings) != 1 || !reflect.DeepEqual(rep.Standings[0].Owned, want) {
+		t.Errorf("standings %+v, want pat owning %v", rep.Standings, want)
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
 	}
 }

@@ -71,6 +71,21 @@ type FairConfig struct {
 	// is buying room in the platform's own book, and nobody is on the
 	// other side of that either.
 	Notebook ledger.Credits
+	// Stall is the price of a stall at the office, or zero to sell none.
+	// A stall is the first thing bought that the town can see: the office
+	// assigns its buyer the next free cell of Pitches, the purchase carries
+	// the cell, and the spectator's page draws it there for the rest of the
+	// record. Burned like a notebook — the ground was nobody's to sell.
+	Stall ledger.Credits
+	// StallPlace names the place the pitches lie in, for the offer: an
+	// agent is told where a stall stands before it pays, not which cell,
+	// because the cell is the office's to assign when the money moves.
+	StallPlace string
+	// Pitches is the ground, in the order the office lets it. The fair has
+	// no map of its own, so whoever wires it hands over the cells; a stall
+	// for sale with nowhere to stand is refused at construction, not at
+	// the counter.
+	Pitches []town.Cell
 	// Tie is the policy an auction at this fair uses when two bids arrive
 	// at the same lowest price. The zero value is auction.ByArrival — the
 	// earliest bid wins, which is what every fair before this one did
@@ -166,6 +181,9 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	if cfg.Office == "" {
 		return nil, errors.New("orchestrator: the fair needs an office — presence at it is the whole coupling")
 	}
+	if cfg.Stall > 0 && len(cfg.Pitches) == 0 {
+		return nil, errors.New("orchestrator: a stall for sale needs pitches to stand on")
+	}
 	if cfg.Tie != auction.ByArrival && cfg.Tie != auction.ByLot {
 		// Refused rather than defaulted: a tie-break that silently fell
 		// back to arrival would be a policy nobody chose, which is the
@@ -236,6 +254,9 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		// not say whether nobody wanted a notebook or nobody was offered
 		// one — and a fair that sold nothing keeps its opening line.
 		start["notebook"] = cfg.Notebook
+	}
+	if cfg.Stall > 0 {
+		start["stall"] = cfg.Stall
 	}
 	o.traceEvent(trace.EventEpisode, start)
 	return f, nil
@@ -546,10 +567,17 @@ func (f *Fair) chargeStays(ag *Agent, place string, actions []Action) error {
 // catalogue is what the office has for sale: nil when nothing is, which is
 // what keeps the observation of every fair that sells nothing unchanged.
 func (f *Fair) catalogue() []Offer {
-	if f.cfg.Notebook <= 0 {
-		return nil
+	var out []Offer
+	if f.cfg.Notebook > 0 {
+		out = append(out, Offer{Item: "notebook", Price: f.cfg.Notebook, MemoBytes: NotebookBytes})
 	}
-	return []Offer{{Item: "notebook", Price: f.cfg.Notebook, MemoBytes: NotebookBytes}}
+	if f.cfg.Stall > 0 && len(f.cfg.Pitches) > 0 {
+		// Off the list once the ground is gone: a line for a stall nobody
+		// can be given is a price for nothing, and the refusal it would
+		// earn is the plain "not for sale".
+		out = append(out, Offer{Item: "stall", Price: f.cfg.Stall, Place: f.cfg.StallPlace})
+	}
+	return out
 }
 
 // chargeBuys is chargeStays for the catalogue: the first buy in a step wins,
@@ -604,11 +632,28 @@ func (f *Fair) chargeBuys(ag *Agent, place string, actions []Action) error {
 			return err
 		}
 		f.owned[ag.ID] = append(f.owned[ag.ID], a.Item)
-		f.o.memos.grant(ag.ID, offer.MemoBytes)
-		f.o.traceEvent(trace.EventCredit, map[string]any{
+		ev := map[string]any{
 			"action": "bought", "agent": ag.ID, "place": place, "item": a.Item,
-			"amount": offer.Price, "memo_bytes": offer.MemoBytes,
-		})
+			"amount": offer.Price,
+		}
+		if offer.MemoBytes > 0 {
+			// Only a page grants a page: a grant of zero would be the
+			// notebook taken back by the next thing bought.
+			f.o.memos.grant(ag.ID, offer.MemoBytes)
+			ev["memo_bytes"] = offer.MemoBytes
+		}
+		if a.Item == "stall" {
+			// The office assigns the ground: the next pitch in the order
+			// it was handed, so two buyers in one tick get two cells and
+			// the roster's order says whose is whose. The cell rides the
+			// same event as the money because it is the whole of what was
+			// bought — the town is not told, and the page that draws the
+			// map reads it from here.
+			c := f.cfg.Pitches[0]
+			f.cfg.Pitches = f.cfg.Pitches[1:]
+			ev["x"], ev["y"] = c.X, c.Y
+		}
+		f.o.traceEvent(trace.EventCredit, ev)
 		return nil
 	}
 	return nil

@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -331,6 +331,21 @@ fair-diarist-7day:
 fair-diarist-unsold-7day:
 	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/diarist.py -trace fair-diarist-unsold-7day-trace.jsonl
 
+## fair-stallholder-7day: the first thing bought that the town can see.
+## examples/guests/stallholder.py is examples/guests/scribe.py plus exactly
+## one behaviour — it buys a stall when the office has one and the purse holds
+## four times the price — and -stall 400 puts one up for sale: a pitch on the
+## town square, assigned by the office, carried on the bought event and drawn
+## there by the spectator's page for the rest of the record. It does nothing
+## for its owner but stand there. The unsold week below is the same seven days
+## with nothing on sale, so the difference between the two traces is one
+## purchase and one cell. Conservation closes at drift 0 either way.
+fair-stallholder-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -stall 400 -guest examples/guests/stallholder.py -trace fair-stallholder-7day-trace.jsonl
+
+fair-stallholder-unsold-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -book open -guest examples/guests/stallholder.py -trace fair-stallholder-unsold-7day-trace.jsonl
+
 test:
 	$(GO) test ./...
 
@@ -345,7 +360,7 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode appends to it and never truncates it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl fair-badger-7day-trace.jsonl fair-badger-swapped-7day-trace.jsonl fair-badgers-7day-trace.jsonl fair-lodger-7day-trace.jsonl fair-diarist-7day-trace.jsonl fair-diarist-unsold-7day-trace.jsonl
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl fair-badger-7day-trace.jsonl fair-badger-swapped-7day-trace.jsonl fair-badgers-7day-trace.jsonl fair-lodger-7day-trace.jsonl fair-diarist-7day-trace.jsonl fair-diarist-unsold-7day-trace.jsonl fair-stallholder-7day-trace.jsonl fair-stallholder-unsold-7day-trace.jsonl
 
 ## serve: the service — the builder page and one built agent, from
 ## examples/agents, on 127.0.0.1:8151. Open http://127.0.0.1:8151/ and sign

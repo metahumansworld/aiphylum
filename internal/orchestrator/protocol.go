@@ -220,6 +220,10 @@ type Offer struct {
 	// MemoBytes is the memo cap the item raises its owner to; only the
 	// notebook carries one, and it is omitted on anything that does not.
 	MemoBytes int `json:"memo_bytes,omitempty"`
+	// Place is where the item will stand once bought; only the stall
+	// carries one, and it is a place and not a cell because the cell is
+	// assigned when the money moves, not when the price is quoted.
+	Place string `json:"place,omitempty"`
 }
 
 // FairOffer is the fair's addition to a bid step: where the agent is standing,
