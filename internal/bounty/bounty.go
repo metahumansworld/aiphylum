@@ -165,6 +165,17 @@ type Board struct {
 	nextID     int
 }
 
+// Resume moves the numbering past the last bounty an earlier process posted
+// over the same record, so a restarted world never posts b0001 twice. The
+// daemon reads that number from the trace at boot; it is nowhere else.
+func (bd *Board) Resume(lastID int) {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	if lastID > bd.nextID {
+		bd.nextID = lastID
+	}
+}
+
 func NewBoard() *Board {
 	return &Board{
 		generators: map[string]Generator{},

@@ -243,29 +243,6 @@ func (l *Ledger) Balance(ctx context.Context, id string) (Credits, error) {
 	return a.Balance, err
 }
 
-// HasHistory reports whether anything has ever used this book: true once any
-// account exists beyond the system accounts migrate seeds, false on a book that
-// has only just been opened.
-//
-// Closed accounts count, and that is the point rather than an oversight. A
-// retired attempt wallet is still a row, and it is precisely the row a second
-// process collides with when it reaches for a name the first one already spent.
-// A world that ran and then went bankrupt is still a used world.
-//
-// The exemption is by prefix rather than by naming the four constants, so a
-// system account added later is exempt automatically. The failure direction
-// matters here: an unrecognised sys: account would otherwise read as history
-// and refuse every boot, including the first.
-func (l *Ledger) HasHistory(ctx context.Context) (bool, error) {
-	var n int
-	err := l.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM accounts WHERE id NOT LIKE 'sys:%'`).Scan(&n)
-	if err != nil {
-		return false, fmt.Errorf("check ledger history: %w", err)
-	}
-	return n > 0, nil
-}
-
 // Leg is one side of a transaction: a signed movement against one account.
 type Leg struct {
 	Account string

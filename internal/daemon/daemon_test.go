@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -137,10 +138,19 @@ func newTestServer(t *testing.T, extra ...bounty.Generator) (*Server, *scriptSte
 	return newTestServerAt(t, filepath.Join(dir, "ledger.db"), filepath.Join(dir, "trace.jsonl"), extra...)
 }
 
-// newTestServerAt builds a daemon over ledger and trace files the caller names.
-// Pointing a second server at an existing ledger is what a daemon restart is:
-// the money survives, the board, the epoch counter and the roster do not.
+// newTestServerAt builds a daemon over ledger and trace files the caller names
+// and resumes whatever world they hold. Pointing a second server at the first
+// one's files is what a daemon restart is; the roster lives beside the ledger.
 func newTestServerAt(t *testing.T, dbPath, tracePath string, extra ...bounty.Generator) (*Server, *scriptSteps) {
+	t.Helper()
+	srv, steps, err := openServerAt(t, dbPath, tracePath, extra...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv, steps
+}
+
+func openServerAt(t *testing.T, dbPath, tracePath string, extra ...bounty.Generator) (*Server, *scriptSteps, error) {
 	t.Helper()
 	led, err := ledger.Open(dbPath)
 	if err != nil {
@@ -148,7 +158,7 @@ func newTestServerAt(t *testing.T, dbPath, tracePath string, extra ...bounty.Gen
 	}
 	t.Cleanup(func() { led.Close() })
 
-	tw, err := trace.NewWriter(tracePath)
+	tw, err := trace.OpenWriter(tracePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,10 +186,11 @@ func newTestServerAt(t *testing.T, dbPath, tracePath string, extra ...bounty.Gen
 			}
 			return nil
 		},
-		TracePath: tracePath,
-		Log:       log,
+		TracePath:  tracePath,
+		RosterPath: filepath.Join(filepath.Dir(dbPath), "roster.json"),
+		Log:        log,
 	})
-	return srv, steps
+	return srv, steps, srv.Resume(context.Background())
 }
 
 func do(t *testing.T, srv *Server, method, path string, body any) *httptest.ResponseRecorder {
@@ -394,61 +405,121 @@ func TestFailedBountiesCarryAcrossEpisodes(t *testing.T) {
 	}
 }
 
-// A restart is a second process over the same ledger file. The money persists —
-// that is the point of the live -db default — but the roster, the board's
-// numbering and the epoch counter are all in memory and start over.
-//
-// These two tests pin why a live boot now refuses a used ledger: this is the
-// failure on the other side of that guard. They construct servers directly
-// rather than going through cmd/phylumd, so the guard does not reach them, and
-// that is deliberate — the refusal is only worth keeping while the thing it
-// refuses is still demonstrably broken. If a later change makes restart work,
-// these fail, and the guard should go with them.
+// A daemon restart is a second server over the first one's ledger, trace and
+// roster. The money was always on disk; these pin that the rest of the world
+// comes back with it — the roster, the epoch, the board's numbering — and that
+// what comes back is a world that can go on running with drift 0.
 
-func TestRestartStrandsExistingAgents(t *testing.T) {
+func TestRestartSeatsTheSameWorld(t *testing.T) {
 	dir := t.TempDir()
-	db := filepath.Join(dir, "ledger.db")
+	db, tr := filepath.Join(dir, "ledger.db"), filepath.Join(dir, "trace.jsonl")
 
-	srv1, _ := newTestServerAt(t, db, filepath.Join(dir, "before.jsonl"))
+	srv1, _ := newTestServerAt(t, db, tr)
 	submit(t, srv1, "alpha", 2500)
-
-	srv2, _ := newTestServerAt(t, db, filepath.Join(dir, "after.jsonl"))
-	if agents := decode[[]AgentView](t, do(t, srv2, "GET", "/v1/agents", nil)); len(agents) != 0 {
-		t.Fatalf("roster after restart: %v, want empty", agents)
-	}
-	// Re-submitting alpha cannot work: its ledger account is still there, so
-	// AddAgent reads the name as spent and refuses it the way it refuses a
-	// bankrupt one. The 2500 credits are stranded in an account no agent holds.
-	rec := do(t, srv2, "POST", "/v1/agents", SubmitRequest{ID: "alpha", Image: "agent:latest", Grant: 2500})
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("re-submit after restart: %d %s, want 409", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRestartCollidesOnAttemptWallets(t *testing.T) {
-	dir := t.TempDir()
-	db := filepath.Join(dir, "ledger.db")
-
-	srv1, _ := newTestServerAt(t, db, filepath.Join(dir, "before.jsonl"))
-	submit(t, srv1, "alpha", 2500)
+	submit(t, srv1, "beta", 2500)
 	if rec := do(t, srv1, "POST", "/v1/episodes", EpisodeRequest{Seed: 1, Rounds: 1}); rec.Code != http.StatusAccepted {
 		t.Fatalf("run 1: %d %s", rec.Code, rec.Body.String())
 	}
 	if st := waitIdle(t, srv1); st.State != "idle" {
 		t.Fatalf("state after episode 1: %s (%s)", st.State, st.Error)
 	}
+	before := decode[[]AgentView](t, do(t, srv1, "GET", "/v1/agents", nil))
 
-	// Restart with a fresh agent name, so the refusal above is not what stops
-	// us. The board numbers from b0001 again and the epoch counter is back at
-	// zero, so this episode reaches for an attempt wallet episode 1 retired.
-	srv2, _ := newTestServerAt(t, db, filepath.Join(dir, "after.jsonl"))
-	submit(t, srv2, "beta", 2500)
-	if rec := do(t, srv2, "POST", "/v1/episodes", EpisodeRequest{Seed: 1, Rounds: 1}); rec.Code != http.StatusAccepted {
-		t.Fatalf("run 2: %d %s", rec.Code, rec.Body.String())
+	srv2, steps2 := newTestServerAt(t, db, tr)
+	after := decode[[]AgentView](t, do(t, srv2, "GET", "/v1/agents", nil))
+	if len(after) != 2 || after[0].ID != "alpha" || after[1].ID != "beta" {
+		t.Fatalf("roster after restart: %+v", after)
+	}
+	for i := range before {
+		if after[i] != before[i] {
+			t.Errorf("agent %s changed across restart: %+v -> %+v", before[i].ID, before[i], after[i])
+		}
+	}
+	if _, ok := steps2.bound["alpha"]; !ok {
+		t.Fatal("alpha's image was not re-bound to the step runner")
+	}
+	// Resubmitting a seated agent is still a taken name.
+	if rec := do(t, srv2, "POST", "/v1/agents", SubmitRequest{ID: "alpha", Image: "agent:latest", Grant: 1}); rec.Code != http.StatusConflict {
+		t.Fatalf("re-submit after restart: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+
+	// The same plan again: every bounty id is new, every attempt wallet is
+	// under a fresh epoch, and the episode is the second, not the first.
+	rec := decode[EpisodeView](t, do(t, srv2, "POST", "/v1/episodes", EpisodeRequest{Seed: 1, Rounds: 1}))
+	if rec.ID != "ep2" {
+		t.Fatalf("episode after restart is %s, want ep2", rec.ID)
 	}
 	st := waitIdle(t, srv2)
-	if st.State != "broken" || !strings.Contains(st.Error, ledger.ErrAccountExists.Error()) {
-		t.Fatalf("first episode after restart: state %q, err %q — want the attempt-wallet collision", st.State, st.Error)
+	if st.State != "idle" {
+		t.Fatalf("first episode after restart: state %q, err %q", st.State, st.Error)
+	}
+	if !strings.Contains(st.Conservation, "drift=0") {
+		t.Fatalf("conservation after restart: %s", st.Conservation)
+	}
+	lines, err := trace.Read(tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posted := map[string]int{}
+	for _, ln := range lines {
+		var p struct{ Action, ID string }
+		if ln.Type == trace.EventBounty && json.Unmarshal(ln.Payload, &p) == nil && p.Action == "posted" {
+			posted[p.ID]++
+		}
+	}
+	if len(posted) == 0 {
+		t.Fatal("no postings in the trace")
+	}
+	for id, n := range posted {
+		if n != 1 {
+			t.Errorf("bounty %s posted %d times across the restart", id, n)
+		}
+	}
+	if lines[len(lines)-1].Seq != int64(len(lines)) {
+		t.Errorf("trace seq %d on line %d: the record forked", lines[len(lines)-1].Seq, len(lines))
+	}
+}
+
+func TestRestartRefusesAWorldWhoseImageIsGone(t *testing.T) {
+	dir := t.TempDir()
+	db, tr := filepath.Join(dir, "ledger.db"), filepath.Join(dir, "trace.jsonl")
+
+	srv1, _ := newTestServerAt(t, db, tr)
+	submit(t, srv1, "alpha", 2500)
+
+	// The image is pulled out from under the roster between boots.
+	rosterPath := filepath.Join(dir, "roster.json")
+	raw, err := os.ReadFile(rosterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rosterPath, bytes.ReplaceAll(raw, []byte("agent:latest"), []byte("missing:latest")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = openServerAt(t, db, tr)
+	if err == nil || !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "missing:latest") {
+		t.Fatalf("boot over a vanished image: %v; want a refusal naming alpha and the image", err)
+	}
+}
+
+// A roster entry with no wallet is the crash intake's ordering allows — the
+// file written, the process gone before the mint. Boot seats it and pays the
+// grant once.
+func TestResumeMintsForARosterEntryWithNoWallet(t *testing.T) {
+	dir := t.TempDir()
+	db, tr := filepath.Join(dir, "ledger.db"), filepath.Join(dir, "trace.jsonl")
+	r := roster{Agents: []SubmitRequest{{ID: "alpha", Image: "agent:latest", Grant: 700}}}
+	if err := r.save(filepath.Join(dir, "roster.json")); err != nil {
+		t.Fatal(err)
+	}
+	srv, _ := newTestServerAt(t, db, tr)
+	agents := decode[[]AgentView](t, do(t, srv, "GET", "/v1/agents", nil))
+	if len(agents) != 1 || agents[0].Balance != 700 {
+		t.Fatalf("seated from a wallet-less roster: %+v", agents)
+	}
+	srv2, _ := newTestServerAt(t, db, tr)
+	if agents := decode[[]AgentView](t, do(t, srv2, "GET", "/v1/agents", nil)); agents[0].Balance != 700 {
+		t.Fatalf("second boot minted again: %+v", agents)
 	}
 }
 

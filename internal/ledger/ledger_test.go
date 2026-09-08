@@ -362,38 +362,6 @@ func TestVerifyDetectsATamperedBalance(t *testing.T) {
 	}
 }
 
-// HasHistory is what a live boot asks before it agrees to open a world, so the
-// two answers that matter are "nobody has used this" and "somebody has".
-func TestHasHistoryIgnoresTheSystemAccountsAndCountsRetiredOnes(t *testing.T) {
-	l := newTestLedger(t)
-	ctx := context.Background()
-
-	// A book that has only been migrated holds sys:mint, sys:burn, sys:provider
-	// and sys:hold. If those read as history, every first boot is refused.
-	used, err := l.HasHistory(ctx)
-	if err != nil {
-		t.Fatalf("HasHistory on a fresh book: %v", err)
-	}
-	if used {
-		t.Fatal("a freshly opened book reports history; the system accounts are being counted")
-	}
-
-	mustWallet(t, l, "alpha")
-	if used, err = l.HasHistory(ctx); err != nil || !used {
-		t.Fatalf("HasHistory after one wallet = %v, %v; want true", used, err)
-	}
-
-	// A retired wallet still occupies its name, and that name is exactly what a
-	// second process collides with. A world that ran and then died is used.
-	if err := l.Retire(ctx, "alpha"); err != nil {
-		t.Fatalf("retire alpha: %v", err)
-	}
-	if used, err = l.HasHistory(ctx); err != nil || !used {
-		t.Fatalf("HasHistory after retiring the only wallet = %v, %v; want true", used, err)
-	}
-	verify(t, l)
-}
-
 func TestMintOnceMintsARefOnceHoweverOftenItIsAnnounced(t *testing.T) {
 	ctx := context.Background()
 	l := newTestLedger(t)

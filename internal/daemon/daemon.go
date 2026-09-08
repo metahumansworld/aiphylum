@@ -52,6 +52,9 @@ type Config struct {
 	CheckImage func(ctx context.Context, image string) error
 	// TracePath is the trace file /v1/trace serves and follows.
 	TracePath string
+	// RosterPath is the file the roster and the epoch are kept in, beside the
+	// ledger. Resume reads it; intake and every episode start write it.
+	RosterPath string
 	// RunCtx bounds episode runs. An episode is started by a request but must
 	// outlive it, so it runs under this context — the daemon's own lifetime —
 	// not the request's. Nil means context.Background().
@@ -66,20 +69,17 @@ type Server struct {
 	mux *http.ServeMux
 
 	mu       sync.Mutex
-	agents   []*agentRecord
+	roster   roster
 	episodes []*episodeRecord
-	running  bool
+	// epBase is how many episodes earlier processes ran over this record, so
+	// episode ids keep counting across a restart instead of starting at ep1.
+	epBase  int
+	running bool
 	// broken latches the error of a failed episode. The orchestrator halts an
 	// episode only for platform-serious reasons — a conservation failure above
 	// all — and a world whose money may be wrong must stop accepting work, not
 	// shrug and take the next request. Cleared only by restarting the daemon.
 	broken error
-}
-
-type agentRecord struct {
-	ID    string
-	Image string
-	Grant ledger.Credits
 }
 
 type episodeRecord struct {
@@ -112,6 +112,63 @@ func New(cfg Config) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+
+// Resume seats the world an earlier process left on disk: every agent in the
+// roster is bound and readmitted to its own wallet, the epoch is set to the
+// one written down, and the board's numbering and the episode count are read
+// back from the trace. Call it once, before serving.
+//
+// A living agent whose image is gone refuses the whole boot, by name. Its
+// credits are in the book, and a world seated without it would be one where
+// those credits belong to no one; the operator is told what to restore. A
+// retired agent's image is not checked: the dead do not step.
+func (s *Server) Resume(ctx context.Context) error {
+	r, err := loadRoster(s.cfg.RosterPath)
+	if err != nil {
+		return err
+	}
+	// Read the trace before anything below writes to it.
+	lastBounty, episodes, err := traceMarks(s.cfg.TracePath)
+	if err != nil {
+		return err
+	}
+	for _, a := range r.Agents {
+		acct, err := s.cfg.Orch.Ledger.Get(ctx, a.ID)
+		// A bankrupt never steps again, so its image may go; a living agent's
+		// may not — that is the livelock intake guards against, arriving late.
+		if s.cfg.CheckImage != nil && !acct.Closed {
+			if err := s.cfg.CheckImage(ctx, a.Image); err != nil {
+				return fmt.Errorf("agent %s cannot be seated: image %s: %v — its credits are in %s, "+
+					"so restore the image rather than the world", a.ID, a.Image, err, s.cfg.RosterPath)
+			}
+		}
+		s.cfg.Bind(a.ID, a.spec())
+		switch {
+		case errors.Is(err, ledger.ErrNotFound):
+			// The roster was written and the wallet never was: the crash
+			// intake is ordered to allow. Mint the grant now, once.
+			if err := s.cfg.Orch.AddAgent(ctx, a.ID, ledger.Credits(a.Grant)); err != nil {
+				return fmt.Errorf("seat %s: %w", a.ID, err)
+			}
+		case err != nil:
+			return fmt.Errorf("seat %s: %w", a.ID, err)
+		default:
+			if err := s.cfg.Orch.Readmit(ctx, a.ID); err != nil {
+				return fmt.Errorf("seat %s: %w", a.ID, err)
+			}
+		}
+	}
+	s.cfg.Orch.SetEpoch(r.Epoch)
+	s.cfg.Orch.Board.Resume(lastBounty)
+	s.mu.Lock()
+	s.roster, s.epBase = r, episodes
+	s.mu.Unlock()
+	if len(r.Agents) > 0 || episodes > 0 {
+		s.cfg.Log.Info("world resumed", "agents", len(r.Agents), "epoch", r.Epoch,
+			"episodes", episodes, "last_bounty", lastBounty)
+	}
+	return nil
+}
 
 // ── wire shapes ─────────────────────────────────────────────────────────────
 
@@ -187,7 +244,7 @@ func writeError(w http.ResponseWriter, code int, format string, args ...any) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	st := StatusView{State: "idle", Agents: len(s.agents), Episodes: len(s.episodes)}
+	st := StatusView{State: "idle", Agents: len(s.roster.Agents), Episodes: len(s.episodes)}
 	if s.running {
 		st.State = "running"
 	}
@@ -204,13 +261,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentsList(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	recs := make([]*agentRecord, len(s.agents))
-	copy(recs, s.agents)
+	recs := make([]SubmitRequest, len(s.roster.Agents))
+	copy(recs, s.roster.Agents)
 	s.mu.Unlock()
 
 	out := make([]AgentView, 0, len(recs))
 	for _, rec := range recs {
-		v := AgentView{ID: rec.ID, Image: rec.Image, Grant: rec.Grant}
+		v := AgentView{ID: rec.ID, Image: rec.Image, Grant: ledger.Credits(rec.Grant)}
 		if acct, err := s.cfg.Orch.Ledger.Get(r.Context(), rec.ID); err == nil {
 			v.Balance, v.Retired = acct.Balance, acct.Closed
 		}
@@ -258,30 +315,47 @@ func (s *Server) handleAgentSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A taken name is refused before anything is written down. A bankrupt's
+	// id is never reused, and neither is a living agent's.
+	if _, err := s.cfg.Orch.Ledger.Get(r.Context(), req.ID); err == nil {
+		writeError(w, http.StatusConflict, "agent id %s is taken (bankrupt IDs are never reused)", req.ID)
+		return
+	} else if !errors.Is(err, ledger.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "register agent: %v", err)
+		return
+	}
+
+	// Roster, then binding, then wallet. Each step's failure leaves the world
+	// the earlier steps can heal: an entry with no account is seated by the
+	// next boot, a binding with no wallet is inert, and the reverse order would
+	// be the livelock — a walleted agent with no image.
+	s.roster.Agents = append(s.roster.Agents, req)
+	if err := s.roster.save(s.cfg.RosterPath); err != nil {
+		s.roster.Agents = s.roster.Agents[:len(s.roster.Agents)-1]
+		writeError(w, http.StatusInternalServerError, "register agent: %v", err)
+		return
+	}
+	s.cfg.Bind(req.ID, req.spec())
+	if err := s.cfg.Orch.AddAgent(r.Context(), req.ID, ledger.Credits(req.Grant)); err != nil {
+		writeError(w, http.StatusInternalServerError, "register agent: %v", err)
+		return
+	}
+
+	s.cfg.Log.Info("agent registered", "agent", req.ID, "image", req.Image, "grant", req.Grant)
+	writeJSON(w, http.StatusOK, AgentView{
+		ID: req.ID, Image: req.Image, Grant: ledger.Credits(req.Grant), Balance: ledger.Credits(req.Grant),
+	})
+}
+
+// spec is the container the request describes.
+func (req SubmitRequest) spec() orchestrator.ContainerAgent {
 	spec := orchestrator.ContainerAgent{
 		Image: req.Image, Cmd: req.Cmd, Memory: req.Memory, CPUs: req.CPUs,
 	}
 	for _, m := range req.Mounts {
 		spec.Mounts = append(spec.Mounts, runner.Mount{Host: m.Host, Container: m.Container})
 	}
-	// Bind before the wallet exists: if AddAgent refuses, the binding is inert.
-	// The reverse order would be the livelock — a walleted agent with no image.
-	s.cfg.Bind(req.ID, spec)
-	if err := s.cfg.Orch.AddAgent(r.Context(), req.ID, ledger.Credits(req.Grant)); err != nil {
-		if errors.Is(err, ledger.ErrAccountExists) {
-			writeError(w, http.StatusConflict, "agent id %s is taken (bankrupt IDs are never reused)", req.ID)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "register agent: %v", err)
-		return
-	}
-
-	rec := &agentRecord{ID: req.ID, Image: req.Image, Grant: ledger.Credits(req.Grant)}
-	s.agents = append(s.agents, rec)
-	s.cfg.Log.Info("agent registered", "agent", req.ID, "image", req.Image, "grant", req.Grant)
-	writeJSON(w, http.StatusOK, AgentView{
-		ID: rec.ID, Image: rec.Image, Grant: rec.Grant, Balance: rec.Grant,
-	})
+	return spec
 }
 
 func (s *Server) handleEpisodesList(w http.ResponseWriter, r *http.Request) {
@@ -355,7 +429,7 @@ func (s *Server) handleEpisodeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	live := 0
-	for _, rec := range s.agents {
+	for _, rec := range s.roster.Agents {
 		if acct, err := s.cfg.Orch.Ledger.Get(r.Context(), rec.ID); err == nil && !acct.Closed {
 			live++
 		}
@@ -366,7 +440,7 @@ func (s *Server) handleEpisodeRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := &episodeRecord{
-		ID:   fmt.Sprintf("ep%d", len(s.episodes)+1),
+		ID:   fmt.Sprintf("ep%d", s.epBase+len(s.episodes)+1),
 		Seed: req.Seed, Rounds: req.Rounds, Postings: countPostings(ep),
 		State: "running", Started: time.Now(),
 	}
@@ -384,9 +458,17 @@ func (s *Server) handleEpisodeRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runEpisode(rec *episodeRecord, ep orchestrator.Episode) {
 	// Fresh attempt-wallet namespace and a clean fault tracker; without this,
 	// a bounty failed last episode and re-awarded at the same round number
-	// this episode would collide with its own retired attempt wallet.
+	// this episode would collide with its own retired attempt wallet. The
+	// epoch goes to disk before a wallet can be named under it: a restart
+	// that read a stale one would walk into exactly that collision.
 	s.cfg.Orch.NextEpoch()
-	err := s.cfg.Orch.RunEpisode(s.cfg.RunCtx, ep)
+	s.mu.Lock()
+	s.roster.Epoch++
+	err := s.roster.save(s.cfg.RosterPath)
+	s.mu.Unlock()
+	if err == nil {
+		err = s.cfg.Orch.RunEpisode(s.cfg.RunCtx, ep)
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

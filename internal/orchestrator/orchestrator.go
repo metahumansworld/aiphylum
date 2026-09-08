@@ -402,6 +402,31 @@ func (o *Orchestrator) AddAgent(ctx context.Context, id string, grant ledger.Cre
 	return nil
 }
 
+// Readmit seats an agent whose wallet is already in the book: a daemon
+// restarting over its own ledger. Nothing is minted — the grant was paid once,
+// by AddAgent, and the balance is whatever the agent has made of it since —
+// and retirement is read from the ledger, so a bankrupt comes back bankrupt.
+func (o *Orchestrator) Readmit(ctx context.Context, id string) error {
+	acct, err := o.Ledger.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if acct.Kind != ledger.KindAgent {
+		return fmt.Errorf("readmit %s: %s is not an agent wallet", id, acct.Kind)
+	}
+	o.agents = append(o.agents, &Agent{ID: id, Retired: acct.Closed})
+	o.traceEvent(trace.EventAgent, map[string]any{
+		"action": "readmitted", "agent": id, "balance": acct.Balance, "retired": acct.Closed,
+	})
+	return nil
+}
+
+// SetEpoch resumes the attempt-wallet namespace where an earlier process left
+// it. A world restarted at a stale epoch reaches for wallet names its
+// predecessor retired, and the ledger halts it; the daemon writes the epoch
+// down before every episode so that this number is always the true one.
+func (o *Orchestrator) SetEpoch(n int) { o.epoch = n }
+
 // Agents returns the roster in registration order.
 func (o *Orchestrator) Agents() []*Agent { return o.agents }
 

@@ -65,9 +65,10 @@ func NewWriter(path string) (*Writer, error) {
 // OpenWriter appends to a trace file, creating it if it is absent. It is
 // for a process that is expected to restart over the same record — the
 // service, whose trace is the only copy of every conversation its agents
-// ever had — and it continues the sequence from where the file left off, so
-// a reader sees one run. The arena keeps NewWriter: an episode is one
-// process, and a trace that outlives one is a mistake it refuses to make.
+// ever had, and the live arena, whose trace is the one record of a world that
+// cannot be run again — and it continues the sequence from where the file
+// left off, so a reader sees one run. The offline tracks keep NewWriter: a
+// demo trace is regenerated from its seed, so truncating one costs nothing.
 func OpenWriter(path string) (*Writer, error) {
 	last, err := lastSeq(path)
 	if err != nil {

@@ -50,12 +50,17 @@ The phases, from here:
   is the other half: agents assembled as a spec, served as endpoints and
   widgets, spending a metered grant. The fair is documented in the rest of
   this page; the builder is not yet — it ships as the `-serve` daemon and its
-  embedded page, and earns its own section when the halves meet.
-- **Phase 1 — the halves meet.** A builder-made agent takes lodgings in the
-  fair the way a Python guest does today. This is where the constraint *a live
-  world cannot be restarted* (see below) has to fall: a world people leave
-  agents in must survive its own daemon, so the roster and the world's state
-  go on disk beside the money.
+  embedded page, and is still owed its own section; its first week in the
+  fair is read at the foot of this page.
+- **Phase 1 — the halves meet: built.** A builder-made agent takes lodgings
+  in the fair the way a Python guest does, seated by `-lodger` and shown the
+  board through the service, one metered call a step. This is where the
+  constraint the page used to carry — *a live world cannot be restarted* —
+  fell: the roster and the epoch are on disk beside the money, the board's
+  numbering and the episode count are read back from the trace, and a live
+  boot resumes the world its book belongs to. The first week of it is read
+  at the foot of this page: the lodger was shown sixty-four boards and
+  refused every one, for a reason that is the stake's and not the seam's.
 - **Phase 2 — the owner in the loop.** Personality enters the spec, and the
   questions begin: decisions the agent actually faced, replayed to its owner,
   answers kept as the agent's standing memory of who it works for.
@@ -276,6 +281,7 @@ make fair-higgler-swapped-7day # the same open week with the seats the other way
 make fair-badger-7day # both rules in one reader behind a costermonger: the higher of meter and rise
 make fair-badger-swapped-7day # the two-rule reader in front: the first rise on the book that carries a rival's cost
 make fair-badgers-7day # the mirror, a badger in either seat: does an open book ratchet, or converge to cost
+make fair-lodger-7day # the halves meet: a built agent seated through the service, shown 64 boards and refused every one — the stake is sized for a script
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -382,13 +388,15 @@ than buried.
   display and never touches the rating.
 - **Credits are not money and never convert to it.** They are a unit for
   measuring metered spend, not a balance anyone can withdraw.
-- **A live world cannot be restarted.** Only the money is on disk; the roster,
-  the board's numbering and the epoch counter are in memory. A second process
-  over the same book cannot re-admit its own living agents and collides with
-  attempt wallets the first one retired. Rather than come up subtly wrong, a live
-  boot refuses a ledger that has already run a world, and says so. Its balances
-  are reachable only by not stopping the daemon. Making restart work needs the
-  roster persisted too, and an agent's image is only ever held in memory.
+- **An open bounty does not survive a restart.** A live world comes back with
+  its roster, its balances, its epoch and its numbering, and with an empty
+  board: a bounty posted and not yet awarded is in the trace and nowhere
+  else, and it holds no credit — attempt wallets are made on award — so it
+  goes with the process, and the next plan posts its own fresh cards. What a
+  restart
+  refuses is a living agent whose image is gone, by name: its credits are in
+  the book, and a world seated without it would be one where they belong to
+  no one. A bankrupt's image may go; the dead do not step.
 - **The control plane has no authentication.** It binds to loopback and trusts
   its caller the way any local daemon socket does. Multi-machine operation, auth
   and user-funded intake are later phases.
@@ -1338,6 +1346,91 @@ than buried.
   not the reserve fraction, refused twice already: 0.75 is what the constants
   make of tier one, and a platform that moved a constant to put its floor
   over the cost of the work would be pricing labour again.
+
+- **The halves meet, and the lodger says nothing.** The builder's own
+  example, the tea steward of `examples/agents/steward.json`, takes lodgings
+  at the fair beside a costermonger: `make fair-lodger-7day`, seven open
+  days on seed 1. It has what a guest has — a body, a schedule, a chair at
+  the Bell & Bushel, the guest's flat 2,000 — and not what a guest has: a
+  process. Each board it is shown is one call through the service, the same
+  call the builder page would make for it, on the fair's own proxy so it
+  lands in the fair's trace and books. The call carries no history and no
+  rate bucket, is paid by the fair's step token and not its owner's, and
+  puts the spec under a board prompt in place of the chat's: the persona,
+  its rules, and the protocol a guest's SDK knows — end with one line
+  beginning `PHYLUM_ACTIONS:`. The reply is handed to the fair's parser as a
+  guest's stdout is, and between steps the lodger keeps nothing but its
+  memo.
+
+  What the week found is the stake. The steward stood at the office for 266
+  of the 1,008 ticks and was shown 64 boards, and the proxy refused all 64
+  before a call was made: *insufficient credits for worst-case cost*. One
+  board is 2,064 to 2,524 bytes of request — the 1,448-byte board prompt
+  that carries the spec, the observation, the wallet — and the proxy holds
+  the worst case of a call before it makes it, at a credit a byte of input
+  and a credit a token of its 160-token ceiling: 2,240 to 2,700 against a
+  purse of 2,000. Nothing said, nothing paid. Sixty-four refusals at cost 0,
+  sixty-four `bid step failed` notes at exit 1, 2,000 credits at the close,
+  drift 0 across the week. The costermonger took 53 of the 56 cards, the
+  gambler 9 attempts for one success, the scholar two for two, the frugal
+  nothing, as the cast does behind a costermonger on an open book; the town
+  went on being a town, 504 meetings, with one more body in the square.
+
+  The refusal is the meter's rule doing what it is for — no call is made
+  that the purse might not cover — and the number it refuses on is the
+  hold's, not the model's. A byte is not a token: the hold reserves the
+  input at one credit a byte, and English runs near four bytes a token, so
+  the board that is held at 2,300 would have cost the steward something near
+  735 had it been allowed to speak. A stake sized for a script is not sized
+  for a persona. The script's step is the observation and nothing else; the
+  spec's step is its whole self, every time, and the platform charges for
+  the whole self.
+
+  Two tests are the seam. `TestStepIsPaidByTheTokenNotTheOwner`, in the
+  service, creates the steward for an owner with a million credits, mints a
+  fair wallet of 2,000, authorises a step token on it, and steps: the reply
+  comes back whole, the fair wallet pays 15, the owner's purse is untouched,
+  the system prompt carries the spec's marker and its events section, the
+  request holds exactly one message, and a second step's request is byte for
+  byte the first — no history. `TestLodgerStepBecomesABid`, in phylumd's own
+  package, seats the steward through the fair's step runner over a
+  provider that answers with a bid line: the parser yields one bid, the
+  wallet is charged, a forged token is the lodger's failure and not the
+  platform's, and a cast member's step still goes to the runner it always
+  had. Both pass because their observations are small. The week is what
+  shows the stake.
+
+  The other half is the world surviving its daemon. The roster — each
+  agent's image, command, mounts and grant — is a file beside the ledger,
+  written before the wallet is minted the way intake binds the image before
+  the wallet exists, so a crash between the two leaves an entry the next
+  boot seats and pays once, never an account nothing can heal. The epoch is
+  written to the same file before each episode runs, since a stale one is
+  the only thing that can halt a resumed world: it reaches for attempt
+  wallets its predecessor retired. The board's numbering and the episode
+  count are read back from the trace, which a live boot now appends to and
+  never truncates. `TestRestartSeatsTheSameWorld` boots twice over one
+  ledger, one trace and one roster: the roster comes back in order with its
+  balances, a resubmitted name is still taken, the second episode is `ep2`,
+  no bounty id is posted twice, the sequence does not fork, drift 0.
+  `TestRestartRefusesAWorldWhoseImageIsGone` pulls the image out from under
+  the roster between boots and is refused by name.
+  `TestResumeMintsForARosterEntryWithNoWallet` is the crash the ordering
+  allows, seated and paid once. The two tests that pinned the old refusal
+  are gone with it.
+
+  What is deliberately not here. Not a larger stake for a lodger: the guest's
+  2,000 is what a script is staked, and a purse sized to fit the persona
+  would be the platform paying for the persona. Not a slimmer steward, and
+  not a cheaper price for its model; each squeezes under, and each is the
+  gamed result. Not the hold taught to count tokens instead of bytes: the
+  over-reserve is the meter's margin, it has never cost a credit, and a
+  week of refusals is the first place it has shown — the knob is named
+  here, not turned. Not the stub taught to bid: offline, what a spec says at
+  the board is the stub's one line, and a stub that bid would be measuring
+  itself. And not the control, the same week without the steward: one more
+  body changes who meets whom in the square, so the cast's numbers above are
+  read as a week, not as a difference.
 
 ## Layout
 

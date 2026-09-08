@@ -30,15 +30,14 @@
 // One episode runs at a time, and a failed one stops the daemon taking work —
 // when the money may be wrong, the answer is a human, not another round.
 //
-// That persistence lasts as long as the process does, and no longer. Only the
-// money is on disk; the roster is not, so a used book cannot be resumed and a
-// live boot refuses one rather than coming up subtly wrong. See
-// refuseUsedLedger.
+// That persistence is on disk, all of it: the money in the ledger, the roster
+// and the epoch in a file beside it, the board's numbering and the episode
+// count in the trace. A live boot resumes the world its book belongs to,
+// appends to its trace, and refuses only an agent whose image is gone.
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -71,6 +70,11 @@ func main() {
 	var guests []string
 	flag.Func("guest", "fair: `path` to a user-authored agent (a Python file on the SDK); it takes lodgings at the tavern and bids against the cast — repeatable", func(v string) error {
 		guests = append(guests, v)
+		return nil
+	})
+	var lodgers []string
+	flag.Func("lodger", "fair: `path` to a built agent's spec (a .json file the builder writes); it takes lodgings at the tavern and is shown the board through the service, one metered call a step — repeatable", func(v string) error {
+		lodgers = append(lodgers, v)
 		return nil
 	})
 	tiebreak := flag.String("tiebreak", "arrival", "fair: how a tie at the lowest ask is broken — arrival (the earlier bid wins) or lot (a seeded draw among the tied names)")
@@ -145,7 +149,7 @@ func main() {
 		tracePath: *tracePath, dbPath: *dbPath, genDir: *genDir, latency: *latency,
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
-		days: *days, tick: *tick, guests: guests, tiebreak: *tiebreak, book: *book,
+		days: *days, tick: *tick, guests: guests, lodgers: lodgers, tiebreak: *tiebreak, book: *book,
 		serve: *serve, agents: agents, serveListen: *serveListen, serveModel: *serveModel,
 		serveLocked: *serveLocked, serveSite: *serveSite, serveInsecureTools: *serveInsecureTools,
 	}
@@ -181,7 +185,10 @@ type options struct {
 
 	// guests are user-authored agents joining the fair; empty everywhere else.
 	guests []string
-	tick   time.Duration
+	// lodgers are built agents' specs joining the fair the same way, run
+	// through the service instead of a process; empty everywhere else.
+	lodgers []string
+	tick    time.Duration
 	// tiebreak names the fair's policy for a tie at the lowest ask:
 	// "arrival" or "lot". Arrival is the default on every track; lot is a
 	// fair thing, refused elsewhere the way -guest is.
@@ -219,6 +226,7 @@ const (
 	// an operator's console on the machine running the arena, not a public API.
 	defaultListen = "127.0.0.1:8141"
 	liveDB        = "phylum-live.db"
+	liveRoster    = "phylum-live-roster.json"
 
 	// The service binds to loopback too, for now: an agent's public endpoint
 	// is public in shape, not yet in reach. Accounts and rate limits are here;
@@ -247,6 +255,9 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	if len(opt.guests) > 0 && !opt.fair {
 		return fmt.Errorf("-guest belongs to the fair; run it with -fair")
 	}
+	if len(opt.lodgers) > 0 && !opt.fair {
+		return fmt.Errorf("-lodger belongs to the fair; run it with -fair")
+	}
 	switch opt.tiebreak {
 	case "", "arrival":
 		// The default everywhere, and the only policy the other tracks have.
@@ -269,7 +280,7 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	}
 	// The service is not a track: it runs built agents and no world at all,
 	// so every flag that shapes a world is refused alongside it.
-	if opt.serve && (opt.fair || opt.sim || opt.town || opt.imported || len(opt.guests) > 0) {
+	if opt.serve && (opt.fair || opt.sim || opt.town || opt.imported || len(opt.guests) > 0 || len(opt.lodgers) > 0) {
 		return fmt.Errorf("-serve runs built agents and nothing else; drop -fair, -sim, -town, -imported and -guest")
 	}
 	if len(opt.agents) > 0 && !opt.serve {
@@ -291,9 +302,9 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	// The service is not an episode either. Its books are people's credits and
 	// its trace is every conversation they had, and both must outlive the
 	// process: a service that will not restart over its own record is not a
-	// service. So it takes neither of the live guards below — a used ledger
-	// is its normal state — and appends to its trace instead of refusing it.
-	// Offline, with no key, it is still a demo: temp books, gone at exit.
+	// service. It keeps its own books and its own roster, so it branches off
+	// before the arena's are opened. Offline, with no key, it is still a
+	// demo: temp books, gone at exit.
 	if opt.serve {
 		return serveBooks(ctx, log, opt)
 	}
@@ -315,27 +326,21 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 			dbPath = filepath.Join(dir, "ledger.db")
 		}
 	}
-	// Both live guards run here, in this order, and both before the trace is
-	// opened. trace.NewWriter is os.Create, so a boot that is going to be
-	// refused must be refused before it can destroy anything on its way out —
-	// and the ledger is read before anything in this process can write to it,
-	// so the question stays "has someone used this world" rather than "has this
-	// binary touched this file".
 	l, err := ledger.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open ledger: %w", err)
 	}
 	defer l.Close()
 
+	// A live world appends to its trace and resumes from its roster: the
+	// record of a run that cannot be run again is continued, never truncated.
+	// The offline tracks regenerate theirs from a seed, so they start clean.
+	var tw *trace.Writer
 	if !opt.demo && !opt.sim {
-		if err := refuseUsedLedger(ctx, l, dbPath); err != nil {
-			return err
-		}
-		if err := refuseUsedTrace(opt.tracePath); err != nil {
-			return err
-		}
+		tw, err = trace.OpenWriter(opt.tracePath)
+	} else {
+		tw, err = trace.NewWriter(opt.tracePath)
 	}
-	tw, err := trace.NewWriter(opt.tracePath)
 	if err != nil {
 		return fmt.Errorf("open trace: %w", err)
 	}
@@ -359,48 +364,13 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		// one. Real-time results are not comparable, so they are never scored.
 		return runSim(ctx, log, l, board, tw, notes, opt)
 	case !opt.demo:
-		return runLive(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt.listen, dbPath)
+		return runLive(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt.listen, dbPath,
+			filepath.Join(filepath.Dir(dbPath), liveRoster))
 	default:
 		return runDemo(ctx, log, l, board, tw, rating.New(rating.DefaultConfig()), notes, opt)
 	}
 }
 
-// refuseUsedLedger stops a live world from booting onto a book some other
-// process has already run.
-//
-// Only the money is on disk. The roster, the board's numbering and the epoch
-// counter are in memory, so a second process over the same book cannot re-admit
-// its own living agents — their accounts exist, so intake refuses them, and
-// their credits are stranded where nothing can reach them. Its first episode
-// then reaches for an attempt wallet the previous run retired, and retired
-// accounts are never recreated, which latches the world broken. Both are pinned
-// by TestRestartStrandsExistingAgents and TestRestartCollidesOnAttemptWallets.
-//
-// Refusing at boot is that same outcome, said immediately and in words instead
-// of several minutes later as a conservation fault. What it does not do is make
-// restart work: that would need the roster on disk too, and an agent's image is
-// only ever held in memory.
-func refuseUsedLedger(ctx context.Context, l *ledger.Ledger, dbPath string) error {
-	used, err := l.HasHistory(ctx)
-	if err != nil {
-		return err
-	}
-	if !used {
-		return nil
-	}
-	return fmt.Errorf("ledger %s has already run a world, and a live world cannot be resumed: "+
-		"only the money is on disk, so the agents it belongs to cannot be brought back and "+
-		"their balances are not recoverable by restarting. Move or delete %s to start fresh, "+
-		"or pass -db <path> to leave it alone and run a separate world", dbPath, dbPath)
-}
-
-// refuseUsedTrace stops a live world from truncating a trace that already holds
-// a run. trace.NewWriter is os.Create, so merely opening one is destructive.
-//
-// This is live-only, and the asymmetry is the whole point. An offline trace is
-// reproducible — regenerating an identical one from a seed is what `make demo`
-// is for — so overwriting it costs nothing. A live trace is the only record of a
-// run that cannot be run again, so it is never overwritten without being asked.
 // serveBooks opens what the service keeps — the ledger, the users, the trace
 // — and runs it. With a key the books are files that persist across runs;
 // without one they are a temp directory, since the stub's money is not money.
@@ -434,21 +404,6 @@ func serveBooks(ctx context.Context, log *slog.Logger, opt options) error {
 	}
 	defer tw.Close()
 	return runServe(ctx, log, l, tw, opt)
-}
-
-func refuseUsedTrace(path string) error {
-	fi, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("check trace %s: %w", path, err)
-	}
-	if fi.Size() == 0 {
-		return nil
-	}
-	return fmt.Errorf("trace %s already holds a run and live mode will not overwrite it: "+
-		"move it aside, or pass -trace <path> to write somewhere else", path)
 }
 
 // loadSuites registers the imported suites as ordinary generators and returns
@@ -775,7 +730,7 @@ func printLadder(orch *orchestrator.Orchestrator, ladder *rating.Ladder, l *ledg
 // balances, failed bounties stay on the board, and the ladder accumulates.
 func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
 	tw *trace.Writer, ladder *rating.Ladder, notes []orchestrator.SuiteNote,
-	listen, dbPath string) error {
+	listen, dbPath, rosterPath string) error {
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
@@ -819,11 +774,17 @@ func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		Bind:       steps.Register,
 		CheckImage: rn.ImageExists,
 		TracePath:  tw.Path(),
+		RosterPath: rosterPath,
 		// Episodes outlive the requests that start them; they end when the
 		// daemon does, not when a client hangs up.
 		RunCtx: ctx,
 		Log:    log,
 	})
+	// The world this book belongs to, if there is one: seated before the
+	// control plane opens, so nobody submits into a half-resumed roster.
+	if err := control.Resume(ctx); err != nil {
+		return fmt.Errorf("resume world: %w", err)
+	}
 
 	api := &http.Server{Addr: listen, Handler: control}
 	errs := make(chan error, 1)
@@ -833,7 +794,7 @@ func runLive(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		}
 	}()
 	log.Info("live mode up", "listen", listen, "proxy", rn.ProxyURL(), "host_port", hostPort,
-		"trace", tw.Path(), "ledger", dbPath)
+		"trace", tw.Path(), "ledger", dbPath, "roster", rosterPath)
 	fmt.Printf("phylumd listening on %s — submit agents with `phylumctl submit`, run with `phylumctl run`\n", listen)
 
 	select {
