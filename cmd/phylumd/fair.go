@@ -144,6 +144,9 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		MaxReopens:  3,
 		Office:      "office",
 		Notebook:    opt.notebook,
+		Stall:       opt.stall,
+		StallPlace:  "square",
+		Pitches:     pitchesOn(m, "square"),
 	}
 	if opt.tiebreak == "lot" {
 		// The lot's salt is the episode seed: one number already governs
@@ -206,4 +209,23 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	fmt.Printf("conservation: %s\n", frep.Conservation)
 	fmt.Printf("\ntrace: %s (replayable; inspect with phylumctl)\n", tw.Path())
 	return nil
+}
+
+// pitchesOn is where bought stalls go: the south row of the place, west to
+// east. The square and not the market, because a stall among the market's
+// stalls reads as nothing built and a stall on the square reads as the map
+// changing; the south row and not the middle, because the fountain is there.
+// Never a street: a street is where people walk. The town is not told — the
+// square stays open ground to the router, and a stall on it is the spectator's
+// to draw.
+func pitchesOn(m town.Map, id string) []town.Cell {
+	p, ok := m.Place(id)
+	if !ok {
+		return nil
+	}
+	var cells []town.Cell
+	for x := p.X; x < p.X+p.W; x++ {
+		cells = append(cells, town.Cell{X: x, Y: p.Y + p.H - 1})
+	}
+	return cells
 }

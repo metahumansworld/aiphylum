@@ -295,7 +295,10 @@ func AshmereFair() (Map, []Persona) {
 //
 // The office's notebook is not a second deviation. It buys room in the
 // agent's own memo, not ground: the body keeps its round exactly as before,
-// and the town is never told it was sold.
+// and the town is never told it was sold. Nor is its stall, though that one
+// is drawn on the map: the cell it stands on stays open ground to the router
+// and the schedule, and the town is not told that either — the purchase is
+// in the trace and the spectator's page reads it from there.
 //
 // Every guest keeps the same round. Two guests are two lodgers on one
 // timetable, which is what a boarding house is.

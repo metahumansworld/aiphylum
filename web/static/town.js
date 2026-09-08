@@ -26,6 +26,7 @@ function reduce(upto) {
     meetings: 0,
     bubble: null,         // {who, text} — the line currently over someone's head
     bubbleAge: 0,         // ticks folded since it was said; two and it is stale
+    built: [],            // stalls bought so far: {agent, x, y}, in purchase order
   };
   for (let i = 0; i <= upto && i < EVENTS.length; i++) {
     const e = EVENTS[i];
@@ -51,7 +52,14 @@ function reduce(upto) {
     if (e.type === "note" && e.note === "bounty shelved") { money("shelved", [], { bounty: e.bounty, windows: e.windows }); continue; }
     if (e.type === "agent" && e.action === "bankrupt") { money("bankrupt", [e.agent]); continue; }
     if (e.type === "credit" && e.action === "stayed") { money("stayed", [e.agent], { place: e.place, ticks: e.ticks, amount: e.amount }); continue; }
-    if (e.type === "credit" && e.action === "bought") { money("bought", [e.agent], { place: e.place, item: e.item, amount: e.amount }); continue; }
+    if (e.type === "credit" && e.action === "bought") {
+      // A purchase with a cell on it is the map changing. Kept in the state
+      // rather than drawn here so a scrub back before the purchase takes it
+      // down again: the map is rebuilt from the state, never appended to.
+      if (e.x != null) s.built.push({ agent: e.agent, x: e.x, y: e.y });
+      money("bought", [e.agent], { place: e.place, item: e.item, amount: e.amount });
+      continue;
+    }
     if (e.type === "agent" && e.action === "memo") { money("memo", [e.agent], { text: e.memo }); continue; }
     if (e.type !== "town") continue;
     switch (e.action) {
@@ -296,8 +304,8 @@ function torch(gx, gy) {
   };
 }
 
-function stall(x, y) {
-  const stripe = STRIPES[hash(x, y) % STRIPES.length];
+function stall(x, y, own) {
+  const stripe = own ? [own, "#fbf1dc"] : STRIPES[hash(x, y) % STRIPES.length];
   const lift = 26, inset = 0.1;
   const t = up(C(x + 0.5, y + inset), lift), r = up(C(x + 1 - inset, y + 0.5), lift);
   const b = up(C(x + 0.5, y + 1 - inset), lift), l = up(C(x + inset, y + 0.5), lift);
@@ -918,9 +926,31 @@ function showBubble(s) {
 
 // ---- the page ----
 
+// syncBuilt makes the map's bought stalls match the state: one drawn per
+// purchase up to the current event, in its owner's colour, and any drawn for
+// a purchase the scrub has moved back before is taken down. It goes into the
+// depth row of its cell ahead of the walkers, so people still walk in front.
+function syncBuilt(s) {
+  const want = new Set(s.built.map((b) => `${b.x},${b.y}`));
+  for (const g of mapEl.querySelectorAll("g.built")) if (!want.has(g.dataset.at)) g.remove();
+  for (const b of s.built) {
+    const at = `${b.x},${b.y}`;
+    if (mapEl.querySelector(`g.built[data-at="${at}"]`)) continue;
+    const row = document.getElementById("row-" + (b.x + b.y));
+    if (!row) continue;
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    t.innerHTML = stall(b.x, b.y, colorOf.get(b.agent));
+    const g = t.firstChild;
+    g.classList.add("built");
+    g.dataset.at = at;
+    row.insertBefore(g, row.querySelector(".walker"));
+  }
+}
+
 function render(s) {
   if (!s.founded) return;
   if (!mapEl.firstChild) buildMap(s.founded);
+  syncBuilt(s);
 
   clockEl.textContent = s.clock ? `day ${s.day} · ${s.clock}` : "day 1 · 07:00";
 
@@ -981,7 +1011,8 @@ function render(s) {
     // one thing the office sells.
     stayed: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> paid ${esc(f.amount)} to stay at ` +
       `${esc(place)} — ${esc(f.ticks)} more ${f.ticks === 1 ? "tick" : "ticks"}`,
-    bought: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bought a ${esc(f.item)} at ${esc(place)} for ${esc(f.amount)}`,
+    bought: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bought a ${esc(f.item)} at ${esc(place)} for ${esc(f.amount)}` +
+      (f.item === "stall" ? " — it stands on the square" : ""),
     // An agent writing to its own next step. Shown verbatim and never parsed:
     // the platform does not read these and neither does this page. It is here
     // because watching an agent's memory change is the only way to see it

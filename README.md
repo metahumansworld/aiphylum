@@ -73,7 +73,10 @@ The phases, from here:
 - **Phase 3 — the world becomes buildable.** Earned credits spend on
   equipment, structures and other agents hired to build; the map stops being
   static; what is built persists, and agent-to-agent commerce settles on the
-  same books as the bounties.
+  same books as the bounties. Two of its three pieces are built and read at
+  the foot of this page: the office's catalogue, and a stall bought off it
+  that the map draws for the rest of the record. Commerce between agents is
+  the piece that is not.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
 
@@ -290,6 +293,8 @@ make fair-badgers-7day # the mirror, a badger in either seat: does an open book 
 make fair-lodger-7day # the halves meet: a built agent seated through the service, shown 64 boards and refused every one — the stake is sized for a script
 make fair-diarist-7day        # the first thing for sale: a notebook at 400, bought once, and the diary it made room for
 make fair-diarist-unsold-7day # the same week with nothing on sale: the same diary, cut to the page
+make fair-stallholder-7day        # the map stops being static: a stall at 400, bought once, drawn on the square for the rest of the record
+make fair-stallholder-unsold-7day # the same week with nothing on sale: the same agent, the same map
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -487,6 +492,18 @@ than buried.
   and is in the trace as one `bought` event per purchase; the standings at the
   close are that list read back. It is not on disk — the fair is a batch
   whose record is its trace, and the daemon's roster is a different promise.
+- **The second line is the map's.** `-stall <price>` adds a stall to the
+  catalogue — `{item: stall, price, place: square}` — and a `buy` of it is
+  the first purchase the town can see. The office assigns the cell, the next
+  of the square's south row from the west, and the `bought` event carries
+  `x` and `y`; the spectator's page draws a stall there in the buyer's colour
+  from that event on, and takes it down again when the scrub moves back
+  before it. The line leaves the catalogue when the ground runs out. The
+  town is not told: the cell stays open ground to the router and the
+  schedule, the body keeps its round, and the stall earns its owner nothing.
+  What is built persists the way ownership does — in the trace, and in any
+  page that reads it — and not across a daemon resume, because the fair has
+  none.
 - **The auction tells you what you cleared against, never who you beat.** Every
   agent that placed a bid is told, once, on its next bid step: the ask it made,
   whether it won, the clearing price, the winner's name, and how many bid. The
@@ -1615,6 +1632,96 @@ than buried.
   attempt step told what is owned: the observation there is unchanged, and
   a guest that sizes its work by its page carries that fact in its own
   memo, which is what the memo is for.
+
+- **The map stops being static.** The catalogue's second line is a stall.
+  `-stall 400` puts one up for sale at the office — `for_sale` carries
+  `{item: stall, price: 400, place: square}` — and a buy of it is the first
+  purchase the town can see. The buy names the item and nothing else: the
+  office assigns the cell, the next of the square's south row from the
+  west, and the `bought` event carries it as `x` and `y` beside the money,
+  because the cell is the whole of what was bought. The spectator's page
+  keeps the purchases in the state it rebuilds from event zero and draws a
+  stall on each cell in its owner's colour, ahead of the walkers in that
+  cell's depth row, from the purchase on; scrub back before the purchase and
+  the stall comes down, which is what makes it the map changing and not a
+  thing pasted on. The line leaves the catalogue when the ground runs out,
+  so a second buyer after the last pitch is refused as not for sale, never
+  owed. The town is not told any of it: the cell stays open ground to the
+  router and the schedule, the body keeps its round, and the stall earns
+  its owner nothing. A stall is not a page, either — the purchase leaves
+  the memo cap exactly where it was, which is a guard rather than an
+  accident, because the memo store's grant is an overwrite and a stall
+  bought after a notebook would otherwise have taken the notebook back.
+
+  Off is the default, and two pinned weeks prove it. The lodger's week, run
+  on this change and on the one before it, is the same 4,508 events to the
+  byte outside the clock. The diarist's sold week — the one pinned in the
+  entry above, with a notebook on every board — is also the same to the
+  byte, which is the check the lodger cannot make, because the lodger is
+  never shown a catalogue and the diarist is.
+
+  The guest is `examples/guests/stallholder.py`: the scribe plus one
+  behaviour. It buys the stall when the office has one and the purse holds
+  four times the price, and books the purchase the way it books a stay, as
+  credits about to leave, so the next step reads the 400 as spending and not
+  as work that went badly. `make fair-stallholder-7day` is the week with a
+  stall on sale and `make fair-stallholder-unsold-7day` the same seven days
+  without one.
+
+  The stallholder bought at the first board it saw, tick 15 of 1,008, and
+  stood its stall on the square's south-west cell, and then the two weeks
+  are the same week: 24 boards bid, 18 won, 18 solved, 4,410 earned, 396
+  burned attempting, forty stays for 1,280, drift 0 in both. The unsold
+  close is 4,734; the sold close is 4,334, which is 400 lower and nothing
+  else. Outside the clock and the sequence number the two traces differ in
+  the episode's start line, one `bought` event, the 102 memos, the eighteen
+  model calls that carry the balance, and the end line — and the memos
+  differ in two fields only, the balance by 400 and the spend on the step
+  that bought, while the inferred earnings agree to the credit, 4,014 in
+  both. No bid, no award, no stay, and no line of the town's is different.
+  The stall's whole yield is one event with a cell on it and a stall drawn
+  on the square for 993 ticks. What that is worth is not measured here,
+  because there is nothing yet for it to be worth; what it costs is 400,
+  and the map is different.
+
+  Three tests are the seam, and one grew.
+  `TestFairStallStandsOnThePitchTheOfficeAssigns` seats a scripted buyer
+  with two pitches and finds the 400 gone, one `bought` event carrying the
+  first pitch and no `memo_bytes`, an already-owned refusal on the second
+  try, an oversize memo refused after the purchase, the offer naming the
+  place and never the cell on every board, `owns stall` in the standings,
+  at drift 0. `TestFairStallRefusedWhenThePitchesAreGone` seats two buyers
+  at one pitch in one tick and finds one purchase, one not-for-sale note,
+  one price paid between them, and no stall on the board after.
+  `TestFairStallNeedsPitches` prices a stall with no ground and is refused
+  at construction. `TestFairStallAfterNotebookKeepsThePage` buys the
+  notebook and then the stall and still writes the long page: the stall's
+  purchase grants nothing rather than granting zero, the two lines sit on
+  the board in the office's order, and the notebook stays listed once
+  owned while the stall leaves with its ground.
+  `TestFairSellingNothingShowsNothing` now also finds no stall on the
+  episode line. The viewer's part is checked by hand in this entry, not by
+  a test: the page served on the sold week draws one stall at the cell the
+  event names, none when scrubbed to before the purchase, and it again
+  after. That it stands behind whoever walks its row was checked by
+  setting a walker on the pitch row from the console, since the hidden
+  pane the check ran in never advances a walk; the stall stayed ahead of
+  her in the row's order, and stayed there across the scrub.
+
+  What is deliberately not here. Not a stall that earns: what a stall on
+  the square is worth to its owner is the question the next piece asks, and
+  that piece is trade between agents, which is the one part of Phase 3 not
+  built. Not the buyer choosing its cell: a chosen cell is a protocol
+  surface and a validation, and the office assigning the next one is what a
+  week can measure. Not the town told: the cell is open ground to the
+  router and the schedule, a walker crosses it as before, and a stall that
+  blocked a path would be a change to every pinned week's walking. Not a
+  stall on the market, where a stall among stalls reads as nothing built.
+  Not persistence across a daemon resume: the fair has no resume, the
+  purchase lives in the trace and in any page that reads it, and the shelf
+  at a resumed world is still the question the entry above left it. And
+  not the lodger shown a stall: its pinned week is its identity claim, run
+  here twice to prove it.
 
 ## Layout
 
