@@ -47,6 +47,7 @@ const Version = 1
 const (
 	SecWho    = "WHO"
 	SecRules  = "RULES"
+	SecMemory = "MEMORY"
 	SecEvents = "EVENTS"
 	secEnd    = "END"
 )
@@ -59,6 +60,8 @@ const (
 	MaxGreetingBytes = 1024
 	MaxRules         = 32
 	MaxRuleBytes     = 512
+	MaxMemory        = 16
+	MaxMemoryBytes   = 256
 
 	// DefaultMaxReplyTokens is the reply ceiling a spec gets when it names
 	// none. Short, because the ceiling is what the proxy reserves before every
@@ -95,6 +98,12 @@ type Agent struct {
 	Persona  string   `json:"persona,omitempty"`
 	Greeting string   `json:"greeting,omitempty"`
 	Rules    []string `json:"rules,omitempty"`
+	// Memory is what the owner has said about the agent's own decisions:
+	// each line answers a question the service asked after an exchange.
+	// It is the agent's standing memory of who it works for, rendered into
+	// every prompt after the rules — and paid for on every call, which is
+	// why it is capped tighter than the rules are.
+	Memory []string `json:"memory,omitempty"`
 	// MaxReplyTokens caps one reply. It is the max_tokens of every call the
 	// agent makes, so it is also the worst case the proxy holds per message.
 	MaxReplyTokens int64 `json:"max_reply_tokens,omitempty"`
@@ -195,6 +204,19 @@ func (a Agent) Validate() error {
 			return fmt.Errorf("%w: rule %d must be one line", ErrInvalid, i+1)
 		}
 	}
+	if len(a.Memory) > MaxMemory {
+		return fmt.Errorf("%w: more than %d memory lines", ErrInvalid, MaxMemory)
+	}
+	for i, m := range a.Memory {
+		switch {
+		case strings.TrimSpace(m) == "":
+			return fmt.Errorf("%w: memory %d is empty", ErrInvalid, i+1)
+		case len(m) > MaxMemoryBytes:
+			return fmt.Errorf("%w: memory %d is over %d bytes", ErrInvalid, i+1, MaxMemoryBytes)
+		case strings.ContainsAny(m, "\n\r"):
+			return fmt.Errorf("%w: memory %d must be one line", ErrInvalid, i+1)
+		}
+	}
 	if a.MaxReplyTokens < 1 || a.MaxReplyTokens > MaxReplyTokensCeiling {
 		return fmt.Errorf("%w: max_reply_tokens must be 1..%d", ErrInvalid, MaxReplyTokensCeiling)
 	}
@@ -224,6 +246,7 @@ func (a Agent) Validate() error {
 	// block early on the way back out. Refuse it rather than escape it, so the
 	// rendered prompt stays readable and Section stays simple.
 	texts := append([]string{a.Persona}, a.Rules...)
+	texts = append(texts, a.Memory...)
 	if a.Webhook != nil {
 		texts = append(texts, a.Webhook.Instruction)
 	}
@@ -352,13 +375,14 @@ func prompt(a Agent, intro string, events []string) string {
 	b.WriteString(Marker + "\n")
 	b.WriteString(intro)
 
-	rules := make([]string, 0, len(a.Rules))
-	for _, r := range a.Rules {
-		rules = append(rules, "- "+strings.TrimSpace(r))
-	}
 	sections := []struct{ label, body string }{
 		{SecWho, strings.TrimSpace(strings.TrimSpace(a.Name) + "\n" + strings.TrimSpace(a.Persona))},
-		{SecRules, strings.Join(rules, "\n")},
+		{SecRules, bullets(a.Rules)},
+	}
+	// The owner's answers, only when there are any: an agent nobody has
+	// answered for does not pay for an empty heading.
+	if len(a.Memory) > 0 {
+		sections = append(sections, struct{ label, body string }{SecMemory, bullets(a.Memory)})
 	}
 	for _, e := range events {
 		sections = append(sections, struct{ label, body string }{SecEvents, e})
@@ -389,10 +413,23 @@ func Section(prompt, label string) string {
 	return strings.TrimSpace(rest[:j])
 }
 
+func bullets(lines []string) string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, "- "+strings.TrimSpace(l))
+	}
+	return strings.Join(out, "\n")
+}
+
 // Rules reads the rule list back out of a rendered prompt.
-func Rules(prompt string) []string {
+func Rules(prompt string) []string { return list(prompt, SecRules) }
+
+// Memory reads the owner's answers back out of a rendered prompt.
+func Memory(prompt string) []string { return list(prompt, SecMemory) }
+
+func list(prompt, label string) []string {
 	var out []string
-	for _, l := range strings.Split(Section(prompt, SecRules), "\n") {
+	for _, l := range strings.Split(Section(prompt, label), "\n") {
 		l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "-"))
 		if l != "" {
 			out = append(out, l)
@@ -404,8 +441,9 @@ func Rules(prompt string) []string {
 // Answer is the stub's reply to an agent this package described: given the
 // system prompt and what the person just wrote, say something that is
 // visibly a function of both. It names the agent, echoes the weightiest word
-// it was given, and cites the first rule, so a conversation on the stub reads
-// as this agent replying to this message — which is all an offline run has to
+// it was given, cites the first rule, and repeats the owner's latest answer if
+// there is one, so a conversation on the stub reads as this agent replying
+// to this message for this owner — which is all an offline run has to
 // prove. A real model reads the persona; this one reads the labels.
 func Answer(system, heard string) string {
 	name, _, _ := strings.Cut(Section(system, SecWho), "\n")
@@ -420,6 +458,10 @@ func Answer(system, heard string) string {
 	reply := name + " here — you asked about " + topic + "."
 	if rules := Rules(system); len(rules) > 0 {
 		reply += " Rule one: " + rules[0]
+	}
+	// The newest answer is the owner's latest word, so it is the one cited.
+	if mem := Memory(system); len(mem) > 0 {
+		reply += " The owner said: " + mem[len(mem)-1]
 	}
 	return reply
 }

@@ -29,6 +29,8 @@ type Authenticator func(*http.Request) (Owner, error)
 //	GET    /v1/agents/{id}                       → 200 {id, owner, spec, wallet, created}
 //	PUT    /v1/agents/{id} body: a spec          → 200 the agent, revised; its conversations end
 //	DELETE /v1/agents/{id}                       → 204
+//	GET    /v1/agents/{id}/questions             → 200 {questions: [{id, asked, heard, said}]}
+//	POST   /v1/agents/{id}/questions/{qid} {answer} → 200 the agent, one memory line longer
 //	POST   /v1/draft       {spec, request}       → 200 {spec, note, cost, balance}
 //	                                             → 402 when the grant cannot hold a draft
 //	                                             → 502 when the builder answered with no spec
@@ -128,6 +130,45 @@ func (s *Service) Control(auth Authenticator) http.Handler {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/agents/{id}/questions", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
+		ag, ok := s.Get(r.PathValue("id"))
+		if !ok || ag.Owner != owner.ID {
+			httpError(w, http.StatusNotFound, ErrNoAgent.Error())
+			return
+		}
+		qs, _ := s.Questions(ag.ID)
+		if qs == nil {
+			qs = []Question{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"questions": qs})
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/questions/{qid}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := s.owner(w, r, auth)
+		if !ok {
+			return
+		}
+		if ag, ok := s.Get(r.PathValue("id")); !ok || ag.Owner != owner.ID {
+			httpError(w, http.StatusNotFound, ErrNoAgent.Error())
+			return
+		}
+		var in struct {
+			Answer string `json:"answer"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in); err != nil {
+			httpError(w, http.StatusBadRequest, "body must be JSON {answer}")
+			return
+		}
+		ag, err := s.Answer(r.Context(), r.PathValue("id"), r.PathValue("qid"), in.Answer)
+		if err != nil {
+			httpError(w, statusFor(err), err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, ag)
 	})
 	mux.HandleFunc("POST /v1/draft", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := s.owner(w, r, auth)
@@ -273,7 +314,7 @@ func cors(h http.Handler) http.Handler {
 // teaches: 402 is out of credits, 502 is the provider, 4xx is the caller.
 func statusFor(err error) int {
 	switch {
-	case errors.Is(err, ErrNoAgent), errors.Is(err, ErrNoConversation), errors.Is(err, ErrNoWebhook):
+	case errors.Is(err, ErrNoAgent), errors.Is(err, ErrNoConversation), errors.Is(err, ErrNoWebhook), errors.Is(err, ErrNoQuestion):
 		return http.StatusNotFound
 	case errors.Is(err, ErrEmptyMessage), errors.Is(err, ErrMessageTooLong), errors.Is(err, spec.ErrInvalid):
 		return http.StatusBadRequest

@@ -61,9 +61,15 @@ The phases, from here:
   boot resumes the world its book belongs to. The first week of it is read
   at the foot of this page: the lodger was shown sixty-four boards and
   refused every one, for a reason that is the stake's and not the seam's.
-- **Phase 2 — the owner in the loop.** Personality enters the spec, and the
-  questions begin: decisions the agent actually faced, replayed to its owner,
-  answers kept as the agent's standing memory of who it works for.
+- **Phase 2 — the owner in the loop.** Built. The questions begin: every
+  exchange the agent completes — a stranger's message and what it said back,
+  a board and what it bid — is kept for its owner to see, and what the owner
+  says about it goes into the spec as a line of memory the agent reads under
+  its rules on every call from then on. Personality here is not an adjective
+  the owner picks; it is the owner's own answers to what the agent actually
+  faced, kept as its standing memory of who it works for. The builder page
+  shows the decisions under the canvas and takes the answers there. What it
+  cost is read at the foot of this page.
 - **Phase 3 — the world becomes buildable.** Earned credits spend on
   equipment, structures and other agents hired to build; the map stops being
   static; what is built persists, and agent-to-agent commerce settles on the
@@ -1431,6 +1437,83 @@ than buried.
   itself. And not the control, the same week without the steward: one more
   body changes who meets whom in the square, so the cast's numbers above are
   read as a week, not as a difference.
+
+- **The owner answers, and the agent remembers.** The spec has a fourth
+  section. Under `--- WHO ---` and `--- RULES ---` there is now
+  `--- MEMORY ---`, rendered only when there is something in it, and what is
+  in it is the owner's word: up to sixteen lines of 256 bytes, each one an
+  answer to something the agent did. The section is fenced like the other
+  two — a line of memory that tries to open a section of its own is refused
+  by `Validate` the way a rule that tried it is — and it is served on every
+  call the same way, the chat's and the board's, so a persona that was
+  corrected keeps the correction whoever is speaking to it.
+
+  The questions are the agent's own exchanges, played back. Each time it
+  finishes one — a stranger's message and its reply in the builder's chat, or
+  a board and its bid at the fair — the service keeps the pair against the
+  agent: what it heard, what it said. The owner reads them at
+  `GET /v1/agents/{id}/questions` and answers one at
+  `POST /v1/agents/{id}/questions/{qid}`; the answer is validated into the
+  spec's memory, written to the store, and swapped in under the running
+  agent without dropping its conversations, and the question is retired.
+  The builder page has a pane under the canvas, *What it decided*, that
+  lists them with one line to answer in, and a *Memory* node beside *Rules*
+  that shows what has been kept and lets a line be forgotten. The stub, which
+  cites rule one, now cites the newest line of memory after it — *The owner
+  said: …* — so the loop closes visibly with no model in it.
+
+  Three tests are the seam. `TestMemoryIsTheOwnersWordInEveryPrompt`, in the
+  spec package, renders an empty memory as no heading at all, reads a full
+  one back out of the chat prompt, the event prompt and the board prompt
+  alike, and has `Validate` refuse a line that is a forged heading, a
+  seventeenth line and a line over 256 bytes.
+  `TestTheOwnerAnswersAndTheAgentRemembers`, in the service, says one thing
+  to the steward and finds one question; refuses a wrong id, a blank answer
+  and a forged heading; answers, and finds the line in the spec, in the
+  store, in the next request's system prompt and in the next reply — the
+  same conversation, continued — with the question gone; draws the spec
+  back out of a draft with the memory still in it; steps the steward at a
+  board on a fair token and finds a question for that too; then asks
+  twenty times and finds the ring holds sixteen.
+  `TestQuestionsAreTheOwnersAlone` puts the two routes behind the page's
+  auth: another owner's request is a 404, a signed-out one a 401, an unknown
+  id a 404, an empty answer a 400, and the owner's own answer a 200 that
+  carries the spec back with one line of memory. The page was run by hand
+  on the stub: the tea steward asked about jasmine, its owner answered
+  "Jasmine is out until spring; say so and offer the oolong.", and its next
+  reply said so.
+
+  What it costs is the prompt. Memory is served on every call, so every
+  line the owner adds is bytes the meter holds and charges for from then on,
+  at a credit a byte — a full memory is up to 4,096 bytes on top of a spec
+  that already put the steward's board over its stake. No week was run at
+  the fair for this, and the reason is not the stake but the surface: the
+  lodger has no owner. Nobody can read its questions and nobody can answer
+  them, so a week with memory would be the same sixty-four refusals as
+  before with nothing new read out of them. What was run is the week
+  without memory, on this change and on the one before it, and the two
+  traces are the same record to the byte outside the clock, and the
+  daemon's own output differs by that and the steward's drawn id alone —
+  4,508 events, sixty-four refusals, 2,000 at the close — which is the only
+  claim the fair can make about this milestone:
+  it does not know it happened.
+
+  What is deliberately not here. Not questions that outlive the process:
+  they are kept in memory, sixteen to an agent, and a restart begins with
+  none — the answer is what lasts, in the spec and the store, and a fresh
+  conversation raises fresh questions the way it always has. Not the ring
+  as a log: a stranger at the public endpoint can ask sixteen things and
+  push the owner's unanswered ones out, so the owner sees the latest, not
+  the record. Not an owner for the lodger: in fair mode the step fills a
+  ring nobody reads, and the boards the lodger was shown are in the fair's
+  trace already, as the request of each refused call — there are no bids
+  in it because no call was let through — what is missing for it is the
+  surface, and the surface is the builder's. Not a stake widened to fit the memory,
+  and not the hold taught to count tokens: the knob stays named, not
+  turned, and an answered lodger would be refused sooner than a silent one.
+  And not a model that reads all sixteen lines: the stub cites the newest,
+  which is the most the stub can honestly do, and what a real model makes of
+  the whole memory is the fair's to measure when the fair has a model.
 
 ## Layout
 
