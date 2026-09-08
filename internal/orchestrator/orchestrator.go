@@ -228,6 +228,9 @@ func New(l *ledger.Ledger, board *bounty.Board, table *proxy.PriceTable, provide
 type notebook struct {
 	mu    sync.Mutex
 	memos map[string]string
+	// limits holds the agents whose cap the fair has raised; absent means
+	// MaxMemoBytes, which is everyone on every track that sells nothing.
+	limits map[string]int
 }
 
 func (n *notebook) get(agent string) string {
@@ -241,17 +244,43 @@ func (n *notebook) get(agent string) string {
 // still stands, and the caller traces the refusal. Truncating instead would
 // hand the agent back a thought it had no way to know was cut in half.
 func (n *notebook) write(agent, text string) bool {
-	if len(text) > MaxMemoBytes {
-		return false
-	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if len(text) > n.limitLocked(agent) {
+		return false
+	}
 	if text == "" {
 		delete(n.memos, agent)
 		return true
 	}
 	n.memos[agent] = text
 	return true
+}
+
+// limit is the cap this agent's memos are held to: MaxMemoBytes unless the
+// fair sold it more.
+func (n *notebook) limit(agent string) int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.limitLocked(agent)
+}
+
+func (n *notebook) limitLocked(agent string) int {
+	if l, ok := n.limits[agent]; ok {
+		return l
+	}
+	return MaxMemoBytes
+}
+
+// grant raises one agent's cap. The fair calls it when a notebook is bought;
+// nothing lowers a cap again, because nothing sells one back.
+func (n *notebook) grant(agent string, limit int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.limits == nil {
+		n.limits = map[string]int{}
+	}
+	n.limits[agent] = limit
 }
 
 // crier holds auction outcomes between the award that produced them and the
@@ -627,7 +656,7 @@ func (o *Orchestrator) bidStep(ctx context.Context, round int, ag *Agent, views 
 // A non-nil stay is the fair handing the agent its own whereabouts and the
 // price of staying there; nil omits both fields, which is why a track without
 // geography writes exactly the observation it always did.
-func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int, views []BountyView, stay *StayOffer) []Action {
+func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int, views []BountyView, stay *FairOffer) []Action {
 	bal, err := o.Ledger.Balance(ctx, ag.ID)
 	if err != nil {
 		o.Log.Warn("bid step: balance lookup failed", "agent", ag.ID, "err", err)
@@ -639,6 +668,7 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 	}
 	if stay != nil {
 		obs.Place, obs.StayPrice, obs.StayTicksLeft = stay.Place, stay.Price, stay.TicksLeft
+		obs.ForSale, obs.Owned = stay.ForSale, stay.Owned
 	}
 	input, err := json.Marshal(StepInput{
 		Observation: obs,
@@ -703,7 +733,7 @@ func (o *Orchestrator) takeMemo(agentID string, actions []Action) {
 	if !o.memos.write(agentID, text) {
 		o.traceEvent(trace.EventNote, map[string]any{
 			"note": "memo refused: over limit", "agent": agentID,
-			"bytes": len(text), "limit": MaxMemoBytes,
+			"bytes": len(text), "limit": o.memos.limit(agentID),
 		})
 		return
 	}

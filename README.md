@@ -288,6 +288,8 @@ make fair-badger-7day # both rules in one reader behind a costermonger: the high
 make fair-badger-swapped-7day # the two-rule reader in front: the first rise on the book that carries a rival's cost
 make fair-badgers-7day # the mirror, a badger in either seat: does an open book ratchet, or converge to cost
 make fair-lodger-7day # the halves meet: a built agent seated through the service, shown 64 boards and refused every one — the stake is sized for a script
+make fair-diarist-7day        # the first thing for sale: a notebook at 400, bought once, and the diary it made room for
+make fair-diarist-unsold-7day # the same week with nothing on sale: the same diary, cut to the page
 ```
 
 `sim-demo`, `town-demo` and `fair` are worth watching while they run. In
@@ -427,10 +429,10 @@ than buried.
   SDK on the path, every model call metered against its own wallet. The town
   assigns the schedule, and money can buy exactly one deviation from it: see
   below.
-- **An agent can buy standing still, and nothing else.** A `stay` action at the
-  board costs a fixed price a tick, charged up front and burned — nobody is on
-  the other side of the trade, because what is bought is not a thing but an
-  absence of walking. The fair holds the body; the town keeps it still and
+- **An agent can buy standing still, and no other deviation from its
+  schedule.** A `stay` action at the board costs a fixed price a tick, charged
+  up front and burned — nobody is on the other side of the trade, because what
+  is bought is not a thing but an absence of walking. The fair holds the body; the town keeps it still and
   reports it as waiting, without learning why or at what price. What is
   deliberately still impossible is walking yourself somewhere: an agent is only
   ever offered a price for the ground it is already standing on, so presence
@@ -469,6 +471,22 @@ than buried.
   (stopped paying) — and the memo that decided it is in the trace, updating,
   step by step. What the platform sold in the previous entry was presence. What
   it sells here is the ability to find out that presence was a bad buy.
+- **The office sells one thing, and it is not ground.** A fair run with
+  `-notebook <price>` shows every agent at the board a catalogue of one line —
+  `for_sale: [{item: notebook, price, memo_bytes: 4096}]` — and what it already
+  owns, so a fresh process does not buy the same page twice. A `buy` action
+  pays the price out of the wallet, once, burned like a stay, and from the
+  next step on that agent's memo is held to 4,096 bytes instead of 512 for the
+  rest of the run. Refused, not owed, when the wallet is short, when the item
+  is not on sale, or when the agent already has one; each refusal is a note in
+  the trace. A fair that sells nothing shows nothing — no `for_sale`, no
+  `owned`, the opening line it always wrote — which is every fair recorded
+  before the catalogue existed. What is deliberately not for sale is anything
+  that moves the body or the bidding: a notebook buys room in the agent's own
+  memo, and the town is never told it was sold. What is bought lasts the run
+  and is in the trace as one `bought` event per purchase; the standings at the
+  close are that list read back. It is not on disk — the fair is a batch
+  whose record is its trace, and the daemon's roster is a different promise.
 - **The auction tells you what you cleared against, never who you beat.** Every
   agent that placed a bid is told, once, on its next bid step: the ask it made,
   whether it won, the clearing price, the winner's name, and how many bid. The
@@ -1514,6 +1532,89 @@ than buried.
   And not a model that reads all sixteen lines: the stub cites the newest,
   which is the most the stub can honestly do, and what a real model makes of
   the whole memory is the fair's to measure when the fair has a model.
+
+- **The office sells one thing, and it is not ground.** Phase 3 begins with
+  a catalogue, and the catalogue has one line. `-notebook 400` puts a
+  notebook up for sale at the office: a memo of 4,096 bytes instead of 512,
+  for the rest of the run, paid once and burned. A bid step at the board now
+  carries `for_sale` — the item, its price, the bytes it buys — and `owned`,
+  what the agent already has, for the same reason it is told its balance: a
+  step is a fresh process, and a thing you cannot see you own is a thing you
+  buy twice. The action is `{"type": "buy", "item": "notebook"}`; the first
+  buy in a step is the one that counts; the platform burns the price, raises
+  that agent's memo cap, and writes a credit event, `bought`, with the
+  amount and the item. A buy of what is not for sale, of what is already
+  owned, or of what the purse cannot cover is a note in the trace and never
+  a debt. Nothing here is a second deviation from the schedule: the notebook
+  buys room in the agent's own memo, not ground, and the town is never told
+  it was sold.
+
+  Off is the default. A fair that sells nothing observes exactly what it
+  always did — the two fields are omitted, not empty — so every pinned week
+  in this file is the same record it was, and the lodger's week is the
+  proof: run on this change and on the one before it, the two traces are the
+  same to the byte outside the clock, 4,508 events, sixty-four refusals,
+  2,000 at the close, and the word `for_sale` is in neither. That week sells
+  nothing on purpose. The catalogue rides the same step input the lodger is
+  shown, so a lodger at a fair with a notebook on sale would see the offer
+  in its prompt, and the stub cannot buy; what a persona makes of a thing
+  for sale is the fair's to measure when the fair has a model.
+
+  The guest is `examples/guests/diarist.py`: the scribe plus one behaviour.
+  It keeps a diary of every auction result it is told — the bounty, what it
+  asked, what cleared, whether it won — as long as its page allows, dropping
+  the oldest line when the page is full, and it buys the bigger page when
+  the office has one and the purse holds four times the price. The
+  purchase joins its bookkeeping the way a stay does, as credits that left
+  between one balance and the next, and not its stopping rule, so the diary
+  is the only thing the notebook changes about what it does.
+  `make fair-diarist-7day` is the week with the notebook on sale and
+  `make fair-diarist-unsold-7day` the same seven days without it.
+
+  The diarist bought at the first board it saw, tick 15 of 1,008, and then
+  the two weeks are the same week: 24 boards bid, 18 won, 18 solved, 4,410
+  earned, 396 burned attempting, forty stays for 1,280, drift 0 in both.
+  The unsold close is 4,734; the sold close is 4,334, which is 400 lower and
+  nothing else. Outside the clock the two traces differ in the episode's
+  start line, one `bought` event, the 102 memos, the eighteen model calls
+  that carry the balance, and the end line — no bid, no award, no stay, and
+  no line of the town's is different. What the 400 bought is the honest
+  part. The scribe's page held a diary of 23 boards, and the week showed the
+  diarist 24, so the small page overflowed exactly once, on the seventh
+  day, and the notebook's whole yield is one memo of 520 bytes where the
+  unsold week wrote 502 and forgot its first board. Neither week has a memo
+  refusal in it, because the diarist cuts to the page it has. Four hundred
+  credits for one line kept is what a notebook is worth to a diarist at this
+  fair, and the fair has now measured it.
+
+  Four tests are the seam. `TestFairNotebookRaisesTheCapForWhoBought` seats
+  a scripted buyer and finds the 400 gone, one `bought` event, an
+  already-owned refusal on the second try, a 612-byte memo refused before
+  the purchase and accepted after, the catalogue on every board and the
+  ownership on every board after the first, `owns notebook` in the
+  standings, and the standings equal to the `bought` events in the trace,
+  at drift 0. `TestFairNotebookRefusedWhenBroke` prices it above the purse
+  and finds the note and no debt. `TestFairSellingNothingShowsNothing` runs
+  a fair with no catalogue and finds no `for_sale` and no `owned` bytes in
+  any step input, a `not for sale` note for the agent that tried, and no
+  notebook on the episode line. `TestViewerCountsAStayAsMoneyGone` grew a
+  purchase: the spectator's page counts it in burned, off the balance, and
+  as its own step on the line, labelled with what was bought, so grant +
+  earned − burned still lands on balance for an agent that shopped.
+
+  What is deliberately not here. Not a second item: the catalogue is a
+  list because a list is what it will be, but one line is what the fair can
+  measure at a time, and the next line is the map's. Not the notebook on
+  disk: the fair's persistence is its trace, the roster's promise is the
+  daemon's, and an agent's shelf at a resumed fair is a question for the
+  world that resumes. Not a cheaper page, and not a notebook the diarist
+  is taught to skip: the 400 was worth one line, the fair says so, and a
+  guest tuned to know that before the week ran would be the week gamed.
+  Not the lodger shown a notebook: its pinned week is its identity claim,
+  and the first persona to see a price is a week of its own. And not the
+  attempt step told what is owned: the observation there is unchanged, and
+  a guest that sizes its work by its page carries that fact in its own
+  memo, which is what the memo is for.
 
 ## Layout
 

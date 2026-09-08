@@ -143,6 +143,7 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		WindowTicks: 3, // 30 simulated minutes to bid
 		MaxReopens:  3,
 		Office:      "office",
+		Notebook:    opt.notebook,
 	}
 	if opt.tiebreak == "lot" {
 		// The lot's salt is the episode seed: one number already governs
@@ -190,6 +191,9 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		fate := fmt.Sprintf("alive, %d credits", st.Balance)
 		if st.Retired {
 			fate = "☠ bankrupt"
+		}
+		if len(st.Owned) > 0 {
+			fate += ", owns " + strings.Join(st.Owned, ", ")
 		}
 		fmt.Printf("%-9s %8d %9d %8d %8d  %s\n",
 			st.Agent, st.Attempts, st.Solved, st.Earned, st.Burned, fate)

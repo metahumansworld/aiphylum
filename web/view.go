@@ -533,6 +533,17 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				if v.Town != nil {
 					v.Town.Stays++
 				}
+			case "bought":
+				// The office's one purchase burns the way a stay does, and
+				// lands on the page the same way: in the burned total, off
+				// the balance, and on the line with a label that says what
+				// the credits became.
+				if a := v.agentByID[str("agent")]; a != nil {
+					amount := credits("amount")
+					a.Burned += amount
+					a.Balance -= amount
+					a.Timeline = append(a.Timeline, BalancePoint{l.Seq, a.Balance, "bought a " + str("item")})
+				}
 			}
 
 		case trace.EventTown:

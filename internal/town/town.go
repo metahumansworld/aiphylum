@@ -293,6 +293,10 @@ func AshmereFair() (Map, []Persona) {
 // ground under their own feet. Presence is still earned from the schedule.
 // Money can only extend it, and the competition stays in the bidding.
 //
+// The office's notebook is not a second deviation. It buys room in the
+// agent's own memo, not ground: the body keeps its round exactly as before,
+// and the town is never told it was sold.
+//
 // Every guest keeps the same round. Two guests are two lodgers on one
 // timetable, which is what a boarding house is.
 func Guest(id, name, blurb string) Persona {

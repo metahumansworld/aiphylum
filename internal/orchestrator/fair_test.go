@@ -1750,3 +1750,214 @@ func TestFairARiseOnTheBookIsAFloorAndIsDerivableFromTheTraceAlone(t *testing.T)
 	}
 	t.Logf("reader asks %d, above the reserve %d; rises read %d; floor %d", asks, raised, rises, floor)
 }
+
+// buyer is a scripted guest for the catalogue tests: one action list per
+// step, in order, and nothing after the script runs out. It keeps every
+// observation it was handed, the stayer's way.
+type buyer struct {
+	mu     sync.Mutex
+	script [][]Action
+	seen   []Observation
+}
+
+func (b *buyer) step(_ StepRequest, in StepInput) StepResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.seen = append(b.seen, in.Observation)
+	if len(b.script) == 0 {
+		return out()
+	}
+	acts := b.script[0]
+	b.script = b.script[1:]
+	return out(acts...)
+}
+
+func (b *buyer) shown() []Observation {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]Observation(nil), b.seen...)
+}
+
+// A notebook is the first thing on the catalogue: bought once, paid in full
+// and burned, and from then on the agent's memo is held to the bigger cap.
+// The same oversize memo is refused before the purchase and kept after it,
+// which is the whole of what the money bought.
+func TestFairNotebookRaisesTheCapForWhoBought(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	long := strings.Repeat("d", MaxMemoBytes+100)
+	b := &buyer{script: [][]Action{
+		{{Type: ActionMemo, Text: long}, {Type: ActionBuy, Item: "notebook"}},
+		{{Type: ActionMemo, Text: long}, {Type: ActionBuy, Item: "notebook"}},
+	}}
+	w.steps.fns["pat"] = b.step
+
+	f := stayFair(t, w, FairConfig{Notebook: 400})
+	at := []town.Standing{{ID: "pat", Place: "office"}}
+	for i, mod := range []int{540, 550, 560} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	// Paid once. The second buy is refused as already owned and costs
+	// nothing, so a loop that asks every step buys one notebook.
+	if got, want := w.balance(t, "pat"), ledger.Credits(3000-400); got != want {
+		t.Errorf("balance %d, want %d — one notebook at the list price of 400", got, want)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 1 {
+		t.Errorf("%d bought events, want the one purchase", n)
+	}
+	if n := count(lines, trace.EventNote, "buy refused: already owned"); n != 1 {
+		t.Errorf("%d already-owned refusals, want 1", n)
+	}
+	// The memo written in the same step as the purchase is over the old cap
+	// and refused: the buy settles after the step's actions are filed, so
+	// the page the agent paid for is there from its next step. The second
+	// write is the same text and is kept.
+	if n := count(lines, trace.EventNote, "memo refused: over limit"); n != 1 {
+		t.Errorf("%d memo refusals, want 1 — before the notebook, not after", n)
+	}
+	if n := count(lines, trace.EventAgent, "memo"); n != 1 {
+		t.Errorf("%d memos accepted, want 1 — the write after the purchase", n)
+	}
+	if got := w.orch.memos.get("pat"); got != long {
+		t.Errorf("memo held is %d bytes, want the %d-byte one the notebook made room for", len(got), len(long))
+	}
+
+	// What it was told, step by step: the catalogue on every board, and
+	// what it owns from the step after the purchase on.
+	var owned [][]string
+	for _, obs := range b.shown() {
+		want := []Offer{{Item: "notebook", Price: 400, MemoBytes: NotebookBytes}}
+		if !reflect.DeepEqual(obs.ForSale, want) {
+			t.Errorf("for sale %+v, want %+v", obs.ForSale, want)
+		}
+		owned = append(owned, obs.Owned)
+	}
+	if want := [][]string{nil, {"notebook"}, {"notebook"}}; !reflect.DeepEqual(owned, want) {
+		t.Errorf("owned %v, want %v — nothing, then the notebook, kept", owned, want)
+	}
+
+	// The standing says what the trace says. A reader holding only the
+	// file collects the bought events per agent and has the same list.
+	if len(rep.Standings) != 1 || !reflect.DeepEqual(rep.Standings[0].Owned, []string{"notebook"}) {
+		t.Errorf("standings %+v, want pat owning a notebook", rep.Standings)
+	}
+	fromTrace := map[string][]string{}
+	for _, l := range lines {
+		if l.Type != trace.EventCredit {
+			continue
+		}
+		var ev struct {
+			Action, Agent, Item string
+			Amount              ledger.Credits
+			MemoBytes           int `json:"memo_bytes"`
+		}
+		if err := json.Unmarshal(l.Payload, &ev); err != nil {
+			t.Fatal(err)
+		}
+		if ev.Action != "bought" {
+			continue
+		}
+		if ev.Amount != 400 || ev.MemoBytes != NotebookBytes {
+			t.Errorf("bought event %+v, want 400 credits for %d bytes", ev, NotebookBytes)
+		}
+		fromTrace[ev.Agent] = append(fromTrace[ev.Agent], ev.Item)
+	}
+	if !reflect.DeepEqual(fromTrace["pat"], rep.Standings[0].Owned) {
+		t.Errorf("trace says pat owns %v, the standing says %v", fromTrace["pat"], rep.Standings[0].Owned)
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// A notebook you cannot pay for is a refusal, not a debt: the money stays,
+// the cap stays, and the refusal is on the record.
+func TestFairNotebookRefusedWhenBroke(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 300)
+	b := &buyer{script: [][]Action{{{Type: ActionBuy, Item: "notebook"}}}}
+	w.steps.fns["pat"] = b.step
+
+	f := stayFair(t, w, FairConfig{Notebook: 400})
+	if err := f.Visit(1, 540, town.HHMM(540), []town.Standing{{ID: "pat", Place: "office"}}); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	if got, want := w.balance(t, "pat"), ledger.Credits(300); got != want {
+		t.Errorf("balance %d, want the untouched %d", got, want)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 0 {
+		t.Errorf("%d bought events on a refused purchase, want none", n)
+	}
+	if n := count(lines, trace.EventNote, "buy refused"); n != 1 {
+		t.Errorf("%d refusal notes, want 1 — a refusal nobody records is a silent one", n)
+	}
+	if got := w.orch.memos.limit("pat"); got != MaxMemoBytes {
+		t.Errorf("memo cap %d after a refused purchase, want the baseline %d", got, MaxMemoBytes)
+	}
+	if len(rep.Standings) != 1 || rep.Standings[0].Owned != nil {
+		t.Errorf("standings %+v, want pat owning nothing", rep.Standings)
+	}
+}
+
+// A fair that sells nothing shows nothing: no catalogue on the board, no
+// owned list, and a buy is refused as not for sale. The observation is
+// checked at the byte, because every trace recorded before the catalogue
+// existed was written by a fair like this one.
+func TestFairSellingNothingShowsNothing(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	var raw []byte
+	b := &buyer{script: [][]Action{{{Type: ActionBuy, Item: "notebook"}}}}
+	w.steps.fns["pat"] = func(req StepRequest, in StepInput) StepResult {
+		raw = append([]byte(nil), req.Input...)
+		return b.step(req, in)
+	}
+
+	f := stayFair(t, w, FairConfig{})
+	if err := f.Visit(1, 540, town.HHMM(540), []town.Standing{{ID: "pat", Place: "office"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	for _, key := range []string{`"for_sale"`, `"owned"`} {
+		if strings.Contains(string(raw), key) {
+			t.Errorf("the step input carries %s on a fair that sells nothing:\n%s", key, raw)
+		}
+	}
+	if got, want := w.balance(t, "pat"), ledger.Credits(3000); got != want {
+		t.Errorf("balance %d, want the untouched %d", got, want)
+	}
+	if n := count(lines, trace.EventNote, "buy refused: not for sale"); n != 1 {
+		t.Errorf("%d not-for-sale refusals, want 1", n)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 0 {
+		t.Errorf("%d bought events, want none", n)
+	}
+	// And the opening line is the one every earlier fair wrote: no
+	// notebook key on a day none was offered.
+	for _, l := range lines {
+		if l.Type == trace.EventEpisode && strings.Contains(string(l.Payload), `"notebook"`) {
+			t.Errorf("episode line names a notebook on a fair that sold none: %s", l.Payload)
+		}
+	}
+}

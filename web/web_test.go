@@ -455,6 +455,7 @@ func TestViewerCountsAStayAsMoneyGone(t *testing.T) {
 		"book": []map[string]any{{"agent": "vigil", "price": 40}}})
 	add(trace.EventBounty, map[string]any{"action": "solved", "id": "x", "agent": "vigil", "payout": 40, "burned": 6})
 	add(trace.EventCredit, map[string]any{"action": "stayed", "agent": "vigil", "amount": 24, "place": "office", "ticks": 3, "until": 13})
+	add(trace.EventCredit, map[string]any{"action": "bought", "agent": "vigil", "amount": 100, "place": "office", "item": "notebook", "memo_bytes": 4096})
 	add(trace.EventEpisode, map[string]any{"action": "end"})
 
 	v, err := BuildView("stay.jsonl", lines)
@@ -466,15 +467,16 @@ func TestViewerCountsAStayAsMoneyGone(t *testing.T) {
 		t.Fatal("vigil missing from view")
 	}
 
-	// 500 granted, 40 earned, 6 burned attempting, 48 burned standing still.
+	// 500 granted, 40 earned, 6 burned attempting, 48 burned standing still,
+	// 100 burned on the notebook.
 	if a.Earned != 40 {
 		t.Errorf("earned = %d, want 40", a.Earned)
 	}
-	if a.Burned != 54 {
-		t.Errorf("burned = %d, want 54 (6 attempting + 48 standing still)", a.Burned)
+	if a.Burned != 154 {
+		t.Errorf("burned = %d, want 154 (6 attempting + 48 standing still + 100 bought)", a.Burned)
 	}
-	if a.Balance != 486 {
-		t.Errorf("balance = %d, want 486", a.Balance)
+	if a.Balance != 386 {
+		t.Errorf("balance = %d, want 386", a.Balance)
 	}
 	// The identity the agent page's four stats are read as.
 	if got := a.Grant + a.Earned - a.Burned; got != a.Balance {
@@ -494,6 +496,12 @@ func TestViewerCountsAStayAsMoneyGone(t *testing.T) {
 	}
 	if stays[0].Label != "stayed at office" {
 		t.Errorf("stay label = %q", stays[0].Label)
+	}
+
+	// The purchase is its own step on the line, labelled with what was bought.
+	last := a.Timeline[len(a.Timeline)-1]
+	if last.Balance != 386 || last.Label != "bought a notebook" {
+		t.Errorf("last point on the balance line = %+v, want 386 labelled \"bought a notebook\"", last)
 	}
 
 	if v.Town == nil || v.Town.Stays != 2 {

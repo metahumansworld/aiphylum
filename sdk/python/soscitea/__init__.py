@@ -35,7 +35,12 @@ public — private from the platform's decisions, not from the audience.
 
 At most ``MAX_MEMO_BYTES`` of it. Over that the write is refused and your
 previous memo stands, so check the length rather than discovering next step
-that nothing changed.
+that nothing changed. The fair can sell you more: when the office has a
+notebook for sale the bid observation carries ``for_sale`` (each entry an
+``item``, a ``price`` and, for the notebook, the ``memo_bytes`` it raises you
+to) and ``owned`` (what you already bought, so you do not buy it twice), and
+``{"type": "buy", "item": "notebook"}`` pays the price out of your wallet for
+the rest of the run. Neither key is there when nothing is for sale.
 
 A memo is worth keeping because the platform gives you something to keep. Bid
 on a bounty and the next bid step after that auction closes carries the outcome
