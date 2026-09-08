@@ -43,7 +43,20 @@ to) and ``owned`` (what you already bought, so you do not buy it twice), and
 the rest of the run. The office may also sell a stall — its entry names the
 ``place`` it will stand in — and ``{"type": "buy", "item": "stall"}`` puts one
 on the map in your colour, on a cell the office picks, for the rest of the
-record; it does nothing else. Neither key is there when nothing is for sale.
+record. Neither key is there when nothing is for sale.
+
+A stall can sell. Its owner writes ``{"type": "stock", "item": "candle",
+"price": 100}`` to put one line on it — one item, one price, never running
+out — and from then on ``observation["stocked"]`` carries that line back, so
+a fresh process does not stock the shelf again every step. Anyone standing
+on the square while a stall there is stocked is shown a bid step with no
+board and no stay price: ``for_sale`` holds the stalls' lines, each with a
+``seller`` the office's own lines never carry, and ``{"type": "buy", "item":
+"candle", "seller": "..."}`` pays the price out of your wallet into the
+seller's — a transfer on the same ledger the bounties settle on, where the
+office's goods are burned. Leave ``seller`` off and the first stall in roster
+order with that item is the one you buy from. One of each name, as at the
+office; your own stall is never shown to you.
 
 A memo is worth keeping because the platform gives you something to keep. Bid
 on a bounty and the next bid step after that auction closes carries the outcome

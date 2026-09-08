@@ -57,9 +57,10 @@ function reduce(upto) {
       // rather than drawn here so a scrub back before the purchase takes it
       // down again: the map is rebuilt from the state, never appended to.
       if (e.x != null) s.built.push({ agent: e.agent, x: e.x, y: e.y });
-      money("bought", [e.agent], { place: e.place, item: e.item, amount: e.amount });
+      money("bought", [e.agent], { place: e.place, item: e.item, amount: e.amount, seller: e.seller });
       continue;
     }
+    if (e.type === "agent" && e.action === "stocked") { money("stocked", [e.agent], { item: e.item, price: e.price }); continue; }
     if (e.type === "agent" && e.action === "memo") { money("memo", [e.agent], { text: e.memo }); continue; }
     if (e.type !== "town") continue;
     switch (e.action) {
@@ -1045,8 +1046,12 @@ function render(s) {
     // one thing the office sells.
     stayed: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> paid ${esc(f.amount)} to stay at ` +
       `${esc(place)} — ${esc(f.ticks)} more ${f.ticks === 1 ? "tick" : "ticks"}`,
-    bought: (f, place) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bought a ${esc(f.item)} at ${esc(place)} for ${esc(f.amount)}` +
-      (f.item === "stall" ? " — it stands on the square" : ""),
+    bought: (f, place) => f.seller
+      // From a stall: the price went to its seller, so the line names them.
+      ? `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bought a ${esc(f.item)} from <b>${esc(names.get(f.seller) || f.seller)}</b>'s stall for ${esc(f.amount)}`
+      : `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bought a ${esc(f.item)} at ${esc(place)} for ${esc(f.amount)}` +
+        (f.item === "stall" ? " — it stands on the square" : ""),
+    stocked: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> put a ${esc(f.item)} on its stall at ${esc(f.price)} credits`,
     // An agent writing to its own next step. Shown verbatim and never parsed:
     // the platform does not read these and neither does this page. It is here
     // because watching an agent's memory change is the only way to see it

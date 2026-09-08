@@ -73,10 +73,12 @@ The phases, from here:
 - **Phase 3 — the world becomes buildable.** Earned credits spend on
   equipment, structures and other agents hired to build; the map stops being
   static; what is built persists, and agent-to-agent commerce settles on the
-  same books as the bounties. Two of its three pieces are built and read at
-  the foot of this page: the office's catalogue, and a stall bought off it
-  that the map draws for the rest of the record. Commerce between agents is
-  the piece that is not.
+  same books as the bounties. Its three pieces are built and read at the
+  foot of this page: the office's catalogue, a stall bought off it that the
+  map draws for the rest of the record, and a sale from that stall to
+  another agent, transferred on the same ledger the bounties settle on.
+  What is not built is the hiring: an agent paying another to build, which
+  needs work that can be handed over before it can be paid for.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
   The first piece of it is built and read at the foot of this page: a guest
@@ -1735,6 +1737,117 @@ than buried.
   not the lodger shown a stall: its pinned week is its identity claim, run
   here twice to prove it.
 
+- **The stall earns.** The third piece, and the one that pays somebody. A
+  stall's owner writes `{"type": "stock", "item": "candle", "price": 100}`
+  and its stall has one line on it — one item, one price, never running
+  out — carried back to the owner on every board as `stocked`, so a fresh
+  process does not stock the shelf again each step. Whoever stands on the
+  square while a stall there is stocked is shown a bid step the way the
+  office shows the board: no bounties, no stay price, `for_sale` holding
+  the stalls' lines with a `seller` on each, which the office's own lines
+  never carry. Shown once per change of the shelf rather than once per
+  window, because a stall has no windows — it is the same line every lunch
+  until its owner changes it — and an agent shown it once and walked on has
+  answered. A buy of a line transfers the price from the buyer's wallet to
+  the seller's by the same two-legged post a payout takes, where every
+  purchase before this one was burned, and the `bought` event carries the
+  seller's name. The buy names the seller when two stalls stock the same
+  name and takes the first in roster order when it does not, the tie every
+  other thing at the fair takes. A seller is never shown its own stall, a
+  retired seller's line is not on the square, the office's two names are
+  refused on a shelf because an agent owns each name once, and nothing
+  here can fail the tick: every refusal is a note.
+
+  Off is the default, three ways. The lodger's week on this change and on
+  main is the same 4,508 events to the byte outside the clock; the
+  diarist's sold week and the stallholder's sold week are each the same
+  3,871 as the traces pinned above them. The third is the one that counts:
+  the stallholder buys the ground and never stocks it, and a square with an
+  unstocked stall on it steps nobody, so the week that put a stall on the
+  map is unchanged by the week that made it sell.
+
+  Two guests, because trade takes two. `examples/guests/chandler.py` is
+  the stallholder plus one behaviour: once it owns the stall and the shelf
+  is empty it stocks a candle at 100, a quarter of what the ground cost.
+  `examples/guests/patron.py` is the scribe plus one: on the square, shown
+  a line with a seller on it, it buys when the purse holds four times the
+  price. `make fair-chandler-7day` seats them with a stall for sale and
+  `make fair-chandler-unsold-7day` seats them without one.
+
+  The chandler bought the ground at tick 15 and stocked it at tick 18, the
+  first board it saw after owning it. The patron did not reach the square
+  on day one: it had bought standing at the office at 12:20 and again at
+  13:00, and the vigil held it through lunch. Day two at 12:10 it arrived,
+  was shown the line, and bought — tick 175 of 1,008, one `bought` event
+  with `seller: chandler` on it and no cell — and was never shown it again,
+  because the shelf never changed. The money: the patron closes at 1,918
+  against 2,018 unsold, 100 lower and nothing else. The chandler closes at
+  4,288 against 4,620, which is the stall's 400 back, the sale's 100
+  forward, and 32 more, and the 32 is the finding. The chandler's stopping
+  rule infers what the work returned from balances, and a sale lands in the
+  balance between two boards exactly as a payout does — its inferred
+  earnings read 3,936 sold against 3,836 unsold, the sale to the credit —
+  so the standing bill's allowance rose with it and it bought two stays
+  it had not bought unsold, at 15:00 on day two and 16:00 on day six, and
+  skipped one it had, at 11:00 on day seven. Those are the only lines of
+  the town's that differ between the weeks: twelve tick lines on which the
+  chandler's activity reads `waiting` in place of `back at the board`, on
+  the same cell. No bid, no award and no attempt differs: 23 bids and 17
+  wins for the chandler in both weeks, 22 bids and 1 win for the patron,
+  who asks the same twenty percent the chandler asks and stands second in
+  the roster, so the tie at every board it shares goes to the chandler by
+  arrival. Its one bounty paid 200; it spent 160 standing and 100 on a
+  candle. Of the cast only Frugal eats on the square, from 12:30 on day
+  one, and it was shown the line once; its bid step ignores everything but
+  the board, so the step wrote nothing and changed nothing, which the
+  identical bids say. Drift 0
+  in both weeks: the sold week burns 432 more, the stall and the stay, and
+  the 100 is in the chandler's wallet, not the sink. The spectator's page
+  reads `Chandler put a candle on its stall at 100 credits` at 10:00 and
+  `Patron bought a candle from Chandler's stall for 100` at 12:10 the next
+  day, and draws one stall, not two; a candle has no cell.
+
+  What that is worth: one patron at a quarter does not earn the ground
+  back. The stall cost 400 and returned 100, and the owner's own rule spent
+  32 of that on standing, so the week's whole yield to the seller is 68
+  against the 400 it paid. A stall needs four patrons at this price, and
+  the fair has seated one. Nothing here changes the arithmetic; the week
+  measures it.
+
+  Four tests are the seam.
+  `TestFairStallSellsWhatItStocksAndTheMoneyMoves` seats two sellers and a
+  buyer: both stock a candle, the buy names the dearer seller and pays it,
+  the balances move by the price in opposite directions, the buyer's square
+  step carries both lines in roster order with no board and no price, a
+  stay asked for there is neither charged nor refused, the seller's next
+  board carries its own line as `stocked`, the other seller on the square
+  is shown the rival's line and not its own, the buyer is shown the square
+  once and not again, the standings say who owns what, the shelf is not
+  empty after the sale, at drift 0. `TestFairStockRefusedWithoutAStall`
+  finds the three refusals as notes — no stall, the office's name, no
+  price — no `stocked` event, and a buyer standing on the square for two
+  ticks stepped once, at the board, because nothing was stocked.
+  `TestFairRestockingShowsTheBuyerAgainOnlyWhenTheLineChanges` restocks
+  the same line and finds one event and one showing, then restocks at a
+  new price and finds two of each, the last showing at the new price.
+  `TestFairRetiredSellerLeavesTheSquare` retires the seller after it has
+  stocked and finds the buyer on the square stepped for nothing, the
+  wares empty, one `bought` in the week and that the stall's — the one
+  guard whose absence would fail a tick, a transfer into a closed account.
+
+  What is deliberately not here. Not haggling: a line is a price, and a
+  buy is the price or nothing. Not a second line, or stock that runs out:
+  one item that never runs out is what a week can measure, and a shelf is
+  a protocol surface. Not the buyer told what a candle does, because it
+  does nothing, this week — what a bought thing is worth to its buyer is
+  the office's question, and the notebook answered it once. Not the seller
+  told of its sale: it lands in the balance like a payout, and the
+  chandler's stopping rule reading it as wages is the week's finding, not
+  a bug in the protocol. Not a stall drawn differently for being stocked.
+  Not agents hiring agents to build, which is Phase 3's last sentence and
+  needs work that can be handed over before it can be paid for. And not
+  the lodger shown a square: its pinned week is its identity claim, run
+  here once more to prove it.
 - **The door opens mid-week.** Every guest so far was seated at boot: the
   `-guest` flag named a file, the fair registered the process, minted the
   grant and gave the body a room before the first tick, and from then on
