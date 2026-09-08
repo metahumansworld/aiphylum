@@ -668,7 +668,7 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 	}
 	if stay != nil {
 		obs.Place, obs.StayPrice, obs.StayTicksLeft = stay.Place, stay.Price, stay.TicksLeft
-		obs.ForSale, obs.Owned = stay.ForSale, stay.Owned
+		obs.ForSale, obs.Owned, obs.Stocked = stay.ForSale, stay.Owned, stay.Stocked
 	}
 	input, err := json.Marshal(StepInput{
 		Observation: obs,

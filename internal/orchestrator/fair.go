@@ -157,6 +157,15 @@ type Fair struct {
 	// once per purchase — which is the copy of record: a reader holds this
 	// map by collecting the bought events.
 	owned map[string][]string
+	// stock is what each stall owner has put up for sale, one line each,
+	// keyed by owner. stockRev counts the changes to it, and shopped maps an
+	// agent to the revision it was last shown on the square — a stall is
+	// shown to a passer-by once per change, the way a window is shown once,
+	// so a square nobody has stocked steps nobody and a week with no seller
+	// is the week it always was.
+	stock    map[string]Offer
+	stockRev int
+	shopped  map[string]int
 }
 
 // NewFair wires a fair onto an orchestrator and announces the episode. Like
@@ -206,6 +215,8 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		standing:  map[string]*SimStanding{},
 		held:      map[string]int{},
 		owned:     map[string][]string{},
+		stock:     map[string]Offer{},
+		shopped:   map[string]int{},
 	}
 	for _, ag := range o.live() {
 		f.standing[ag.ID] = &SimStanding{Agent: ag.ID}
@@ -358,7 +369,7 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		// wants to bid on and whether it wants to still be here.
 		acts := f.o.performBidStep(f.runCtx, ag, f.tick, views, &FairOffer{
 			Place: st.Place, Price: f.cfg.StayPrice, TicksLeft: f.staying(ag.ID),
-			ForSale: f.catalogue(), Owned: f.owned[ag.ID],
+			ForSale: f.catalogue(), Owned: f.owned[ag.ID], Stocked: f.stocked(ag.ID),
 		})
 		f.o.placeBids(ag, acts, aucs)
 		if err := f.chargeStays(ag, st.Place, acts); err != nil {
@@ -367,6 +378,38 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		if err := f.chargeBuys(ag, st.Place, acts); err != nil {
 			return err
 		}
+		f.takeStock(ag, acts)
+	}
+
+	// The square: a stocked stall is shown to whoever stands on its ground,
+	// the office's rule again with the board swapped for the wares. Shown
+	// once per change of stock rather than once per window, because a stall
+	// has no windows — it is the same shelf every lunch until its owner
+	// changes it, and an agent that was shown it and walked on has answered.
+	// No board, no stay price: lunch on the square is the schedule's, not
+	// for sale, and a stay asked for here is ignored rather than charged.
+	// A seller is not shown its own stall, so a square with one stall on it
+	// steps everyone but the one who stocked it.
+	for _, st := range standings {
+		if st.Place != f.cfg.StallPlace || f.shopped[st.ID] == f.stockRev {
+			continue
+		}
+		ag := f.o.agent(st.ID)
+		if ag == nil || ag.Retired {
+			continue
+		}
+		wares := f.wares(st.ID)
+		if len(wares) == 0 {
+			continue
+		}
+		f.shopped[st.ID] = f.stockRev
+		acts := f.o.performBidStep(f.runCtx, ag, f.tick, nil, &FairOffer{
+			Place: st.Place, ForSale: wares, Owned: f.owned[ag.ID], Stocked: f.stocked(ag.ID),
+		})
+		if err := f.chargeBuys(ag, st.Place, acts); err != nil {
+			return err
+		}
+		f.takeStock(ag, acts)
 	}
 
 	// Close what is due. The award happens at the board; the attempt happens
@@ -580,19 +623,98 @@ func (f *Fair) catalogue() []Offer {
 	return out
 }
 
+// wares is what the stalls have for sale to the agent named: every stocked
+// stall but its own, in roster order, its owner's name on each line. A
+// retired owner's stall is not on it — a closed account cannot be paid — and
+// nil when nothing is, for the catalogue's reason.
+func (f *Fair) wares(to string) []Offer {
+	var out []Offer
+	for _, ag := range f.o.agents {
+		o, ok := f.stock[ag.ID]
+		if !ok || ag.ID == to || ag.Retired {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// stocked is the agent's own line, or nil: what it is shown of its shelf.
+func (f *Fair) stocked(id string) *Offer {
+	if o, ok := f.stock[id]; ok {
+		return &o
+	}
+	return nil
+}
+
+// takeStock puts what a stall owner asked to sell on its shelf. The first
+// stock in a step wins, a refusal is a note, and nothing here can fail the
+// tick — chargeStays' rules. Restocking the same line says nothing and
+// writes nothing: a seller that repeats itself has not changed its shelf,
+// and the revision that decides who is shown it again does not move. The
+// office's names are refused on a shelf because an agent owns each name
+// once, and a stall selling "notebook" would keep its buyer from the page.
+func (f *Fair) takeStock(ag *Agent, actions []Action) {
+	for _, a := range actions {
+		if a.Type != ActionStock {
+			continue
+		}
+		var why string
+		switch {
+		case !f.owns(ag.ID, "stall"):
+			why = "no stall"
+		case a.Item == "" || a.Price <= 0:
+			why = "no item or no price"
+		case a.Item == "notebook" || a.Item == "stall":
+			why = "the office's name"
+		}
+		if why != "" {
+			f.o.traceEvent(trace.EventNote, map[string]any{
+				"note": "stock refused: " + why, "agent": ag.ID, "item": a.Item, "price": a.Price,
+			})
+			return
+		}
+		line := Offer{Item: a.Item, Price: a.Price, Seller: ag.ID}
+		if f.stock[ag.ID] == line {
+			return
+		}
+		f.stock[ag.ID] = line
+		f.stockRev++
+		f.o.traceEvent(trace.EventAgent, map[string]any{
+			"action": "stocked", "agent": ag.ID, "item": a.Item, "price": a.Price,
+		})
+		return
+	}
+}
+
+func (f *Fair) owns(id, item string) bool {
+	for _, have := range f.owned[id] {
+		if have == item {
+			return true
+		}
+	}
+	return false
+}
+
 // chargeBuys is chargeStays for the catalogue: the first buy in a step wins,
 // a refusal is a note and not a debt, and nothing here can fail the tick.
 // It runs after the stays because a stay is about this tick and a notebook
-// is about the rest of the run.
+// is about the rest of the run. What is for sale is the place's: the office
+// sells its catalogue, the square sells the stalls' wares, and a buy names
+// only what it was shown where it stands.
 func (f *Fair) chargeBuys(ag *Agent, place string, actions []Action) error {
 	for _, a := range actions {
 		if a.Type != ActionBuy {
 			continue
 		}
+		lines := f.catalogue()
+		if place != f.cfg.Office {
+			lines = f.wares(ag.ID)
+		}
 		var offer *Offer
-		for _, o := range f.catalogue() {
-			if o.Item == a.Item {
-				offer = &o // a copy: catalogue builds a fresh slice each call
+		for _, o := range lines {
+			if o.Item == a.Item && (a.Seller == "" || o.Seller == a.Seller) {
+				offer = &o // a copy: both lists are built fresh each call
 				break
 			}
 		}
@@ -602,16 +724,14 @@ func (f *Fair) chargeBuys(ag *Agent, place string, actions []Action) error {
 			})
 			return nil
 		}
-		for _, have := range f.owned[ag.ID] {
-			if have == a.Item {
-				// One each. A second notebook would be the first one again,
-				// and a loop in somebody's code should not be able to pay
-				// for the same page twice.
-				f.o.traceEvent(trace.EventNote, map[string]any{
-					"note": "buy refused: already owned", "agent": ag.ID, "item": a.Item,
-				})
-				return nil
-			}
+		if f.owns(ag.ID, a.Item) {
+			// One each. A second notebook would be the first one again,
+			// and a loop in somebody's code should not be able to pay
+			// for the same page twice.
+			f.o.traceEvent(trace.EventNote, map[string]any{
+				"note": "buy refused: already owned", "agent": ag.ID, "item": a.Item,
+			})
+			return nil
 		}
 		bal, err := f.o.Ledger.Balance(f.settleCtx, ag.ID)
 		if err != nil {
@@ -624,18 +744,29 @@ func (f *Fair) chargeBuys(ag *Agent, place string, actions []Action) error {
 			})
 			return nil
 		}
-		// Burned, for the stay's reason: there is no seller. The agent is
-		// buying room in the platform's own book, and the platform is not
-		// a party that keeps the money. When another agent is on the other
-		// side of a trade, that trade will transfer; this one does not.
-		if _, err := f.o.Ledger.Burn(f.settleCtx, ag.ID, offer.Price, "buy", a.Item); err != nil {
-			return err
-		}
-		f.owned[ag.ID] = append(f.owned[ag.ID], a.Item)
 		ev := map[string]any{
 			"action": "bought", "agent": ag.ID, "place": place, "item": a.Item,
 			"amount": offer.Price,
 		}
+		if offer.Seller != "" {
+			// Transferred, not burned: this is the trade with somebody on
+			// the other side. The price lands in the seller's wallet by the
+			// same two-legged post a bounty's payout takes, so the books
+			// close at drift zero with the money moved and not gone. The
+			// seller cannot be retired here — wares leaves the closed out.
+			if _, err := f.o.Ledger.Transfer(f.settleCtx, ag.ID, offer.Seller, offer.Price, "buy", a.Item); err != nil {
+				return err
+			}
+			ev["seller"] = offer.Seller
+		} else {
+			// Burned, for the stay's reason: there is no seller. The agent
+			// is buying room in the platform's own book, and the platform
+			// is not a party that keeps the money.
+			if _, err := f.o.Ledger.Burn(f.settleCtx, ag.ID, offer.Price, "buy", a.Item); err != nil {
+				return err
+			}
+		}
+		f.owned[ag.ID] = append(f.owned[ag.ID], a.Item)
 		if offer.MemoBytes > 0 {
 			// Only a page grants a page: a grant of zero would be the
 			// notebook taken back by the next thing bought.

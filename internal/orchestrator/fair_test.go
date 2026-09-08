@@ -2177,3 +2177,269 @@ func TestFairStallAfterNotebookKeepsThePage(t *testing.T) {
 		t.Errorf("conservation broken: %s", rep.Conservation)
 	}
 }
+
+// tradeFair runs a stall-selling fair for three ticks with everyone at the
+// places given, one standing list per tick: the shape every trade test
+// below shares, so each one reads as its scenario and nothing else.
+func tradeFair(t *testing.T, w *world, at [][]town.Standing) (FairReport, *Fair) {
+	t.Helper()
+	f := stayFair(t, w, FairConfig{Stall: 400, StallPlace: "square", Pitches: []town.Cell{{X: 7, Y: 7}, {X: 8, Y: 7}}})
+	for i, mod := range []int{540, 550, 560} {
+		if err := f.Visit(1, mod, town.HHMM(mod), at[i]); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep, f
+}
+
+// The stall earns. A seller buys the ground and stocks one line; a buyer
+// standing on the square is shown the wares the way the office shows the
+// board, once, and its buy moves the price from its wallet to the seller's
+// on the same ledger the bounties settle on — transferred, not burned, so
+// the books close with the money moved and not gone. Two stalls stock the
+// same name and the buy names its seller, which is the rule for that.
+func TestFairStallSellsWhatItStocksAndTheMoneyMoves(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	w.add(t, "rob", 3000)
+	w.add(t, "quin", 3000)
+	pat := &buyer{script: [][]Action{
+		{{Type: ActionBuy, Item: "stall"}},
+		{{Type: ActionStock, Item: "candle", Price: 100}},
+	}}
+	rob := &buyer{script: [][]Action{
+		{{Type: ActionBuy, Item: "stall"}},
+		{{Type: ActionStock, Item: "candle", Price: 90}},
+	}}
+	quin := &buyer{script: [][]Action{
+		nil,
+		{{Type: ActionBuy, Item: "candle", Seller: "pat"}, {Type: ActionStay, Ticks: 2}},
+	}}
+	w.steps.fns["pat"], w.steps.fns["rob"], w.steps.fns["quin"] = pat.step, rob.step, quin.step
+
+	office := func(id string) town.Standing { return town.Standing{ID: id, Place: "office"} }
+	square := func(id string) town.Standing { return town.Standing{ID: id, Place: "square"} }
+	rep, f := tradeFair(t, w, [][]town.Standing{
+		{office("pat"), office("rob"), office("quin")},
+		{office("pat"), office("rob"), square("quin")},
+		{office("pat"), square("rob"), square("quin")},
+	})
+	lines := read()
+
+	// The money: two stalls burned, one candle transferred to the seller
+	// the buy named — the dearer one, so the match is the name and not the
+	// price or the roster.
+	for id, want := range map[string]ledger.Credits{"pat": 3000 - 400 + 100, "rob": 3000 - 400, "quin": 3000 - 100} {
+		if got := w.balance(t, id); got != want {
+			t.Errorf("%s closes at %d, want %d", id, got, want)
+		}
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+	if n := count(lines, trace.EventAgent, "stocked"); n != 2 {
+		t.Errorf("%d stocked events, want one per seller", n)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 3 {
+		t.Errorf("%d bought events, want two stalls and a candle", n)
+	}
+	if n := strings.Count(string(payloads(lines)), `"seller":"pat"`); n != 1 {
+		t.Errorf("%d bought events name pat as seller, want the candle's", n)
+	}
+	// A stay asked for on the square is ignored, not charged: no stayed
+	// event, no refusal, and the balance above already says so.
+	if n := count(lines, trace.EventCredit, "stayed") + count(lines, trace.EventNote, "stay refused"); n != 0 {
+		t.Errorf("%d stay events from the square, want none", n)
+	}
+
+	// The buyer was shown the square once: a board at the office on tick
+	// one, then the wares on tick two, then nothing on tick three because
+	// the shelf had not changed. The wares carry both sellers in roster
+	// order, no board, no stay price.
+	shown := quin.shown()
+	if len(shown) != 2 {
+		t.Fatalf("quin shown %d steps, want 2 — the board once, the square once", len(shown))
+	}
+	sq := shown[1]
+	if sq.Place != "square" || sq.StayPrice != 0 || sq.Bounties != nil || sq.Owned != nil || sq.Stocked != nil {
+		t.Errorf("square step %+v, want the square with no price, no board, nothing owned", sq)
+	}
+	want := []Offer{{Item: "candle", Price: 100, Seller: "pat"}, {Item: "candle", Price: 90, Seller: "rob"}}
+	if !reflect.DeepEqual(sq.ForSale, want) {
+		t.Errorf("wares %+v, want %+v", sq.ForSale, want)
+	}
+	// A seller is shown its own shelf at the office and is not shown its
+	// own stall on the square: pat's third step sees Stocked; rob, on the
+	// square on tick three with pat's candle across from it, is shown that.
+	ps := pat.shown()
+	if len(ps) != 3 || ps[2].Stocked == nil || *ps[2].Stocked != (Offer{Item: "candle", Price: 100, Seller: "pat"}) {
+		t.Errorf("pat's steps %+v, want the third carrying its own line", ps)
+	}
+	rs := rob.shown()
+	if len(rs) != 3 || !reflect.DeepEqual(rs[2].ForSale, want[:1]) {
+		t.Errorf("rob's steps %+v, want the third showing pat's candle and not its own", rs)
+	}
+	// What was bought is owned, and the standings say so.
+	got := map[string][]string{}
+	for _, st := range rep.Standings {
+		got[st.Agent] = st.Owned
+	}
+	if !reflect.DeepEqual(got, map[string][]string{"pat": {"stall"}, "rob": {"stall"}, "quin": {"candle"}}) {
+		t.Errorf("owned %v", got)
+	}
+	if f.wares("quin") == nil {
+		t.Errorf("the shelf is empty after the sale; one item does not run out")
+	}
+}
+
+// Stocking is refused without a stall, under the office's names, and
+// without an item or a price; a refusal is a note, and nothing was shown
+// on the square because nothing was stocked — the buyer standing there is
+// never stepped.
+func TestFairStockRefusedWithoutAStall(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	w.add(t, "quin", 3000)
+	pat := &buyer{script: [][]Action{
+		{{Type: ActionStock, Item: "candle", Price: 100}},
+		// A buy and a stock in one step land in that order: the stall is
+		// bought before the shelf is stocked, so this refusal is the name's.
+		{{Type: ActionBuy, Item: "stall"}, {Type: ActionStock, Item: "notebook", Price: 100}},
+		{{Type: ActionStock, Item: "candle"}},
+	}}
+	quin := &buyer{}
+	w.steps.fns["pat"], w.steps.fns["quin"] = pat.step, quin.step
+
+	office := town.Standing{ID: "pat", Place: "office"}
+	rep, _ := tradeFair(t, w, [][]town.Standing{
+		{office, {ID: "quin", Place: "office"}},
+		{office, {ID: "quin", Place: "square"}},
+		{office, {ID: "quin", Place: "square"}},
+	})
+	lines := read()
+
+	for _, why := range []string{"no stall", "the office's name", "no item or no price"} {
+		if n := count(lines, trace.EventNote, "stock refused: "+why); n != 1 {
+			t.Errorf("%d refusals for %q, want 1", n, why)
+		}
+	}
+	if n := count(lines, trace.EventAgent, "stocked"); n != 0 {
+		t.Errorf("%d stocked events, want none", n)
+	}
+	if n := len(quin.shown()); n != 1 {
+		t.Errorf("quin stepped %d times, want once at the board — an unstocked square steps nobody", n)
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// A retired seller's line is not on the square. The stall stays, the
+// stock stays, but a transfer into a closed account would fail the tick,
+// so the wares skip it and a buyer standing there is stepped for nothing.
+func TestFairRetiredSellerLeavesTheSquare(t *testing.T) {
+	tw, read := simTrace(t)
+	w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+	w.add(t, "pat", 3000)
+	w.add(t, "quin", 3000)
+	pat := &buyer{script: [][]Action{
+		{{Type: ActionBuy, Item: "stall"}},
+		{{Type: ActionStock, Item: "candle", Price: 100}},
+	}}
+	quin := &buyer{script: [][]Action{{}, {{Type: ActionBuy, Item: "candle"}}}}
+	w.steps.fns["pat"], w.steps.fns["quin"] = pat.step, quin.step
+
+	f := stayFair(t, w, FairConfig{Stall: 400, StallPlace: "square", Pitches: []town.Cell{{X: 7, Y: 7}}})
+	office := town.Standing{ID: "pat", Place: "office"}
+	for i, at := range [][]town.Standing{
+		{office, {ID: "quin", Place: "office"}},
+		{office}, // each posting is a fresh window; quin stays away from the second
+		{{ID: "quin", Place: "square"}},
+	} {
+		if i == 2 {
+			w.orch.agent("pat").Retired = true
+		}
+		if err := f.Visit(1, 540+10*i, town.HHMM(540+10*i), at); err != nil {
+			t.Fatalf("tick %d: %v", i+1, err)
+		}
+	}
+	rep, err := f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := read()
+
+	if n := count(lines, trace.EventAgent, "stocked"); n != 1 {
+		t.Errorf("%d stocked events, want 1", n)
+	}
+	if n := count(lines, trace.EventCredit, "bought"); n != 1 {
+		t.Errorf("%d bought events, want 1 — the stall only", n)
+	}
+	if n := len(quin.shown()); n != 1 {
+		t.Errorf("quin stepped %d times, want once at the board — a retired seller's square steps nobody", n)
+	}
+	if wares := f.wares("quin"); wares != nil {
+		t.Errorf("wares = %v, want none from a retired seller", wares)
+	}
+	if !rep.Conservation.Holds() {
+		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// Restocking the same line is silent and shows nobody anything again;
+// changing it writes a second stocked event and the buyer is shown the
+// new price. The revision is what decides, and only a change moves it.
+func TestFairRestockingShowsTheBuyerAgainOnlyWhenTheLineChanges(t *testing.T) {
+	for _, tc := range []struct {
+		price   ledger.Credits
+		stocked int
+		steps   int
+	}{{100, 1, 2}, {80, 2, 3}} {
+		tw, read := simTrace(t)
+		w := newSim(t, tw, Config{StepTimeout: 5 * time.Second, Dust: 10})
+		w.add(t, "pat", 3000)
+		w.add(t, "quin", 3000)
+		pat := &buyer{script: [][]Action{
+			{{Type: ActionBuy, Item: "stall"}},
+			{{Type: ActionStock, Item: "candle", Price: 100}},
+			{{Type: ActionStock, Item: "candle", Price: tc.price}},
+		}}
+		quin := &buyer{}
+		w.steps.fns["pat"], w.steps.fns["quin"] = pat.step, quin.step
+
+		office := town.Standing{ID: "pat", Place: "office"}
+		tradeFair(t, w, [][]town.Standing{
+			{office, {ID: "quin", Place: "office"}},
+			{office, {ID: "quin", Place: "square"}},
+			{office, {ID: "quin", Place: "square"}},
+		})
+		lines := read()
+		if n := count(lines, trace.EventAgent, "stocked"); n != tc.stocked {
+			t.Errorf("restock at %d: %d stocked events, want %d", tc.price, n, tc.stocked)
+		}
+		shown := quin.shown()
+		if len(shown) != tc.steps {
+			t.Fatalf("restock at %d: quin stepped %d times, want %d", tc.price, len(shown), tc.steps)
+		}
+		if last := shown[len(shown)-1].ForSale; len(last) != 1 || last[0].Price != tc.price {
+			t.Errorf("restock at %d: last shown %+v", tc.price, last)
+		}
+	}
+}
+
+// payloads joins every line's payload, for a substring check on a key no
+// event action names.
+func payloads(lines []trace.Line) []byte {
+	var out []byte
+	for _, l := range lines {
+		out = append(out, l.Payload...)
+		out = append(out, '\n')
+	}
+	return out
+}

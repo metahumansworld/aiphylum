@@ -298,7 +298,10 @@ func AshmereFair() (Map, []Persona) {
 // and the town is never told it was sold. Nor is its stall, though that one
 // is drawn on the map: the cell it stands on stays open ground to the router
 // and the schedule, and the town is not told that either — the purchase is
-// in the trace and the spectator's page reads it from there.
+// in the trace and the spectator's page reads it from there. Nor is what
+// the stall sells: a guest standing on the square at lunch may be shown a
+// stocked stall by the fair and buy from it, and the town sees a body
+// eating on a bench, which is what it is.
 //
 // Every guest keeps the same round. Two guests are two lodgers on one
 // timetable, which is what a boarding house is.
