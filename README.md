@@ -2265,54 +2265,59 @@ than buried.
 
   Two things had a closing day built into them, and each gets one field. The
   town's loop ran to a last tick computed from `Days`, so `town.Config`
-  gains `Endless`, and the loop's condition becomes `Endless || t <= total`:
-  the context is checked at the top of every tick as it always was, so a
-  stop still lands on a tick boundary and the closed line still says
-  `interrupted`, with `days` 0, which no finished week ever wrote. It is its
-  own field rather than a meaning of `Days == 0` because every other zero in
-  that struct means the default, and a zero-value `Config` that never
-  returned would hang whatever called it; `withDefaults` maps the pair the
-  one way, `Endless` to `Days` 0. The fair's supply was a `Deck` sized by
-  the calendar, one card per posting hour per day, and a week with no
-  calendar has nothing to size it by. So `FairConfig` gains `Deal`, a
-  function from a card's index to the card, read only when there is no
-  `Deck`; the office's posting loop asks a `card(i)` helper, which deals
-  when there is no deck and reports the end of one when there is, and
-  nothing else in the fair knows the difference — `f.next` counts on, the
-  checkpoint carries it, and a resumed world deals card `Next` next. The
-  daemon's `simDeck` was already card `i` as a function of the seed and the
-  index and nothing else; it is split into `simCard` and a loop over it, so
-  a dealt week is the sized week's deck by construction, and the test says
-  so rather than assumes it. The start line's `deck` key says `endless`
-  where a sized week says its count — a word, so no reader takes it for no
-  cards; the viewer reads neither key. The banner says `a bounty posted on
-  the hour ... no closing day`, and the closing line `N posted, no closing
-  day` where a week says `N of M posted`. The town mode takes the same
-  `-days 0` and says so in its own banner, so the flag means one thing in
-  both. And the daemon now closes on `SIGTERM` as well as an interrupt, one
-  identifier in the `signal.NotifyContext` call: a world meant to run under
-  a supervisor is stopped by the supervisor's signal, and a stop that
-  skipped the closed line and the table would be a kill, not a close. The
-  checkpoint changes nothing: the record carries `Days` 0 and `matches`
-  compares it, and a resumed endless week is refused a `-days 7`, as a
-  resumed week always refused a different one.
+  gains `Endless`, and the loop's condition becomes `Endless || t <= total`.
+  The context is asked at the top of every tick, and now asked again after
+  the select that waits on the ticker: a select with two ready cases picks
+  one at random, so a stop that arrived during the last tick used to let one
+  more run about half the time. It stops at the first boundary after the
+  signal, every time, and the closed line says `interrupted`, with `days` 0,
+  which no finished week ever wrote. It is its own field rather than a
+  meaning of `Days == 0` because every other zero in that struct means the
+  default, and a zero-value `Config` that never returned would hang whatever
+  called it; `withDefaults` maps the pair the one way, `Endless` to `Days`
+  0. The fair's supply was a `Deck` sized by the calendar, one card per
+  posting hour per day, and a week with no calendar has nothing to size it
+  by. So `FairConfig` gains `Deal`, a function from a card's index to the
+  card, read only when there is no `Deck`; the office's posting loop asks a
+  `card(i)` helper, which deals when there is no deck and reports the end of
+  one when there is, and nothing else in the fair knows the difference —
+  `f.next` counts on, the checkpoint carries it, and a resumed world deals
+  card `Next` next. The daemon's `simDeck` was already card `i` as a
+  function of the seed and the index and nothing else; it is split into
+  `simCard` and a loop over it, so a dealt week is the sized week's deck by
+  construction, and the test says so rather than assumes it. The start
+  line's `deck` key says `endless` where a sized week says its count — a
+  word, so no reader takes it for no cards; the viewer reads neither key.
+  The banner says `a bounty posted on the hour ... no closing day`, and the
+  closing line `N posted, no closing day` where a week says `N of M posted`.
+  The town mode takes the same `-days 0` and says so in its own banner, so
+  the flag means one thing in both. And the daemon now closes on `SIGTERM`
+  as well as an interrupt, one identifier in the `signal.NotifyContext`
+  call: a world meant to run under a supervisor is stopped by the
+  supervisor's signal, and a stop that skipped the closed line and the table
+  would be a kill, not a close. The checkpoint changes nothing: the record
+  carries `Days` 0 and `matches` compares it, and a resumed endless week is
+  refused a `-days 7`, as a resumed week always refused a different one.
 
   Two tests are the seam. `TestEndlessRunsUntilTold` runs the town with
-  `Endless` set and `Days` set to one, which must not be believed, and
-  pulls the plug from the `Visit` hook at tick 216, a day and a half in:
-  the report says 216 ticks, `interrupted`, 0 days, and the closed line
-  says the same. `TestFairDealsWithoutADeck` runs three days twice, once
-  with a two-day deck of sixteen cards and once dealing the same cards
-  with no deck: the deck posts sixteen, the dealer twenty-four, and the
-  two traces are line for line the same through the deck's last card,
-  the start line aside, which says `endless` where the deck said 16 —
-  the third day is where a deck posts nothing and a dealer goes on. Each
-  was mutated once to see it fail: the loop without `Endless` stops at
-  tick zero, and a dealer that stops at twenty posts twenty. Checked by
-  hand on the spectator's page served with `-follow`, on the run below:
-  it rebuilds all 5,794 lines from event zero to `day 12 · 07:00`, 88
-  posted and 128 won, and neither the `days` 0 in the closed line nor
-  the `endless` in the start line troubles it, since it reads neither.
+  `Endless` set and `Days` set to one, which must not be believed, and pulls
+  the plug from the `Visit` hook at tick 216, a day and a half in: the
+  report says 216 ticks, `interrupted`, 0 days, and the closed line says the
+  same. It failed once on the way in, on the pull request's own check and
+  not on the push's, with 217 ticks: the random select above, which the same
+  test reproduced locally nineteen times in a hundred and not once in three
+  hundred after the fix. `TestFairDealsWithoutADeck` runs three days twice,
+  once with a two-day deck of sixteen cards and once dealing the same cards
+  with no deck: the deck posts sixteen, the dealer twenty-four, and the two
+  traces are line for line the same through the deck's last card, the start
+  line aside, which says `endless` where the deck said 16 — the third day is
+  where a deck posts nothing and a dealer goes on. Each was mutated once to
+  see it fail: the loop without `Endless` stops at tick zero, and a dealer
+  that stops at twenty posts twenty. Checked by hand on the spectator's page
+  served with `-follow`, on the run below: it rebuilds all 5,794 lines from
+  event zero to `day 12 · 07:00`, 88 posted and 128 won, and neither the
+  `days` 0 in the closed line nor the `endless` in the start line troubles
+  it, since it reads neither.
 
   The week is `make fair-pilgrim-endless`: the pilgrim's week with
   `-days 0`, written down as it goes, interrupted about seventeen minutes

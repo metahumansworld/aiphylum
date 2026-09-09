@@ -317,13 +317,18 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 	for t := first; cfg.Endless || t <= total; t++ {
 		select {
 		case <-ctx.Done():
+		case <-ticker.C:
+		}
+		// Asked after the select, not only inside it: a select with two
+		// ready cases picks one at random, and a stop that arrived during
+		// the last tick would otherwise let this one run half the time.
+		if ctx.Err() != nil {
 			rep.Reason = "interrupted"
 			rep.tally(mn)
 			return rep, tw.Append(trace.EventTown, map[string]any{
 				"action": "closed", "ticks": rep.Ticks, "days": cfg.Days,
 				"meetings": rep.Meetings, "reason": rep.Reason,
 			})
-		case <-ticker.C:
 		}
 
 		if mn != nil {
