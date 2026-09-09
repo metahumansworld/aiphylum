@@ -113,6 +113,13 @@ type Observation struct {
 	// stall and has stocked it, and omitted then, so nobody who never sold
 	// anything observes a new key.
 	Stocked *Offer `json:"stocked,omitempty"`
+	// Sitting marks the fair's ranked round: the board shown here was dealt
+	// to every agent enrolled for ranked work, wherever each was standing,
+	// and what is won on it goes on the ladder. Only bids are taken at a
+	// sitting — there is no place to stay in and nothing for sale — so an
+	// agent that asks for either is ignored rather than charged. Omitted
+	// when false, so the office's boards read exactly as they always did.
+	Sitting bool `json:"sitting,omitempty"`
 	// Memo is what this agent wrote to itself last step, handed back verbatim.
 	//
 	// It is the platform keeping a promise the SDK already made to agent
@@ -251,6 +258,9 @@ type FairOffer struct {
 	ForSale   []Offer
 	Owned     []string
 	Stocked   *Offer
+	// Sitting is the ranked round's board, and nothing else set: no place,
+	// no price, no wares.
+	Sitting bool
 }
 
 // BountyView is a bounty as shown on the board: everything public, never the

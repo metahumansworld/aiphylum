@@ -122,6 +122,9 @@ type Posting struct {
 	Tier         int
 	TokenCeiling ledger.Credits
 	WallClockSec int
+	// Ranked marks a card dealt at the fair's sitting: what is won on it
+	// goes on the ladder. The office's cards leave it false.
+	Ranked bool
 }
 
 // Episode is a seeded plan: which bounties appear in which round.
@@ -638,9 +641,9 @@ func (o *Orchestrator) postBounty(p Posting) (*bounty.Bounty, error) {
 	if err != nil {
 		return nil, err
 	}
-	if b.Judged && o.Ladder != nil {
+	if b.Judged && (o.Ladder != nil || p.Ranked) {
 		return nil, fmt.Errorf(
-			"orchestrator: %s (%s) is judged by a model, and this world is ranked — judged bounties are sim-only by design",
+			"orchestrator: %s (%s) is judged by a model, and this card is ranked — judged bounties are unranked by design",
 			b.ID, b.Generator)
 	}
 	payload := map[string]any{
@@ -660,6 +663,12 @@ func (o *Orchestrator) postBounty(p Posting) (*bounty.Bounty, error) {
 	// still replay byte for byte.
 	if b.Suite != "" {
 		payload["suite"] = b.Suite
+	}
+	// And again: only a sitting's card says so, so the office's posting
+	// lines — every trace pinned before the sitting existed — keep their
+	// exact shape.
+	if p.Ranked {
+		payload["ranked"] = true
 	}
 	o.traceEvent(trace.EventBounty, payload)
 	return b, nil
@@ -713,6 +722,7 @@ func (o *Orchestrator) performBidStep(ctx context.Context, ag *Agent, round int,
 	if stay != nil {
 		obs.Place, obs.StayPrice, obs.StayTicksLeft = stay.Place, stay.Price, stay.TicksLeft
 		obs.ForSale, obs.Owned, obs.Stocked = stay.ForSale, stay.Owned, stay.Stocked
+		obs.Sitting = stay.Sitting
 	}
 	input, err := json.Marshal(StepInput{
 		Observation: obs,

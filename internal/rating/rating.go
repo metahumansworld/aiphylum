@@ -78,6 +78,15 @@ func (l *Ladder) Record(a Attempt) {
 	l.attempts = append(l.attempts, a)
 }
 
+// Attempts is every attempt recorded so far, in order — the ladder written
+// down, for a checkpoint. A copy: the caller may keep it past the next
+// Record.
+func (l *Ladder) Attempts() []Attempt {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]Attempt(nil), l.attempts...)
+}
+
 // Board computes standings as of now: ranked agents ordered by efficiency,
 // then the gated-out rest, each row saying why it stands where it does.
 func (l *Ladder) Board(now time.Time) []Row {

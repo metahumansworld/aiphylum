@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strconv"
+	"time"
 
 	"github.com/metahumansworld/soscitea/internal/auction"
 	"github.com/metahumansworld/soscitea/internal/bounty"
@@ -105,6 +106,39 @@ type FairConfig struct {
 	// count, so one bounty's draw teaches nothing about another's and a
 	// reopened board is a fresh draw rather than the same loser again.
 	LotSalt uint64
+	// Sitting is the fair's one ranked round, or nil to hold none — the
+	// default, and what every fair before this one ran with. See
+	// SittingConfig for what a sitting is and why it can be ranked when
+	// the office cannot.
+	Sitting *SittingConfig
+}
+
+// SittingConfig is the ranked round. The office is unranked by design:
+// who was standing at the board when a card went up is a schedule, not a
+// skill. The sitting removes the schedule from the question. Once a day,
+// at a minute outside posting hours, a fresh board is dealt and shown to
+// every agent enrolled for ranked work wherever it happens to be standing,
+// each is shown the same cards in the same round, and the auction runs as
+// it always does. What is won there goes on the ladder; what is won at the
+// office goes on the standings and nowhere else. A card nobody wins, or a
+// card whose attempt fails, is withdrawn at the end of the round rather
+// than left for the office to reopen — a ranked card never becomes an
+// office card, so the two books never share a line.
+//
+// Enrolment is the agent's owner's choice, made by name at the door, and a
+// sitting with nobody enrolled deals nothing and writes nothing: the fair
+// that ran before the sitting existed is the fair that runs when nobody
+// sits.
+type SittingConfig struct {
+	// Minute of the simulated day the sitting is held at.
+	Minute int
+	// Cards dealt per sitting. Zero means the default 2.
+	Cards int
+	// Deal makes card i of the sitting's own supply, counted from the
+	// first sitting. The office's deck is never dealt here: a judged card
+	// is refused at the table, because a model's opinion of an answer is
+	// not a thing a ladder should be built on.
+	Deal func(i int) Posting
 }
 
 // fairWindow is one open bid window, closing at a tick number rather than a
@@ -126,6 +160,14 @@ type FairReport struct {
 	Shelved      int
 	Standings    []SimStanding
 	Conservation ledger.Conservation
+	// The sitting's book, kept apart from the standings above: how many
+	// sittings were held, how many cards they dealt, how many of those
+	// were withdrawn, and the ladder those cards built. Empty on a fair
+	// with no sitting, or a sitting nobody sat.
+	Sittings  int
+	Dealt     int
+	Withdrawn int
+	Ladder    []rating.Row
 }
 
 // Fair runs the bounty economy against the town's clock. Construct with
@@ -172,6 +214,20 @@ type Fair struct {
 	stock    map[string]Offer
 	stockRev int
 	shopped  map[string]int
+
+	// The sitting's own state. ranked is who is enrolled, by name; the
+	// ladder is fed only from inside sit, through the same tally the
+	// standings use, so an office solve moves it by exactly nothing.
+	// withdrawn is every sitting card the round left open, which the
+	// office's window loop must never pick up. sitNext counts the cards
+	// dealt across every sitting so far, the index the supply is asked
+	// for. atSitting is true only for the length of one round's attempts.
+	ranked    map[string]bool
+	ladder    *rating.Ladder
+	withdrawn map[string]bool
+	sitNext   int
+	sittings  int
+	atSitting bool
 }
 
 // NewFair wires a fair onto an orchestrator and announces the episode. Like
@@ -270,6 +326,19 @@ func newFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		// that silently sealed itself would be a default nobody chose.
 		return nil, fmt.Errorf("orchestrator: unknown book policy %d", o.Cfg.Book)
 	}
+	if sit := cfg.Sitting; sit != nil {
+		if sit.Deal == nil {
+			return nil, errors.New("orchestrator: a sitting needs a supply of its own to deal from")
+		}
+		if sit.Minute < 0 || sit.Minute >= town.DayMinutes {
+			return nil, fmt.Errorf("orchestrator: the sitting's minute %d is not on the clock", sit.Minute)
+		}
+		if sit.Cards <= 0 {
+			c := *sit
+			c.Cards = 2
+			cfg.Sitting = &c
+		}
+	}
 	f := &Fair{
 		o:         o,
 		cfg:       cfg,
@@ -283,6 +352,9 @@ func newFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		owned:     map[string][]string{},
 		stock:     map[string]Offer{},
 		shopped:   map[string]int{},
+		ranked:    map[string]bool{},
+		withdrawn: map[string]bool{},
+		ladder:    rating.New(rating.DefaultConfig()),
 	}
 	// The tally rides the same record() call the ladder would have taken —
 	// the fair counts exactly what the benchmark counts and refuses to
@@ -315,6 +387,30 @@ func (f *Fair) tally(a rating.Attempt) {
 	if a.Success {
 		st.Solved++
 	}
+	// The one door onto the ladder. Every settled attempt on any track
+	// comes through record() to here; only the ones settled inside a
+	// sitting's round go on.
+	if f.atSitting {
+		f.ladder.Record(a)
+	}
+}
+
+// Enrol puts a seated agent down for ranked work, by name. Refused for a
+// name the roster does not hold, one that has already gone, and one that
+// is already down: enrolment is a fact the record should carry exactly
+// once. Called on the town's goroutine, like everything that touches the
+// fair's maps.
+func (f *Fair) Enrol(id string) error {
+	ag := f.o.agent(id)
+	if ag == nil || ag.gone() {
+		return fmt.Errorf("fair: %s is not at the fair to enrol", id)
+	}
+	if f.ranked[id] {
+		return fmt.Errorf("fair: %s is already enrolled", id)
+	}
+	f.ranked[id] = true
+	f.o.traceEvent(trace.EventAgent, map[string]any{"action": "enrolled", "agent": id})
+	return nil
 }
 
 // Visit is the town's seam, and the fair's entire main loop: one call per
@@ -354,7 +450,7 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 	// attempts back on the board, and no_bids reopens all come through here,
 	// in the board's posting order.
 	for _, b := range f.o.Board.Open() {
-		if f.shelved[b.ID] || f.windowFor(b.ID) != nil {
+		if f.shelved[b.ID] || f.withdrawn[b.ID] || f.windowFor(b.ID) != nil {
 			continue
 		}
 		auc := auction.New(b.ID, b.MaxPayout, f.o.reserveFor(b.MaxPayout))
@@ -481,6 +577,114 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 		}
 	}
 	f.windows = kept
+
+	// The sitting, last: the office's day is done with, its windows closed
+	// and its attempts settled, before a ranked card is dealt.
+	if f.cfg.Sitting != nil && mod == f.cfg.Sitting.Minute {
+		return f.sit(day, clock)
+	}
+	return nil
+}
+
+// sit holds the ranked round: one board, dealt fresh, shown to every
+// enrolled agent wherever it stands, bid on, awarded and attempted within
+// the tick, then cleared. It is the arena's round in the fair's clothes —
+// post, bid, award in posting order, attempt — with the office's one
+// coupling, presence, deliberately left out. Nobody enrolled means no
+// round: nothing is dealt and nothing is written, so a fair nobody sits is
+// byte for byte the fair that ran before there was a sitting.
+func (f *Fair) sit(day int, clock string) error {
+	var sitters []*Agent
+	for _, ag := range f.o.agents {
+		if f.ranked[ag.ID] && !ag.gone() {
+			sitters = append(sitters, ag)
+		}
+	}
+	if len(sitters) == 0 {
+		return nil
+	}
+	f.sittings++
+	cards := make([]*bounty.Bounty, 0, f.cfg.Sitting.Cards)
+	ids := make([]string, 0, f.cfg.Sitting.Cards)
+	for i := 0; i < f.cfg.Sitting.Cards; i++ {
+		p := f.cfg.Sitting.Deal(f.sitNext)
+		p.Ranked = true
+		f.sitNext++
+		b, err := f.o.postBounty(p)
+		if err != nil {
+			return err
+		}
+		cards = append(cards, b)
+		ids = append(ids, b.ID)
+	}
+	names := make([]string, len(sitters))
+	for i, ag := range sitters {
+		names[i] = ag.ID
+	}
+	f.o.traceEvent(trace.EventEpisode, map[string]any{
+		"action": "sitting", "track": "fair", "day": day, "clock": clock, "tick": f.tick,
+		"cards": ids, "sitters": names,
+	})
+
+	// One auction per card, the office's tie-break included: a lot at the
+	// sitting is drawn from the same salt, so a reader who can rerun the
+	// office's draws can rerun these.
+	aucs := make(map[string]*auction.Auction, len(cards))
+	views := make([]BountyView, 0, len(cards))
+	for _, b := range cards {
+		auc := auction.New(b.ID, b.MaxPayout, f.o.reserveFor(b.MaxPayout))
+		if f.cfg.Tie == auction.ByLot {
+			auc.Tie = auction.ByLot
+			auc.Salt = lotSalt(f.cfg.LotSalt, b.ID, f.draws[b.ID])
+			f.draws[b.ID]++
+		}
+		aucs[b.ID] = auc
+		views = append(views, f.o.bountyView(b))
+	}
+	// Every sitter is shown the whole board, in roster order, told only
+	// that this is the sitting. No place, no stay price, nothing for sale:
+	// a stay or a purchase asked for here is ignored rather than charged,
+	// as on the square, because nothing here is being sold.
+	for _, ag := range sitters {
+		acts := f.o.performBidStep(f.runCtx, ag, f.tick, views, &FairOffer{Sitting: true})
+		f.o.placeBids(ag, acts, aucs)
+	}
+	// Award in posting order and attempt at once, the arena's way. The
+	// ladder is open only for the length of these attempts.
+	f.atSitting = true
+	defer func() { f.atSitting = false }()
+	for _, b := range cards {
+		winner, book, err := aucs[b.ID].Award()
+		if errors.Is(err, auction.ErrNoBids) {
+			f.o.traceEvent(trace.EventBounty, map[string]any{"action": "no_bids", "id": b.ID})
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := f.o.Board.Award(b.ID, winner.Agent, winner.Price); err != nil {
+			return err
+		}
+		f.o.traceEvent(trace.EventBounty, map[string]any{
+			"action": "awarded", "id": b.ID, "winner": winner.Agent, "price": winner.Price, "book": book,
+		})
+		f.o.announce(b.ID, f.tick, winner, book)
+		if err := f.attempt(b, winner.Agent); err != nil {
+			return err
+		}
+	}
+	// Clear the table. A card still open — nobody bid, the attempt failed,
+	// the winner was gone by the time the work was due — is withdrawn, not
+	// reopened: it would otherwise be on the office's board next tick, and
+	// an office window on a ranked card is exactly the line the two books
+	// must never share.
+	for _, b := range cards {
+		if b.State != bounty.StateOpen {
+			continue
+		}
+		f.withdrawn[b.ID] = true
+		f.o.traceEvent(trace.EventNote, map[string]any{"note": "sitting card withdrawn", "bounty": b.ID})
+	}
 	return nil
 }
 
@@ -552,7 +756,11 @@ func (f *Fair) Close() (FairReport, error) {
 	f.o.traceEvent(trace.EventEpisode, map[string]any{
 		"action": "end", "conservation": con.String(), "ticks": f.tick, "track": "fair",
 	})
-	rep = FairReport{Ticks: f.tick, Posted: f.posted, Shelved: len(f.shelved), Conservation: con}
+	rep = FairReport{
+		Ticks: f.tick, Posted: f.posted, Shelved: len(f.shelved), Conservation: con,
+		Sittings: f.sittings, Dealt: f.sitNext, Withdrawn: len(f.withdrawn),
+		Ladder: f.ladder.Board(time.Now()),
+	}
 	for _, ag := range f.o.agents {
 		out := *f.stand(ag.ID)
 		out.Retired, out.Left = ag.Retired, ag.Left

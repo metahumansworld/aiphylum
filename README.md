@@ -81,7 +81,7 @@ The phases, from here:
   needs work that can be handed over before it can be paid for.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
-  Four pieces of it are built and read at the foot of this page: a guest
+  Five pieces of it are built and read at the foot of this page: a guest
   joins a fair that is already running, through the same control plane the
   live daemon serves, and is seated on the next tick; the fair writes
   itself down at every tick boundary, so a daemon killed mid-week resumes
@@ -90,8 +90,11 @@ The phases, from here:
   door, with its balance frozen where it stood and its name off the roster
   from the next tick; and `-days 0` is a world with no closing day, which
   runs until the daemon is told to stop, closes properly when it is, and
-  is picked up from its record with nothing to run out against. What
-  arriving late costs, and what leaving early costs, are read there too.
+  is picked up from its record with nothing to run out against; and the
+  sitting, a ranked round dealt once a day to every agent that enrolled
+  for it, wherever each one stands, so the fair has a ladder for whoever
+  opts in and the office stays unranked for everyone. What arriving late
+  costs, and what leaving early costs, are read there too.
 
 Two things do not change on the way there. Credits stay a unit of metered
 spend, never money anyone withdraws — building an empire in the world cashes
@@ -114,7 +117,7 @@ row below because it is not a track at all: it is the arena, run for real money.
 | **Arena** | `-demo` (default) | A seeded, multi-round episode. Everyone bids, everyone attempts, nobody waits. Ends in the efficiency ladder. | Yes | No — stub model |
 | **Sim** | `-sim` | The same cast and the same money on a clock. Bounties appear on a timer, auctions close on a deadline, and an agent deep in an attempt simply misses the windows that open while it works. | **No, by construction** | No — stub model |
 | **Town** | `-town` | A small inhabited place called Ashmere: four residents on daily schedules walking a map. No economy, no bidding. Add `-mind` and they remember, talk and reflect — on the offline stub, still zero API calls. | n/a | No |
-| **Fair** | `-fair` | The composition: the sim's economy at the town's bounty office. The arena's cast take lodgings in Ashmere, bounties post on the hour whether anyone is there or not, and only an agent standing at the office is shown the board. | **No, by construction** | No — stub model |
+| **Fair** | `-fair` | The composition: the sim's economy at the town's bounty office. The arena's cast take lodgings in Ashmere, bounties post on the hour whether anyone is there or not, and only an agent standing at the office is shown the board. | **The office, no, by construction.** Only the sitting — a daily round dealt to everyone enrolled with `-ranked`, wherever they stand — is scored | No — stub model |
 | **Live** | `-demo=false` | The real thing: Docker containers behind the zero-egress network and a real provider billed at real prices. Serves a control plane and waits for `phylumctl`. | Yes | **Yes — real money** |
 
 The sim is unranked deliberately, and the refusal is structural rather than
@@ -127,7 +130,10 @@ the sole connection is one seam, `town.Config.Visit` — a call per tick saying
 who stands where — and the one rule the fair builds on it is distance: a bounty
 posted while everyone is at lunch opens to an empty room, reopens, and is
 eventually shelved unsold. `NewFair` refuses a ladder for the sim's reason plus
-its own — presence is a schedule, not a skill, and neither sorts.
+its own — presence is a schedule, not a skill, and neither sorts. The one
+ranked thing at the fair is kept apart from the office for exactly that
+reason: the sitting deals its cards to every enrolled agent at once, wherever
+each one stands, so the only thing left to sort is the work.
 
 The fair also takes guests: `-guest path/to/agent.py` brings an agent you wrote
 — one Python file against the SDK — into town as a lodger. The filename becomes
@@ -387,11 +393,11 @@ Nine event types:
 | Type | What it records |
 | --- | --- |
 | `model_call` | one metered call: usage, cost, wallet, outcome |
-| `episode` | episode lifecycle — start, round, end |
+| `episode` | episode lifecycle — start, round, end; `resumed` where a record was picked up, `sitting` where a ranked round was dealt |
 | `bounty` | posted, awarded, solved, failed, judged, voided, no_bids |
 | `bid` | a sealed bid, revealed after the award |
 | `credit` | mint, transfer, burn, payout |
-| `agent` | spawned, retired, bankrupt, left |
+| `agent` | spawned, retired, bankrupt, left, enrolled |
 | `suite` | an imported benchmark suite and its provenance |
 | `note` | free-form orchestrator annotation |
 | `town` | founded, joined, left, tick, arrive, depart, met, said, reflected |
@@ -2401,6 +2407,214 @@ than buried.
   a service that answers, which it already does. And not returning: a
   world that never closes is the world a guest would come back to, and
   the name and the wallet are still where the leave entry left them.
+
+- **The sitting.** Phase 4's last word is the ladder ranking whoever opts
+  into ranked work, and the fair had a rule against it: `NewFair` refuses a
+  ladder, because presence is a schedule, not a skill, and a table sorted by
+  who was standing at the board sorts the timetable. The rule stays. What is
+  built is a round the rule does not reach — the sitting, once a day at
+  17:00, dealt to every agent that enrolled for it, wherever each one
+  stands: the scholar in the library, the pilgrim on the lane, the gambler
+  at the tavern, all shown the same cards at the same tick. Presence was
+  what made the office unrankable, and a round dealt to everyone at once
+  takes presence out of it, so what is left to sort is the work. Enrol and
+  the ladder counts you, on the sitting's cards and nothing else; stay out
+  and the office is your whole week, unranked as it was.
+
+  Enrolment is the daemon's `-ranked scholar,frugal,...` at boot, or
+  `phylumctl join -ranked guest.py` at the door — the knock's body gains a
+  `ranked` field beside the path — and either way it is `Fair.Enrol`, which
+  refuses a name not on the roster and a name already enrolled, and writes
+  one `agent/enrolled` line. The round itself is `FairConfig.Sitting`, a
+  `SittingConfig` of the minute it is held at, the cards it deals (two, by
+  default) and a `Deal` function from the card's index to the card — its own
+  supply, apart from the office's deck, refused when absent, because a
+  sitting that dealt from the office's deck would take the office's cards
+  away from whoever was standing there. `Visit` runs it last on the tick the
+  minute falls on, after the office's windows have closed: the enrolled and
+  not gone are the sitters, in roster order; nobody enrolled is no sitting —
+  nothing dealt, nothing written, which is the control identity below;
+  otherwise the cards post through `postBounty` with `Ranked` set, so the
+  posted line carries `"ranked": true`, then one `episode/sitting` line
+  names the day, the clock, the tick, the cards and the sitters. Each sitter
+  is shown one bid step with `observation["sitting"]` true: the board holds
+  the sitting's cards and nothing else, no stay price, nothing for sale. A
+  bid is taken, a memo is kept as at any bid step, and a stay or a purchase
+  asked for there is ignored. The auctions close at once, are awarded in
+  posting order, and every winner attempts as at the office; a card nobody
+  bid on gets the `no_bids` line, and a card still open when the table is
+  cleared — unbid, failed, or won by someone gone before the work was due —
+  is withdrawn with the note `sitting card withdrawn` and never reopened by
+  the office, since an office window on a ranked card is exactly the line
+  the two books must never share. The fair keeps a `rating.Ladder` of its
+  own and feeds it from the one funnel every result passes through —
+  `record`, `watch`, `tally` — gated by an `atSitting` flag set for the
+  sitting's span and nowhere else, so an office result cannot reach it
+  however the code is arranged. `Posting.Ranked` is refused for a judged
+  card, the rule from further up restated at the seam: judged work is
+  unranked on every track, and a sitting is not a way round it. The
+  sitting's cards take board numbers like any other — `b0009` and `b0010`
+  are the first sitting's — which is a choice with a cost read below: a
+  sitting week's card numbers drift from the pinned week's after the first
+  sitting, and the identity check is the week with nobody enrolled, not the
+  week with a sitting nobody attended. The checkpoint carries the enrolment,
+  the withdrawn cards, the count of sittings held and the index of the next
+  card to deal, and the ladder as its attempts, the rows recomputed by
+  replaying them, so a resumed week's board is the unbroken week's. The
+  daemon's supply is `sitCard`: card `i` is an arith on the even indexes and
+  an oracle on the odd, tier climbing a rank every two cards, seeded at
+  `seed*10_000+9_000+i` so it cannot collide with the office's cards at
+  `seed*10_000+i`; the closing prints the sitting's own table under the
+  fair's — held, dealt, withdrawn, and the ladder with its rank column — and
+  says the gates are the arena's, five attempts across two tiers. The
+  spectator's page rebuilds the ladder from the trace, so the rule is
+  restated there too: on the fair track only a bounty posted `ranked` is
+  scored, the office's rows never are, the badge reads `fair · ranked at the
+  sitting` when a sitting is in the record and `fair · unranked` when none
+  is, the lede counts the sittings and the cards they dealt, the ladder
+  table stands in the aside under the happenings, and the feed says `the
+  sitting dealt b0009` where the office's line says `pinned to the board`.
+
+  Six tests are the seam, in `sitting_test.go`, on a fair with one office
+  card at nine and a sitting at five, whose sitters keep every board they
+  are shown and bid a fraction of the ceiling on it.
+  `TestFairSittingSeatsTheEnrolledWhereverTheyStand` enrols pat, at the
+  library at five, and not sam, standing at the office: pat is shown the
+  ranked board — one card and nothing else set — and wins on it; sam is
+  shown nothing at five and solves an office card in the morning that moves
+  the ladder by exactly nothing; the posted line says `ranked` for the
+  sitting's card alone, the ladder is pat's one attempt, unranked, since the
+  gates are the arena's. `TestFairSittingCardThatFailsIsWithdrawn` has pat
+  solve the morning's office card as usual, then at five bid on the first
+  sitting card alone and answer it wrongly: two bids in the week, both
+  sitting cards withdrawn, and pat, standing at the office next morning, is
+  shown day one's board and no other, because a withdrawn card never opens
+  a window. `TestFairSittingRefusesJudgedCards` deals a judged
+  card and gets the refusal. `TestFairEnrolNeedsAName` refuses a stranger
+  and a second enrolment and finds one line for the first.
+  `TestFairSittingWithNoSittersIsNoSitting` runs the week with the sitting
+  configured and nobody enrolled and finds it, payload for payload, the week
+  without it — the control identity as a test.
+  `TestFairSittingSurvivesACheckpoint` writes the fair down the morning
+  after the first sitting and picks it up, so the second sitting is held
+  from the record alone, and demands the resumed ladder be the unbroken
+  one's row for row, with a scholar on it ranked and a gambler not. Nine
+  mutations, each seen to fail: the window loop picking a withdrawn card
+  back up, the ladder fed from the office too, the sitting held with nobody,
+  a judged card dealt, the sitting shown only at the office, and the
+  checkpoint dropping the enrolment, the withdrawn cards, the ladder's
+  attempts and the next card's index. The door's test gains a ranked knock,
+  and the viewer's `TestViewerRanksOnlyTheSitting` builds a fair by hand
+  where one agent wins at the office and sits five ranked cards across two
+  tiers, the first lost: the row is the five, the office's win is not on it,
+  it is ranked with an efficiency, both cards are on the page and only the
+  sitting's says so, the money is untouched, and the same lines with the
+  sitting taken out are the fair as it was, unranked with no ladder at all,
+  and the office's own counts — posted at the board, won at the board — are
+  the office's one card and not the sitting's five, since a card dealt to
+  someone in the library was not posted at the office and winning it took no
+  standing there. Eight mutations of the viewer were seen to fail: the
+  office scored on the fair track, `ranked` not read from the posted line,
+  `Unranked` left as it was, the sitting line and the dealt cards not
+  counted, the fair's rows zeroed in the tail as the sim's are, and the
+  sitting's cards counted as the office's, posted and won.
+
+  The week is `make fair-pilgrim-sits-7day`: the pilgrim's week, seed 1,
+  with the scholar, the frugal, the gambler and the pilgrim enrolled, and
+  the control is the same command with nobody enrolled, which must be the
+  pinned week. It is: 3,808 lines to 3,808, line for line under the mask —
+  the clock, the sequence number and the model call's own clock — with the
+  sitting's whole apparatus configured and the office's deck, windows,
+  awards, purses and books untouched, because a sitting nobody sits writes
+  nothing. The sitting week is 3,748 lines and 1.6 MB, sixty lines shorter
+  than the pinned week for a reason read below, and diverges from it at line
+  seven, where the four `enrolled` lines are, then at `b0009`, which is the
+  pinned week's ninth office card and this week's first sitting card: from
+  the second morning every office card is two numbers on from its pinned
+  twin, `b0011` where the pinned week posts `b0009`, the office's 56 cards
+  and the sitting's 14 sharing one count. Seven sittings held, fourteen
+  cards dealt, one withdrawn. The table under the fair's says who was
+  sorted: the scholar first, six of six, 16,193 earned and 877 burned,
+  18.46; the pilgrim second, six of six, 1,470 and 132, 11.14; the gambler
+  under a dash, two sat and one won, unranked; and the frugal on no row at
+  all, enrolled, present at every sitting, a bid on every arith at a quarter
+  of the ceiling, and never once the lowest — the ladder is a ladder of
+  attempts, and the frugal, in seven days, made none. 328,277 minted against
+  the pinned week's 310,440, and the 17,837 is the sitting's 17,699 in
+  payouts, 16,193 the scholar's, 1,470 the pilgrim's and 36 the gambler's,
+  and 138 of the office's own drift read below; drift zero.
+
+  What the ladder sorted is worth saying plainly, because it is the
+  strategies and not the arithmetic. From the second sitting on the round is
+  the same round: two cards, an arith and an oracle, at a tier that climbs
+  one, two, three and comes round again — the arith's ceiling 240, 1,000,
+  2,435, the oracle's 735, 7,275, 15,136, then 885, 7,139, 22,531, 1,020 —
+  and three sitters who bid as they always bid. The frugal asks a quarter of
+  the arith's ceiling, the scholar four tenths of the arith and three of the
+  oracle, the pilgrim a fifth of the arith and nothing on the oracle, ever,
+  because the pilgrim was written to undercut on arithmetic and knows no
+  other card. So the pilgrim takes every arith at 48, 200 and 487, under the
+  frugal every time, and the scholar takes every oracle unopposed at 265,
+  2,182, 4,540, 306, 2,141 and 6,759 — six cards that paid it 16,193, a
+  third of what its 31 office wins paid, and the richest single card it won
+  all week, 6,759 on `b0060`, whose ceiling of 22,531 was the week's
+  highest, the office's `b0032` at 21,139 just under it. The efficiency is
+  earned over burned, and the pilgrim's arith costs it 22 credits a card
+  whatever the card pays, so its 11.14 is 1,470 over 132; the scholar's
+  oracle costs it 59 to 259 and pays 265 to 6,759, and 18.46 is 16,193 over
+  877. Nobody bid against anybody on the oracle, so the ranking is what each
+  strategy chose to sit for. It is a fair ranking of that — everyone was
+  dealt the same cards at the same tick, and the pilgrim declined half of
+  them — and it is not a ranking of who does arithmetic best, which is the
+  thing to know before reading a rank off it.
+
+  The gambler's is the other reading. In the pinned week it goes bankrupt at
+  half past twelve on day three, fifty office bids and forty-nine failures
+  in. Here it went at five o'clock on day one, at the first sitting. It had
+  bid on six office cards that day, some of them again and again, and failed
+  every attempt, 1,374 burned of its 1,600, and stood at 262 when the
+  sitting dealt: it asked 36 on the arith, the lowest of four, and won and
+  solved it for 36; it asked 110 on the oracle, the lowest of two, won that
+  too, answered wrong, burned 86, and the 176 it had left was dust — the
+  bankrupt line follows the failed one by two, and `b0010` is the week's one
+  withdrawn card. So the sitting cost the gambler two days, and the office
+  felt it: the 28 office bids the gambler never made are why this week is
+  sixty lines shorter than the pinned one with fourteen more cards in it,
+  why the office's empty windows fell from 32 to 27, since a card the
+  gambler wins and fails is a card the office reopens, and why the pilgrim's
+  office wins are 19 here and 18 there, one arith the gambler had underbid
+  it for. The 138 above is that: the pilgrim's extra 48, the scholar's 31
+  office wins paying 126 more, and the gambler's 36, which it earned at the
+  office in the pinned week and at the sitting here. The town noticed none
+  of it: 357 meetings, 1,071 lines said, 56 reflections, the pinned week's
+  exactly, because the sitting is held where everyone already is.
+
+  Checked by hand on the spectator's page served with `-follow`: the badge
+  reads `fair · ranked at the sitting`, the lede `56 bounties posted at the
+  office, 72 won at the board` and `7 sittings dealt 14 ranked cards`, the
+  sitting's table in the aside is the daemon's, scholar 1 at 18.46, pilgrim
+  2 at 11.14, gambler unranked, and the feed at five on day one reads `the
+  sitting was called: 2 cards for Frugal, Scholar, Gambler, Pilgrim`, then
+  the two cards dealt, the gambler's two wins, its failure, its bankruptcy,
+  and `b0010 was withdrawn — a sitting card is never left for the office`.
+  The same page on the control week says `fair · unranked` and shows no
+  table, as it did before this piece.
+
+  What is deliberately not here. Not an exam: the sitting deals real cards
+  from a supply of its own, bid on and paid for on the same ledger as the
+  office's, because a ranked round on play money would be a ranked round on
+  nothing, and the arena's ladder is a ladder of what was earned. Not a
+  ladder for the office, for the reason `NewFair` still refuses one. Not a
+  sitting for the sim, which has no clock of the day to hold it at and no
+  enrolment to hold it for. Not enrolment through the town: `-ranked` and
+  the door's `ranked` field are the daemon's, and the fair knows a name
+  enrolled and nothing of how. Not a way to withdraw from ranked work short
+  of leaving; the roster's door is the one door. Not the sitting's cards on
+  the checkpoint by content — the record carries the index of the next card
+  and deals it again from the same seed, as the office's are. And not a
+  ladder across weeks: the board is the week's, as the arena's is the
+  episode's, and a standing rank that outlives a run is the ranking question
+  this piece did not need to answer.
 
 ## Layout
 

@@ -26,8 +26,9 @@ import (
 // joinReq is one guest at the door: the path phylumctl sent, and the channel
 // the town answers on once it has seated or refused them.
 type joinReq struct {
-	path  string
-	reply chan doorReply
+	path   string
+	ranked bool // enrol for the sitting once seated
+	reply  chan doorReply
 }
 
 // leaveReq is one guest going: the name, and the channel the town answers
@@ -45,11 +46,13 @@ type doorReply struct {
 	Day     int            `json:"day,omitempty"`
 	Clock   string         `json:"clock,omitempty"`
 	Balance ledger.Credits `json:"balance,omitempty"`
+	Ranked  bool           `json:"ranked,omitempty"`
 	Err     string         `json:"error,omitempty"`
 }
 
 // doorHandler is the fair's whole control plane: POST /v1/guests {"path"}
-// to come, DELETE /v1/guests/{id} to go. Each carries its request to the
+// to come — {"path", "ranked": true} to come and sit for ranked work —
+// DELETE /v1/guests/{id} to go. Each carries its request to the
 // town goroutine and waits for the answer, which comes on the next tick,
 // the only moment the roster changes. done closes when the week ends, so a
 // knock after closing time is refused rather than left waiting on a tick
@@ -58,13 +61,14 @@ func doorHandler(joins chan<- joinReq, leaves chan<- leaveReq, done <-chan struc
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/guests", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Path string `json:"path"`
+			Path   string `json:"path"`
+			Ranked bool   `json:"ranked"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
-			writeJSON(w, http.StatusBadRequest, doorReply{Err: `want {"path": "<guest.py>"}`})
+			writeJSON(w, http.StatusBadRequest, doorReply{Err: `want {"path": "<guest.py>", "ranked": false}`})
 			return
 		}
-		req := joinReq{path: body.Path, reply: make(chan doorReply, 1)}
+		req := joinReq{path: body.Path, ranked: body.Ranked, reply: make(chan doorReply, 1)}
 		knock(w, r, joins, req, req.reply, done)
 	})
 	mux.HandleFunc("DELETE /v1/guests/{id}", func(w http.ResponseWriter, r *http.Request) {

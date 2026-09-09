@@ -20,6 +20,7 @@ import (
 
 	"github.com/metahumansworld/soscitea/internal/auction"
 	"github.com/metahumansworld/soscitea/internal/ledger"
+	"github.com/metahumansworld/soscitea/internal/rating"
 	"github.com/metahumansworld/soscitea/internal/town"
 	"github.com/metahumansworld/soscitea/internal/trace"
 )
@@ -45,6 +46,16 @@ type FairState struct {
 	StockRev int
 	Shopped  map[string]int
 	Pitches  []town.Cell // the ground still unsold
+
+	// The sitting's book: who is enrolled, which of its cards were
+	// withdrawn, how many rounds and cards so far, and every attempt the
+	// ladder was built from — the ladder itself is a fold over those, so
+	// the attempts are the record and the rows are recomputed.
+	Ranked    map[string]bool
+	Withdrawn map[string]bool
+	Sittings  int
+	SitNext   int
+	Ladder    []rating.Attempt
 
 	Agents  []Agent // roster order, retirement included
 	Memos   map[string]string
@@ -86,7 +97,9 @@ func (f *Fair) Save() FairState {
 		Reopens: f.reopens, Shelved: f.shelved, Draws: f.draws,
 		Held: f.held, Owned: f.owned, Stock: f.stock, StockRev: f.stockRev, Shopped: f.shopped,
 		Pitches: f.cfg.Pitches,
-		Epoch:   f.o.epoch, LastID: f.o.Board.LastID(),
+		Ranked:  f.ranked, Withdrawn: f.withdrawn, Sittings: f.sittings, SitNext: f.sitNext,
+		Ladder: f.ladder.Attempts(),
+		Epoch:  f.o.epoch, LastID: f.o.Board.LastID(),
 	}
 	for _, w := range f.windows {
 		st.Windows = append(st.Windows, WindowState{
@@ -179,6 +192,16 @@ func ResumeFair(ctx context.Context, o *Orchestrator, cfg FairConfig, st FairSta
 	}
 	if f.shopped = st.Shopped; f.shopped == nil {
 		f.shopped = map[string]int{}
+	}
+	if f.ranked = st.Ranked; f.ranked == nil {
+		f.ranked = map[string]bool{}
+	}
+	if f.withdrawn = st.Withdrawn; f.withdrawn == nil {
+		f.withdrawn = map[string]bool{}
+	}
+	f.sittings, f.sitNext = st.Sittings, st.SitNext
+	for _, a := range st.Ladder {
+		f.ladder.Record(a)
 	}
 	for _, s := range st.Standing {
 		s := s
