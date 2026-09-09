@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -262,4 +263,28 @@ func join(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("%s joined the fair on day %d at %s\n", out.ID, out.Day, out.Clock)
+}
+
+// leave takes a guest out of a running fair by name. The daemon decides
+// whether the name is a guest's and what it leaves with; the client only
+// carries the name and repeats the answer.
+func leave(args []string) {
+	fs := flag.NewFlagSet("leave", flag.ExitOnError)
+	addr := fs.String("addr", defaultAddr, "phylumd control address")
+	fs.Parse(args)
+	if fs.NArg() != 1 {
+		usage()
+		os.Exit(2)
+	}
+	var out struct {
+		ID      string `json:"id"`
+		Day     int    `json:"day"`
+		Clock   string `json:"clock"`
+		Balance int64  `json:"balance"`
+	}
+	if err := call("DELETE", *addr, "/v1/guests/"+url.PathEscape(fs.Arg(0)), nil, &out); err != nil {
+		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%s left the fair on day %d at %s with %d credits\n", out.ID, out.Day, out.Clock, out.Balance)
 }

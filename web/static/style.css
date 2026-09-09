@@ -453,6 +453,8 @@ td.rank { font-weight: var(--weight-bold); color: var(--ink); }
 .badge.ok, .badge.alive { color: var(--positive); }
 .badge.warn, .badge.dead { color: var(--danger); }
 .badge.open, .badge.imported { color: var(--attention); }
+/* Left is neither alive nor dead: the wallet is whole, the body is gone. */
+.badge.gone { color: var(--ink-muted); }
 /* "sim · unranked" and "judged" are the absence of a score, not a state worth
    announcing. They get no dot at all. */
 .badge.sim, .badge.judged { color: var(--ink-muted); font-weight: var(--weight-normal); }

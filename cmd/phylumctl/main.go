@@ -24,6 +24,8 @@
 //
 //	phylumctl join <guest.py>       seat a guest in the week that is already
 //	                                 running — it lands on the next tick
+//	phylumctl leave <name>          take a guest out of the running week with
+//	                                 what it has — it goes on the next tick
 package main
 
 import (
@@ -67,6 +69,8 @@ func main() {
 		status(os.Args[2:])
 	case "join":
 		join(os.Args[2:])
+	case "leave":
+		leave(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -82,7 +86,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  phylumctl tail")
 	fmt.Fprintln(os.Stderr, "  phylumctl status")
 	fmt.Fprintln(os.Stderr, "  phylumctl join <guest.py>")
-	fmt.Fprintln(os.Stderr, "\nthe last five take -addr (default "+defaultAddr+") and talk to a running phylumd; join talks to one running -fair")
+	fmt.Fprintln(os.Stderr, "  phylumctl leave <name>")
+	fmt.Fprintln(os.Stderr, "\nthe last six take -addr (default "+defaultAddr+") and talk to a running phylumd; join and leave talk to one running -fair")
 }
 
 func readTrace(path string) []trace.Line {

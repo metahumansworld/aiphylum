@@ -113,6 +113,7 @@ type AgentView struct {
 	ID       string
 	Grant    ledger.Credits
 	Bankrupt bool
+	Left     bool // walked out mid-week with its balance
 
 	Earned  ledger.Credits
 	Burned  ledger.Credits
@@ -298,6 +299,10 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 			case "bankrupt":
 				if a := v.agentByID[str("agent")]; a != nil {
 					a.Bankrupt = true
+				}
+			case "left":
+				if a := v.agentByID[str("agent")]; a != nil {
+					a.Left = true
 				}
 			}
 

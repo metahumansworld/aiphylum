@@ -88,6 +88,13 @@ function reduce(upto) {
         s.residents.set(e.resident, { name: e.name, x: e.x, y: e.y, place: e.place, activity: "", path: null });
         s.feed.push({ clock: e.clock, day: e.day, kind: "joined", who: [e.resident], place: e.place, name: e.name });
         break;
+      case "left":
+        // A body that went before the close. Off the state, so the walker
+        // goes with it on the next sync and a scrub back puts it back; the
+        // name rides on the feed line for the same reason as a join's.
+        s.residents.delete(e.resident);
+        s.feed.push({ clock: e.clock, day: e.day, kind: "left", who: [e.resident], place: e.place, name: e.name });
+        break;
       case "arrive":
         s.feed.push({ clock: e.clock, day: e.day, kind: "arrive", who: [e.resident], place: e.place, activity: e.activity });
         break;
@@ -1025,6 +1032,7 @@ function render(s) {
     // The name rides on the line itself: a scrub back can drop the newcomer
     // from the name map while the feed still remembers the day they came.
     joined: (f, place) => `<b>${esc(f.name)}</b> came to town and took a room at ${esc(place)}`,
+    left: (f, place) => `<b>${esc(f.name)}</b> left town` + (place ? `, from ${esc(place)}` : ""),
     arrive: (f, place) => `<b>${esc(names.get(f.who[0]))}</b> arrived at ${esc(place)}` +
       (f.activity ? ` — ${esc(f.activity)}` : ""),
     said: (f) => `<b>${esc(names.get(f.who[0]))}</b>, to ${esc(names.get(f.who[1]))}: ` +

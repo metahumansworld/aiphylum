@@ -29,10 +29,10 @@ const (
 	EventBounty    EventType = "bounty"     // posted, awarded, verified, failed
 	EventBid       EventType = "bid"        // a sealed bid, revealed post-award
 	EventCredit    EventType = "credit"     // mint, transfer, burn, payout
-	EventAgent     EventType = "agent"      // spawned, retired, bankrupt
+	EventAgent     EventType = "agent"      // spawned, retired, bankrupt, readmitted, left
 	EventSuite     EventType = "suite"      // an imported benchmark suite and its provenance
 	EventNote      EventType = "note"       // free-form orchestrator annotation
-	EventTown      EventType = "town"       // founded, tick, arrive, depart, met — the town track
+	EventTown      EventType = "town"       // founded, joined, left, tick, arrive, depart, met — the town track
 )
 
 // Line is one entry in a trace file.

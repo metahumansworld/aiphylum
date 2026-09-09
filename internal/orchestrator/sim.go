@@ -100,6 +100,9 @@ type SimStanding struct {
 	Burned   ledger.Credits
 	Balance  ledger.Credits
 	Retired  bool
+	// Left is a fair agent that walked out mid-week with its balance;
+	// never set on the sim, which has no door.
+	Left bool
 	// Owned is what the agent bought at the fair and still has; nil on the
 	// sim, which sells nothing.
 	Owned []string

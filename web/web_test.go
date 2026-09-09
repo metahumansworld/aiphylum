@@ -11,7 +11,8 @@ import (
 )
 
 // miniTrace synthesises a two-round episode: agent a solves bounty x, agent b
-// fails bounty y, goes broke and dies. Small enough to assert every number.
+// fails bounty y, goes broke and dies, and agent c watches both rounds and
+// leaves with its grant. Small enough to assert every number.
 func miniTrace(t *testing.T) []trace.Line {
 	t.Helper()
 	var lines []trace.Line
@@ -27,6 +28,7 @@ func miniTrace(t *testing.T) []trace.Line {
 
 	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "a", "grant": 100})
 	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "b", "grant": 50})
+	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "c", "grant": 20})
 	add(trace.EventEpisode, map[string]any{"action": "start", "rounds": 2})
 
 	add(trace.EventEpisode, map[string]any{"action": "round", "round": 1, "postings": 1})
@@ -51,8 +53,9 @@ func miniTrace(t *testing.T) []trace.Line {
 	add(trace.EventBounty, map[string]any{"action": "failed", "id": "y", "agent": "b", "reason": "wrong answer", "burned": 7})
 	add(trace.EventCredit, map[string]any{"action": "dust_burn", "agent": "b", "amount": 43})
 	add(trace.EventAgent, map[string]any{"action": "bankrupt", "agent": "b"})
+	add(trace.EventAgent, map[string]any{"action": "left", "agent": "c", "balance": 20})
 
-	add(trace.EventEpisode, map[string]any{"action": "end", "conservation": "minted=150 wallets=106 burned=43 spent=4 held=0 (drift=0)"})
+	add(trace.EventEpisode, map[string]any{"action": "end", "conservation": "minted=170 wallets=126 burned=43 spent=4 held=0 (drift=0)"})
 	return lines
 }
 
@@ -77,6 +80,10 @@ func TestBuildViewReconstructsTheEpisode(t *testing.T) {
 	}
 	if a.Bankrupt || !b.Bankrupt {
 		t.Errorf("fates wrong: a bankrupt=%v b bankrupt=%v", a.Bankrupt, b.Bankrupt)
+	}
+	// Leaving is neither of those: the wallet keeps its balance and stays open.
+	if c := v.Agent("c"); c == nil || !c.Left || c.Bankrupt || c.Balance != 20 {
+		t.Errorf("c = %+v, want left with 20 and not bankrupt", c)
 	}
 
 	if a.Earned != 10 || a.Burned != 4 {
@@ -158,9 +165,10 @@ func TestServerPagesRender(t *testing.T) {
 		path string
 		want []string
 	}{
-		{"/", []string{"efficiency ladder", `href="/agent/a"`, `href="/bounty/x"`, "drift=0"}},
+		{"/", []string{"efficiency ladder", `href="/agent/a"`, `href="/bounty/x"`, "drift=0", `href="/agent/c"`, `class="badge gone">left`}},
 		{"/agent/a", []string{"solved", "106", `href="/bounty/x"`}},
 		{"/agent/b", []string{"bankrupt", "wrong answer"}},
+		{"/agent/c", []string{`class="badge gone">left`, "20"}},
 		{"/bounty/x", []string{"awarded", "stub-1", "arith"}},
 		{"/bounty/y", []string{"failed", "oracle"}},
 		{"/replay", []string{"window.EVENTS", "replay.js"}},

@@ -77,6 +77,7 @@ fair-pilgrim-7day-trace.jsonl
 fair-newcomer-7day-trace.jsonl
 fair-pilgrim-checkpoint-7day-trace.jsonl
 fair-pilgrim-resumed-7day-trace.jsonl
+fair-pilgrim-leaves-7day-trace.jsonl
 fair-pilgrim-checkpoint.json
 fair-pilgrim-checkpoint.json.db
 fair-pilgrim-resumed.json

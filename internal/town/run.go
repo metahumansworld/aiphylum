@@ -59,6 +59,22 @@ type Config struct {
 	// room. Nil is the town exactly as it was before the seam existed.
 	Arrive func(day, mod int, clock string) []Persona
 
+	// Leave, if set, is asked once per tick, right after Arrive and still
+	// before anyone moves, whether anybody has gone. Each id it hands back
+	// is taken off the roster that minute — written to the trace as one
+	// "left" line naming where they stood — and from then on is not walked,
+	// held, visited, counted or met. An id nobody is seated under is
+	// ignored; the town does not argue with the door. Leaving is not a
+	// departure from a place: no "depart" fires, because the body is not
+	// on the street, it is gone.
+	//
+	// It is the third inward seam and money-free like the other two: the
+	// town learns that somebody went, never what they took with them. The
+	// memories the departed made stay in the mind's stream, as a town
+	// remembers a face it will not see again. Nil is the town exactly as
+	// it was before the seam existed.
+	Leave func(day, mod int, clock string) []string
+
 	// Checkpoint, if set, is handed the whole town at the end of every tick,
 	// after Visit has returned — the one moment nothing is in flight: no
 	// route half-walked, no conversation mid-sentence, no visitor's work
@@ -177,6 +193,8 @@ type resident struct {
 //	founded  the map and the roster, always the first line
 //	joined   a resident arrived after the founding, seated at home; only
 //	         with an Arrive seam
+//	left     a resident is gone from the roster, from where they stood;
+//	         only with a Leave seam
 //	depart   a resident leaves a place for the street
 //	arrive   a resident reaches the place their schedule names
 //	met      two residents are newly in the same place — the hook the memory
@@ -330,6 +348,35 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 				if err := tw.Append(trace.EventTown, map[string]any{
 					"action": "joined", "resident": r.p.ID, "name": r.p.Name,
 					"blurb": r.p.Blurb, "home": r.p.Home,
+					"x": r.x, "y": r.y, "place": r.place,
+					"day": day, "clock": clock,
+				}); err != nil {
+					return rep, err
+				}
+			}
+		}
+
+		// Then whoever is going. Taken off the roster before the hold and
+		// the walk, so nothing this minute — not the frame, not the visit,
+		// not a meeting — counts a body that is no longer here. The pairs
+		// they were in stay in the set until the fold at the end of the
+		// tick rebuilds it from who is actually present, which is what it
+		// does every tick anyway.
+		if cfg.Leave != nil {
+			for _, id := range cfg.Leave(day, mod, clock) {
+				r, ok := byID[id]
+				if !ok {
+					continue
+				}
+				delete(byID, id)
+				for i := range rs {
+					if rs[i] == r {
+						rs = append(rs[:i], rs[i+1:]...)
+						break
+					}
+				}
+				if err := tw.Append(trace.EventTown, map[string]any{
+					"action": "left", "resident": r.p.ID, "name": r.p.Name,
 					"x": r.x, "y": r.y, "place": r.place,
 					"day": day, "clock": clock,
 				}); err != nil {
