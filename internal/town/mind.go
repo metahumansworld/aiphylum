@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -36,7 +37,7 @@ type Memory struct {
 	Kind       string // arrive, met, heard, thought
 	Text       string
 	Importance int
-	tick       int // when it landed, for recency
+	Tick       int // when it landed, for recency; exported so a checkpoint keeps it
 }
 
 // Importance by kind.
@@ -79,6 +80,37 @@ type Minds struct {
 	OutToks int64
 }
 
+// MindState is the thinking half's memory as a checkpoint carries it: every
+// resident's stream, the day each last turned in, and the call tally.
+type MindState struct {
+	Streams map[string][]Memory
+	Spoke   map[string]int
+	Calls   int
+	InToks  int64
+	OutToks int64
+}
+
+// save copies the maps: a stream only ever grows by append, so a copied map
+// of the same slice headers is a true picture of this tick that the next
+// tick's observations cannot reach into.
+func (mn *Minds) save() *MindState {
+	return &MindState{Streams: maps.Clone(mn.streams), Spoke: maps.Clone(mn.spoke), Calls: mn.Calls, InToks: mn.InToks, OutToks: mn.OutToks}
+}
+
+func (mn *Minds) load(st *MindState) {
+	if st == nil {
+		return
+	}
+	mn.streams, mn.spoke = st.Streams, st.Spoke
+	if mn.streams == nil {
+		mn.streams = map[string][]Memory{}
+	}
+	if mn.spoke == nil {
+		mn.spoke = map[string]int{}
+	}
+	mn.Calls, mn.InToks, mn.OutToks = st.Calls, st.InToks, st.OutToks
+}
+
 func (mn *Minds) withDefaults() {
 	if mn.Model == "" {
 		mn.Model = "claude-haiku-4-5-20251001"
@@ -100,7 +132,7 @@ func (mn *Minds) withDefaults() {
 // derivable from an arrive or met event already in the stream, and writing them
 // again would double the trace to say nothing new.
 func (mn *Minds) observe(id string, m Memory) {
-	m.tick = mn.tick
+	m.Tick = mn.tick
 	mn.streams[id] = append(mn.streams[id], m)
 }
 
@@ -135,7 +167,7 @@ func (mn *Minds) recall(id, query string, day int, sameDayOnly bool) []Memory {
 }
 
 func (mn *Minds) score(m Memory, words []string) float64 {
-	recency := 1 / float64(1+mn.tick-m.tick)
+	recency := 1 / float64(1+mn.tick-m.Tick)
 	relevance := 0.0
 	if len(words) > 0 {
 		low := strings.ToLower(m.Text)

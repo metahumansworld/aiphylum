@@ -80,6 +80,8 @@ func main() {
 	tiebreak := flag.String("tiebreak", "arrival", "fair: how a tie at the lowest ask is broken — arrival (the earlier bid wins) or lot (a seeded draw among the tied names)")
 	notebook := flag.Int64("notebook", 0, "fair: put a notebook up for sale at the office at this many credits — a memo of 4,096 bytes instead of 512, for the rest of the run; 0 sells none")
 	stall := flag.Int64("stall", 0, "fair: put a stall up for sale at the office at this many credits — a pitch on the town square, assigned by the office and drawn on the map for the rest of the record; 0 sells none")
+	checkpointPath := flag.String("checkpoint", "", "fair: write the world down to this `path` after every tick — the books beside it as <path>.db — so a killed daemon can pick the week up with -resume; empty writes nothing")
+	resume := flag.Bool("resume", false, "fair: pick the week up from -checkpoint instead of starting one: same flags, the same trace continued from the tick the record names")
 	book := flag.String("book", "sealed", "fair: what each bidder is told of the auction book with its result — sealed (your ask, the clearing price, the winner, the head-count) or open (every name and every ask)")
 	days := flag.Int("days", 1, "town: how many simulated days to run")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
@@ -152,6 +154,7 @@ func main() {
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, lodgers: lodgers, tiebreak: *tiebreak, book: *book, notebook: ledger.Credits(*notebook), stall: ledger.Credits(*stall),
+		checkpoint: *checkpointPath, resume: *resume,
 		serve: *serve, agents: agents, serveListen: *serveListen, serveModel: *serveModel,
 		serveLocked: *serveLocked, serveSite: *serveSite, serveInsecureTools: *serveInsecureTools,
 	}
@@ -203,6 +206,11 @@ type options struct {
 	// for none. Every track but the fair sells nothing.
 	notebook ledger.Credits
 	stall    ledger.Credits
+	// checkpoint is where the fair writes itself down after every tick, or
+	// "" for nowhere; resume starts the week from that file instead of
+	// from the founding. Both are fair things, refused elsewhere.
+	checkpoint string
+	resume     bool
 
 	// serve runs built agents instead of a world: no board, no ladder, no
 	// containers. agents are spec files to run from boot; serveListen is where
@@ -296,6 +304,18 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	if opt.stall > 0 && !opt.fair {
 		return fmt.Errorf("-stall belongs to the fair; run it with -fair")
 	}
+	if opt.checkpoint != "" && !opt.fair {
+		return fmt.Errorf("-checkpoint belongs to the fair; run it with -fair")
+	}
+	if opt.resume && opt.checkpoint == "" {
+		return fmt.Errorf("-resume needs -checkpoint: the file the week is picked up from")
+	}
+	if opt.resume && len(opt.guests) > 0 {
+		return fmt.Errorf("-resume seats the guests the checkpoint names; drop -guest, or knock with phylumctl join once the fair is up")
+	}
+	if opt.checkpoint != "" && len(opt.lodgers) > 0 {
+		return fmt.Errorf("-checkpoint does not carry a lodger: the service that answers for one is not written down; drop -lodger")
+	}
 	// The service is not a track: it runs built agents and no world at all,
 	// so every flag that shapes a world is refused alongside it.
 	if opt.serve && (opt.fair || opt.sim || opt.town || opt.imported || len(opt.guests) > 0 || len(opt.lodgers) > 0) {
@@ -327,6 +347,20 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 		return serveBooks(ctx, log, opt)
 	}
 
+	// A resumed fair is read before anything is opened: its record decides
+	// which books the ledger opens over and which line the trace continues
+	// from, and a record that disagrees with the flags stops the boot here.
+	var cp *checkpoint
+	if opt.resume {
+		var err error
+		if cp, err = loadCheckpoint(opt.checkpoint); err != nil {
+			return err
+		}
+		if err := cp.matches(opt); err != nil {
+			return err
+		}
+	}
+
 	dbPath := opt.dbPath
 	if dbPath == "" {
 		// The offline modes run one episode and print it; their ledger is
@@ -344,6 +378,14 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 			dbPath = filepath.Join(dir, "ledger.db")
 		}
 	}
+	if cp != nil {
+		// The books as they stood at the checkpoint, not as the killed
+		// process left them: whatever it posted after the boundary is
+		// about to be posted again.
+		if err := copyFile(booksOf(opt.checkpoint), dbPath); err != nil {
+			return fmt.Errorf("resume books: %w", err)
+		}
+	}
 	l, err := ledger.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open ledger: %w", err)
@@ -352,11 +394,16 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 
 	// A live world appends to its trace and resumes from its roster: the
 	// record of a run that cannot be run again is continued, never truncated.
-	// The offline tracks regenerate theirs from a seed, so they start clean.
+	// The offline tracks regenerate theirs from a seed, so they start clean —
+	// except a resumed fair, which continues its own trace from the line the
+	// checkpoint names and drops whatever the killed process wrote past it.
 	var tw *trace.Writer
-	if !opt.demo && !opt.sim {
+	switch {
+	case cp != nil:
+		tw, err = trace.ResumeWriter(opt.tracePath, cp.Seq)
+	case !opt.demo && !opt.sim:
 		tw, err = trace.OpenWriter(opt.tracePath)
-	} else {
+	default:
 		tw, err = trace.NewWriter(opt.tracePath)
 	}
 	if err != nil {
@@ -376,7 +423,7 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	switch {
 	case opt.fair:
 		// Like the sim: nil ladder, and NewFair refuses any other kind.
-		return runFair(ctx, log, l, board, tw, notes, opt)
+		return runFair(ctx, log, l, board, tw, notes, opt, cp)
 	case opt.sim:
 		// No ladder, and not as an omission: RunSim refuses a world that has
 		// one. Real-time results are not comparable, so they are never scored.
@@ -540,6 +587,11 @@ func newOffline(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *
 			Cmd: []string{"python3", filepath.Join(agentsDir, a.id+".py")},
 			Env: env,
 		})
+		if opt.resume {
+			// The process, and no wallet: the wallet is in the books the
+			// ledger was opened over, and the checkpoint seats the roster.
+			continue
+		}
 		if err := orch.AddAgent(ctx, a.id, a.grant); err != nil {
 			w.stop()
 			return nil, err

@@ -176,6 +176,47 @@ func (bd *Board) Resume(lastID int) {
 	}
 }
 
+// LastID is the number of the last bounty posted — the counter a checkpoint
+// records so Resume can carry it into the next process.
+func (bd *Board) LastID() int {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	return bd.nextID
+}
+
+// Restore puts a bounty an earlier process posted back on the board, under
+// its own ID and with its failures counted, without posting it again. The
+// task is regenerated from the generator and seed exactly as Post made it,
+// so the held-out key never has to be written down anywhere: a checkpoint
+// carries the recipe, not the answer. Only open bounties are worth
+// restoring — a solved or failed one is history the trace already holds.
+func (bd *Board) Restore(id, generator string, seed int64, tier int, tokenCeiling ledger.Credits, wallClockSec, failures int) (*Bounty, error) {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	if _, dup := bd.bounties[id]; dup {
+		return nil, fmt.Errorf("bounty: %s restored twice", id)
+	}
+	g, ok := bd.generators[generator]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNoGenerator, generator)
+	}
+	task, err := g.Generate(seed, tier)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s seed %d tier %d: %w", generator, seed, tier, err)
+	}
+	refCost := ledger.Credits(task.ReferenceTokens * 5)
+	b := &Bounty{
+		ID: id, Generator: generator, Seed: seed, Tier: tier,
+		Prompt: task.Prompt, answer: task.Answer, rubric: task.Rubric,
+		Judged: task.Rubric != "", Suite: task.Suite,
+		MaxPayout: PayoutFor(refCost, tier), State: StateOpen,
+		TokenCeiling: tokenCeiling, WallClockSec: wallClockSec, Failures: failures,
+	}
+	bd.bounties[id] = b
+	bd.order = append(bd.order, id)
+	return b, nil
+}
+
 func NewBoard() *Board {
 	return &Board{
 		generators: map[string]Generator{},

@@ -70,6 +70,29 @@ type Bid struct {
 	seq   int // arrival order; ByArrival's tie-break, and every policy's last resort
 }
 
+// Book is the bids so far, in arrival order, without closing the auction —
+// what a checkpoint records of a window still open. Sealed bids stay sealed:
+// a checkpoint is the world's own file, not a page anyone bidding is shown.
+func (a *Auction) Book() []Bid {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]Bid(nil), a.bids...)
+}
+
+// Load restores a book taken by Book onto a fresh auction. Arrival order is
+// the slice order, so each bid's seq is its index — the number Place would
+// have given it — and an award on the restored book falls exactly as it
+// would have on the original.
+func (a *Auction) Load(bids []Bid) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.bids = a.bids[:0]
+	for i, b := range bids {
+		b.seq = i
+		a.bids = append(a.bids, b)
+	}
+}
+
 // Auction collects sealed bids for a single bounty.
 type Auction struct {
 	BountyID  string
