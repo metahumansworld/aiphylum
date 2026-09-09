@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -274,6 +275,24 @@ func (n *notebook) limitLocked(agent string) int {
 
 // grant raises one agent's cap. The fair calls it when a notebook is bought;
 // nothing lowers a cap again, because nothing sells one back.
+// save copies the book for a checkpoint; load is the other direction. Both
+// copy, so a state being written down is never the map a step is writing to.
+func (n *notebook) save() (map[string]string, map[string]int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return maps.Clone(n.memos), maps.Clone(n.limits)
+}
+
+func (n *notebook) load(memos map[string]string, limits map[string]int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.memos = maps.Clone(memos)
+	if n.memos == nil {
+		n.memos = map[string]string{}
+	}
+	n.limits = maps.Clone(limits)
+}
+
 func (n *notebook) grant(agent string, limit int) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -293,6 +312,21 @@ func (n *notebook) grant(agent string, limit int) {
 type crier struct {
 	mu      sync.Mutex
 	pending map[string][]AuctionResult
+}
+
+func (c *crier) save() map[string][]AuctionResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Clone(c.pending)
+}
+
+func (c *crier) load(pending map[string][]AuctionResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending = maps.Clone(pending)
+	if c.pending == nil {
+		c.pending = map[string][]AuctionResult{}
+	}
 }
 
 func (c *crier) file(agent string, r AuctionResult) {

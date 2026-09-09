@@ -107,6 +107,58 @@ func lastSeq(path string) (int64, error) {
 
 func (w *Writer) Path() string { return w.path }
 
+// Seq is the sequence number of the last line written — what a checkpoint
+// taken at a tick boundary records, so a resume can cut the file back to it.
+func (w *Writer) Seq() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.seq
+}
+
+// ResumeWriter continues a trace from the line numbered seq, discarding
+// whatever follows it. It is for a world that checkpoints itself: a process
+// killed mid-tick has already written part of the tick it was in, and those
+// lines describe work the resumed process is about to do again — so they are
+// cut, and the file picks up at exactly the line the checkpoint knew about.
+// A file that never reached seq is refused: the checkpoint is ahead of its
+// own record, and nothing can be resumed from that.
+func ResumeWriter(path string, seq int64) (*Writer, error) {
+	f, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open trace: %w", err)
+	}
+	var off int64
+	found := seq == 0
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+	for !found && sc.Scan() {
+		var l Line
+		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("trace %s is not a trace: %w", path, err)
+		}
+		off += int64(len(sc.Bytes())) + 1 // the newline the scanner ate
+		found = l.Seq == seq
+	}
+	if err := sc.Err(); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !found {
+		f.Close()
+		return nil, fmt.Errorf("trace %s never reached seq %d: the checkpoint is ahead of its record", path, seq)
+	}
+	if err := f.Truncate(off); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("truncate trace: %w", err)
+	}
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("seek trace: %w", err)
+	}
+	return &Writer{f: f, bw: bufio.NewWriter(f), path: path, seq: seq}, nil
+}
+
 // Append writes one event. The payload is marshalled once and stored verbatim.
 func (w *Writer) Append(typ EventType, payload any) error {
 	raw, err := json.Marshal(payload)

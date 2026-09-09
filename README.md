@@ -81,10 +81,12 @@ The phases, from here:
   needs work that can be handed over before it can be paid for.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
-  The first piece of it is built and read at the foot of this page: a guest
+  Two pieces of it are built and read at the foot of this page: a guest
   joins a fair that is already running, through the same control plane the
-  live daemon serves, and is seated on the next tick. What arriving late
-  costs is read there too.
+  live daemon serves, and is seated on the next tick; and the fair writes
+  itself down at every tick boundary, so a daemon killed mid-week resumes
+  from the record and finishes the week in the same trace, one line apart
+  from a week never killed. What arriving late costs is read there too.
 
 Two things do not change on the way there. Credits stay a unit of metered
 spend, never money anyone withdraws — building an empire in the world cashes
@@ -1981,6 +1983,119 @@ than buried.
   checks it has always had. And not the live daemon: it has no town, so
   it has no tick to seat anyone on, and its own submit is already the
   door this one was modelled on.
+
+- **The world survives its own daemon.** Every week so far has lived and
+  died with one process: kill the daemon and the trace stops mid-line, the
+  ledger keeps whatever the last transaction left, and the only way to the
+  end of the week is to run it again from the founding. The live daemon
+  resumes from its roster, but it has no town and no tick, so it never had
+  to answer the question this piece answers — where, exactly, a world
+  running on a clock can be picked up. The answer is the tick boundary, and
+  this is the second piece of Phase 4: `-checkpoint <path>` writes the fair
+  down after every tick, `-resume` starts a fresh daemon from that file,
+  the guests come back from the files the record names, and the week goes
+  on in the same trace as if nothing had happened.
+
+  What is written down is the recipe, never the answer. The town's part is
+  `town.State`: the tick, each body's persona, cell, place, goal and route,
+  the running counts, and the minds — every stream of memories and who was
+  spoken to on which tick, so the next reflection reads the same past. The
+  fair's part is `orchestrator.FairState`: the open windows with their
+  close ticks, their lot salts and their sealed bids as sealed; the open
+  cards as generator, seed and tier, regenerated on the way back in rather
+  than copied; the shelved, the reopen counts, the draws; the standings;
+  what is held, what is owned, what is stocked and the shelf's revision;
+  the notebooks' memos and their limits; the crier's undelivered results;
+  the epoch and the board's last id. The books are not in the JSON at all:
+  the ledger copies itself whole with `VACUUM INTO` under its own lock, and
+  the copy sits beside the record as `<path>.db`. The books go down first
+  and the record second, each to a temporary name and renamed into place,
+  so a record that exists always has its books beside it and a kill
+  mid-write leaves the previous checkpoint rather than half of this one.
+
+  Resume is the mirror, and its whole difficulty is that a daemon killed
+  mid-tick is ahead of its own checkpoint in both files: the trace has
+  lines past the boundary and the ledger has money past it. Both are put
+  back. The checkpoint's books are copied over the working database before
+  the ledger opens, and the trace is cut back to the sequence number the
+  record names — `trace.ResumeWriter` scans to that line, truncates, and
+  appends from there. Then the cast's processes are registered without a
+  grant, because the wallets are already in the books; the judge is resumed
+  rather than enabled, for the same reason; the guests are re-spawned from
+  their recorded paths, refused if a path is gone or a name is taken;
+  `orchestrator.ResumeFair` rebuilds the fair from the record onto an
+  orchestrator that has seated nobody, checking each wallet is there and
+  open or closed as the record says; and `town.Run` is handed `From`, seats
+  the bodies where the record put them, writes no founded line, and starts
+  at the tick after. A record whose flags differ from the command line —
+  seed, days, tiebreak, book, notebook, stall — is refused before anything
+  is opened, because the deck is the seed's and the calendar is the days'.
+  The resumed daemon says one thing in the trace, an episode line with
+  `action: resumed` and the tick, and nothing else: no start line, no
+  per-agent lines, no judging note. The viewer ignores episode actions it
+  does not know, and no other reader switches on them.
+
+  Two identity checks, run before the week. First, writing the world down
+  changes nothing in it: the pilgrim's seven-day week with `-checkpoint` is
+  the pilgrim's week without it to the byte outside the clock and the
+  sequence number — no line of the 3,808 differs, and the closing report is
+  the same to the credit. The last record, at tick 1008, is 265 KB of JSON
+  beside 250 KB of books, which is what a week of Ashmere weighs written
+  down. Second, the town's own test takes a checkpoint at tick 40 of a
+  two-day run with a mind on, round-trips it through JSON, runs a second
+  town from it, and requires the same lines as the unbroken run's tail; the
+  orchestrator's test does the same with three scripted agents and a
+  notebook on sale, taking the checkpoint at tick 163 — day two, 10:10, a
+  window open on the ten o'clock card with bids in it, memos kept, results
+  undelivered, a notebook owned — and requires the resumed trace to be the
+  unbroken one from that line on, save the one `resumed` line, and the two
+  closing reports to agree on every standing. The first draft of that test
+  took its checkpoint at tick 150 and passed with no window open, no card
+  on the board and nothing in the notebooks, which proves little; it was
+  moved to where the state is not dull. The second draft failed on one
+  `said` line, because the test held a pointer to the town's state and the
+  minds' maps kept changing under it after the checkpoint; the minds now
+  copy their maps when they save, and the test marshals the state at the
+  boundary the way the daemon does.
+
+  The week is `make fair-pilgrim-resumed-7day`, and it needs a built
+  binary, because `go run` cannot pass a SIGKILL down to its child. The
+  daemon runs the pilgrim's week with a checkpoint, is sent `kill -9` about
+  two minutes in, and is started again with `-resume` and no `-guest`,
+  appending to the same trace. The tick it dies in is wall clock — the
+  checkpoint says which — so, like the newcomer's week, this is one the
+  seed does not pin; the reading below is of the run read. In that run the
+  kill fell on the boundary itself: the trace had 702 lines when the daemon
+  died and the checkpoint named 702, so the record was the last thing
+  written and the resume cut nothing. On the one-day smoke at a 20ms tick
+  it fell mid-tick instead and fourteen lines past the boundary were cut,
+  which is the case the truncation exists for. The record was tick 163, day
+  two at 10:10, and it was not a dull place to die: the ten o'clock card,
+  `b0010`, arithmetic at a 240 maximum and a 12 reserve, had been posted
+  the tick before with three sealed bids in its open window — the scholar's
+  96, the frugal's 60, the pilgrim's 48. The resumed daemon printed its
+  banner, seated the pilgrim as `still here`, closed that window and
+  awarded the card as the unbroken week did, and ran the other 845 ticks to
+  the same closing report — the pilgrim 18 boards bid and won, 18 solved,
+  4,410 earned, 396 burned, 6,014 in the purse; the scholar at 47,252; the
+  gambler bankrupt on the one card it won of fifty; the frugal untouched at
+  2,500; 56 of 56 posted, six shelved; 357 meetings, 1,071 lines said, 56
+  reflections; 310,440 minted and a drift of zero. Under the mask the
+  resumed trace is the unbroken one plus a single line, the `resumed`
+  episode at sequence 703 — 3,809 lines against 3,808.
+
+  What is deliberately not here. Not leaving: a body that arrives is
+  counted from its tick, and one that goes mid-week is a wallet with a
+  balance and a roster with a gap, which the record now carries but nothing
+  yet writes. Not the live daemon: it has no town, no tick, and resumes
+  from its roster already; a world for it to write down is Phase 4's own
+  question. Not a lodger: the service that answers for one is not in the
+  record, so `-checkpoint` with `-lodger` is refused rather than written
+  down without it. Not a checkpoint by default: one copy of the books per
+  tick is a cost, so the flag pays it and no other week does. And not a
+  checkpoint mid-tick: the boundary is the one place the town, the fair and
+  the books agree, and a record taken anywhere else would have to say which
+  of the three was ahead.
 
 ## Layout
 

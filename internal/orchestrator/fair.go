@@ -172,6 +172,63 @@ type Fair struct {
 // RunSim it refuses a ladder: presence is a schedule, not a skill, so a fair
 // is watchable, never scored.
 func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error) {
+	f, err := newFair(ctx, o, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cfg = f.cfg
+	// Deliberately not announcing the stay price here: this line is what a
+	// fair trace opens with, and every fair trace ever recorded opens with
+	// exactly these keys. Nothing is lost — a stay writes its own event
+	// carrying both the ticks and the amount, so the price of a day on which
+	// anyone actually bought one is recoverable by division, and on a day
+	// when nobody did there was no price paid to record.
+	//
+	// The tie-break is the one deliberate divergence from that rule, and
+	// only on the runs that chose it. A lot is the stay price's opposite:
+	// no outcome recovers it. The winners alone cannot say whether a queue
+	// or a draw picked them, and the salt is an input, not a consequence —
+	// so a ByLot run declares both up front, while every arrival-order
+	// trace, which is every trace recorded before the policy had a name,
+	// opens with exactly the keys it always did. The salt travels as a
+	// decimal string rather than a JSON number so a reader whose numbers
+	// lose precision past 2^53 can still rerun every draw.
+	start := map[string]any{
+		"action": "start", "track": "fair",
+		"deck": len(cfg.Deck), "post_minutes": cfg.PostMinutes,
+		"window_ticks": cfg.WindowTicks, "office": cfg.Office,
+	}
+	if cfg.Tie == auction.ByLot {
+		start["tiebreak"] = "lot"
+		start["lot_salt"] = strconv.FormatUint(cfg.LotSalt, 10)
+	}
+	if o.Cfg.Book == OpenBook {
+		// The book policy is an input for the tie-break's reason: no line
+		// of the day records what the bidders were told, because results
+		// are never traced, so a reader who was not told up front could
+		// replay every award and still not know what kind of market this
+		// was. A sealed day carries no key at all — a policy that was not
+		// in force should not be in the record.
+		start["book"] = "open"
+	}
+	if cfg.Notebook > 0 {
+		// The book's rule again: what was for sale is an input. A purchase
+		// records its own price, but a day nobody bought on would otherwise
+		// not say whether nobody wanted a notebook or nobody was offered
+		// one — and a fair that sold nothing keeps its opening line.
+		start["notebook"] = cfg.Notebook
+	}
+	if cfg.Stall > 0 {
+		start["stall"] = cfg.Stall
+	}
+	o.traceEvent(trace.EventEpisode, start)
+	return f, nil
+}
+
+// newFair is NewFair without the opening line: the checks, the defaults and
+// the wiring, shared with ResumeFair, which opens nothing because the
+// episode it joins was opened by the process it is picking up after.
+func newFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error) {
 	if o.Ladder != nil {
 		return nil, errors.New("orchestrator: the fair track is unranked by design — run it with a nil ladder")
 	}
@@ -222,51 +279,6 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 	// the fair counts exactly what the benchmark counts and refuses to
 	// divide the two numbers, same as the sim.
 	o.watch = f.tally
-	// Deliberately not announcing the stay price here: this line is what a
-	// fair trace opens with, and every fair trace ever recorded opens with
-	// exactly these keys. Nothing is lost — a stay writes its own event
-	// carrying both the ticks and the amount, so the price of a day on which
-	// anyone actually bought one is recoverable by division, and on a day
-	// when nobody did there was no price paid to record.
-	//
-	// The tie-break is the one deliberate divergence from that rule, and
-	// only on the runs that chose it. A lot is the stay price's opposite:
-	// no outcome recovers it. The winners alone cannot say whether a queue
-	// or a draw picked them, and the salt is an input, not a consequence —
-	// so a ByLot run declares both up front, while every arrival-order
-	// trace, which is every trace recorded before the policy had a name,
-	// opens with exactly the keys it always did. The salt travels as a
-	// decimal string rather than a JSON number so a reader whose numbers
-	// lose precision past 2^53 can still rerun every draw.
-	start := map[string]any{
-		"action": "start", "track": "fair",
-		"deck": len(cfg.Deck), "post_minutes": cfg.PostMinutes,
-		"window_ticks": cfg.WindowTicks, "office": cfg.Office,
-	}
-	if cfg.Tie == auction.ByLot {
-		start["tiebreak"] = "lot"
-		start["lot_salt"] = strconv.FormatUint(cfg.LotSalt, 10)
-	}
-	if o.Cfg.Book == OpenBook {
-		// The book policy is an input for the tie-break's reason: no line
-		// of the day records what the bidders were told, because results
-		// are never traced, so a reader who was not told up front could
-		// replay every award and still not know what kind of market this
-		// was. A sealed day carries no key at all — a policy that was not
-		// in force should not be in the record.
-		start["book"] = "open"
-	}
-	if cfg.Notebook > 0 {
-		// The book's rule again: what was for sale is an input. A purchase
-		// records its own price, but a day nobody bought on would otherwise
-		// not say whether nobody wanted a notebook or nobody was offered
-		// one — and a fair that sold nothing keeps its opening line.
-		start["notebook"] = cfg.Notebook
-	}
-	if cfg.Stall > 0 {
-		start["stall"] = cfg.Stall
-	}
-	o.traceEvent(trace.EventEpisode, start)
 	return f, nil
 }
 

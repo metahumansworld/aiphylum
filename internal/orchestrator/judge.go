@@ -65,6 +65,21 @@ func (o *Orchestrator) EnableJudging(ctx context.Context, j Judge, endowment led
 	return nil
 }
 
+// ResumeJudging installs the grader over a wallet the books already hold:
+// a world picking itself up after its own daemon. Nothing is minted and
+// nothing is written — the endowment was paid once, by EnableJudging, and
+// the note that announced it is already in the trace being continued.
+func (o *Orchestrator) ResumeJudging(ctx context.Context, j Judge) error {
+	if j == nil {
+		return errors.New("orchestrator: ResumeJudging needs a judge")
+	}
+	if _, err := o.Ledger.Get(ctx, JudgeWallet); err != nil {
+		return fmt.Errorf("resume judging: %w", err)
+	}
+	o.Judge = j
+	return nil
+}
+
 // judgeSubmission grades one attempt. It runs on the worker goroutine that ran
 // the attempt, not on whichever goroutine owns the ledger: a grading call is a
 // model call, and a model call on the actor loop would stall every auction in

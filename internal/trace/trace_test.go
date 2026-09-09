@@ -185,3 +185,45 @@ func TestOpenWriterAppendsAndContinuesTheSequence(t *testing.T) {
 		t.Errorf("after a restart: %d lines, last seq %d; want 3 and 3", len(lines), lines[len(lines)-1].Seq)
 	}
 }
+
+// A resumed trace is the file cut back to the checkpoint's line and continued
+// from there: what a killed process wrote past its last checkpoint is gone,
+// and the next line takes the number the checkpoint's successor would have.
+func TestResumeWriterCutsBackToTheSeq(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	w, err := NewWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 10; i++ {
+		if err := w.Append(EventNote, map[string]any{"n": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w.Seq() != 10 {
+		t.Fatalf("seq = %d, want 10", w.Seq())
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := ResumeWriter(path, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Append(EventNote, map[string]any{"n": "resumed"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 8 || lines[7].Seq != 8 || string(lines[7].Payload) != `{"n":"resumed"}` {
+		t.Fatalf("resumed file = %d lines, last %d %s; want 8 lines ending seq 8 resumed", len(lines), lines[len(lines)-1].Seq, lines[len(lines)-1].Payload)
+	}
+	if _, err := ResumeWriter(path, 20); err == nil {
+		t.Fatal("a checkpoint ahead of its trace was accepted")
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -113,6 +114,26 @@ func Open(path string) (*Ledger, error) {
 }
 
 func (l *Ledger) Close() error { return l.db.Close() }
+
+// Snapshot writes a standalone copy of the books to path, whole and
+// consistent, under the same lock every posting takes — so the copy is the
+// ledger as it stood between two postings, never mid-transfer. Written to a
+// temporary name and renamed into place: a copy that is there is complete.
+// It is what lets a world checkpoint itself: a process killed after the
+// snapshot has already posted entries the snapshot does not know about, and
+// the resumed world opens the copy, not the file it died over.
+func (l *Ledger) Snapshot(ctx context.Context, path string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	tmp := path + ".tmp"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("snapshot ledger: %w", err)
+	}
+	if _, err := l.db.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
+		return fmt.Errorf("snapshot ledger: %w", err)
+	}
+	return os.Rename(tmp, path)
+}
 
 const schema = `
 CREATE TABLE IF NOT EXISTS accounts (

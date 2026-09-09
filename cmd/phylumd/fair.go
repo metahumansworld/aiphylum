@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -37,11 +38,17 @@ import (
 var fairPostMinutes = []int{540, 600, 660, 720, 780, 840, 900, 960}
 
 func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bounty.Board,
-	tw *trace.Writer, notes []orchestrator.SuiteNote, opt options) error {
+	tw *trace.Writer, notes []orchestrator.SuiteNote, opt options, cp *checkpoint) error {
 
 	m, people := town.AshmereFair()
 
-	fmt.Printf("fair: %s — the arena's cast takes lodgings at the tavern\n", m.Name)
+	if cp == nil {
+		fmt.Printf("fair: %s — the arena's cast takes lodgings at the tavern\n", m.Name)
+	} else {
+		minute := 7*60 + cp.Tick*10
+		fmt.Printf("fair: %s — picked up at tick %d (day %d, %s) from %s\n",
+			m.Name, cp.Tick, minute/town.DayMinutes+1, town.HHMM(minute%town.DayMinutes), opt.checkpoint)
+	}
 	w, err := newOffline(ctx, log, l, board, tw, nil, notes, opt)
 	if err != nil {
 		return err
@@ -50,13 +57,18 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 
 	// Judged briefs are legal here for the sim's reason: no ladder, so
 	// nothing a grader says can touch a score.
-	if err := w.orch.EnableJudging(ctx, &judge.HTTP{
-		Base: w.proxyURL, Model: "stub-1", MaxTokens: 64,
-	}, judgeEndowment); err != nil {
-		return fmt.Errorf("enable judging: %w", err)
+	grader := &judge.HTTP{Base: w.proxyURL, Model: "stub-1", MaxTokens: 64}
+	if cp != nil {
+		if err := w.orch.ResumeJudging(ctx, grader); err != nil {
+			return err
+		}
+	} else {
+		if err := w.orch.EnableJudging(ctx, grader, judgeEndowment); err != nil {
+			return fmt.Errorf("enable judging: %w", err)
+		}
+		fmt.Printf("  + %-8s %5d credits — grades the open-ended briefs, spends its own money\n",
+			"judge", judgeEndowment)
 	}
-	fmt.Printf("  + %-8s %5d credits — grades the open-ended briefs, spends its own money\n",
-		"judge", judgeEndowment)
 
 	// Guest intake. The flag brought the trader; town.Guest brings the body.
 	// A guest's file runs exactly the way the cast's do — python3, the SDK on
@@ -69,17 +81,16 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	for _, p := range people {
 		taken[p.ID] = true
 	}
-	guests, err := guestRoster(opt.guests, taken)
-	if err != nil {
-		return err
-	}
 	sdkDir, err := filepath.Abs(filepath.Join("sdk", "python"))
 	if err != nil {
 		return err
 	}
-	// admit is the one way in, at boot or mid-week: the process, the
-	// wallet, the body. The same three whichever door a guest came through.
-	admit := func(g guest, when string) (town.Persona, error) {
+	// The process half of admission, on its own because a resumed guest
+	// needs only this: its wallet is in the books and its body in the
+	// state, and the checkpoint keeps the roster the door will be checked
+	// against.
+	var admitted []guestRecord
+	register := func(g guest) {
 		w.steps.Register(g.id, orchestrator.ProcessAgent{
 			Cmd: []string{"python3", g.path},
 			// The guest's own directory joins the path so it can split
@@ -87,6 +98,12 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 			// the platform's half of the bargain.
 			Env: map[string]string{"PYTHONPATH": sdkDir + ":" + filepath.Dir(g.path)},
 		})
+		admitted = append(admitted, guestRecord{ID: g.id, Path: g.path})
+	}
+	// admit is the one way in, at boot or mid-week: the process, the
+	// wallet, the body. The same three whichever door a guest came through.
+	admit := func(g guest, when string) (town.Persona, error) {
+		register(g)
 		if err := w.orch.AddAgent(ctx, g.id, guestGrant); err != nil {
 			return town.Persona{}, err
 		}
@@ -96,12 +113,30 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		return town.Guest(g.id, name,
 			"a guest at the Bell & Bushel; not of the cast — brought to the fair by its author"), nil
 	}
-	for _, g := range guests {
-		p, err := admit(g, "come")
+	if cp != nil {
+		for _, g := range cp.Guests {
+			if taken[g.ID] {
+				return fmt.Errorf("-resume: the checkpoint's guest %q is a name this world already has", g.ID)
+			}
+			if _, err := os.Stat(g.Path); err != nil {
+				return fmt.Errorf("-resume: guest %s: %w", g.ID, err)
+			}
+			taken[g.ID] = true
+			register(guest{id: g.ID, path: g.Path})
+			fmt.Printf("  + %-8s still here — a guest, back at the board (yours: %s)\n", g.ID, filepath.Base(g.Path))
+		}
+	} else {
+		guests, err := guestRoster(opt.guests, taken)
 		if err != nil {
 			return err
 		}
-		people = append(people, p)
+		for _, g := range guests {
+			p, err := admit(g, "come")
+			if err != nil {
+				return err
+			}
+			people = append(people, p)
+		}
 	}
 
 	// Lodger intake. The flag brought the spec; the service brings the
@@ -166,9 +201,36 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		fcfg.Tie = auction.ByLot
 		fcfg.LotSalt = uint64(opt.seed)
 	}
-	fair, err := orchestrator.NewFair(ctx, w.orch, fcfg)
+	var fair *orchestrator.Fair
+	if cp != nil {
+		fair, err = orchestrator.ResumeFair(ctx, w.orch, fcfg, cp.Fair)
+	} else {
+		fair, err = orchestrator.NewFair(ctx, w.orch, fcfg)
+	}
 	if err != nil {
 		return err
+	}
+
+	// The checkpoint, if one was asked for: after every tick, the books
+	// copied and then the record written, so the two are always of the
+	// same boundary. The cost is one database copy per tick, which is why
+	// it is a flag and not the default.
+	var save func(town.State) error
+	var from *town.State
+	if cp != nil {
+		from = &cp.Town
+	}
+	if opt.checkpoint != "" {
+		save = func(st town.State) error {
+			if err := l.Snapshot(ctx, booksOf(opt.checkpoint)); err != nil {
+				return err
+			}
+			return writeCheckpoint(opt.checkpoint, checkpoint{
+				Seed: opt.seed, Days: opt.days, Tiebreak: opt.tiebreak, Book: opt.book,
+				Notebook: opt.notebook, Stall: opt.stall,
+				Tick: st.Tick, Seq: tw.Seq(), Guests: admitted, Town: st, Fair: fair.Save(),
+			})
+		}
 	}
 
 	// The door, open for the whole week. Bound before the run so a busy
@@ -231,6 +293,10 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		Hold:  fair.Hold,
 		// And the door: whoever knocked since the last tick.
 		Arrive: arrive,
+		// The world written down after each tick, and where to pick it
+		// up from, when either was asked for.
+		Checkpoint: save,
+		From:       from,
 	})
 	close(done) // the week is over; a knock from here on is refused
 	if err != nil {

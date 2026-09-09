@@ -58,6 +58,50 @@ type Config struct {
 	// that somebody came, never who let them in or what they paid for the
 	// room. Nil is the town exactly as it was before the seam existed.
 	Arrive func(day, mod int, clock string) []Persona
+
+	// Checkpoint, if set, is handed the whole town at the end of every tick,
+	// after Visit has returned — the one moment nothing is in flight: no
+	// route half-walked, no conversation mid-sentence, no visitor's work
+	// half-done. What it does with the state is its own business; an error
+	// stops the run, because a world that cannot write itself down should
+	// not go on pretending it can be picked up again.
+	Checkpoint func(State) error
+
+	// From, if set, is a State an earlier process left at a tick boundary,
+	// and the run continues from the tick after it instead of founding the
+	// town: no founded line, the residents where the state stood them, the
+	// memories they had, and the counts the closed line will need. The
+	// people argument is ignored — the roster is the state's — and the
+	// map is still the caller's, since a checkpoint carries who stood
+	// where and not the walls. The tick after the state is the first one
+	// played, so a run resumed from tick T and a run that never stopped
+	// write the same lines from T+1 on.
+	From *State
+}
+
+// State is the town at a tick boundary, complete enough to continue from.
+// Everything in it is what Run would otherwise have in hand at the top of
+// the next loop: the roster with each body's position and the route it was
+// walking, the meeting and speaking counts, and the thinking half's memory.
+// The pairs currently sharing a place are not in it — they are recomputed
+// from where everyone stands, the same fold the loop makes every tick.
+type State struct {
+	Tick       int
+	Residents  []ResidentState
+	Meetings   int
+	Utterances int
+	Thoughts   int
+	Mind       *MindState // nil for a town without one
+}
+
+// ResidentState is one resident as the loop holds them: the whole persona,
+// because a guest's schedule exists nowhere but here, and the motion.
+type ResidentState struct {
+	Persona Persona
+	X, Y    int
+	Place   string
+	Goal    string
+	Route   []Cell
 }
 
 // Standing is one resident's whereabouts as the Visit hook sees them: the
@@ -174,8 +218,15 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 		byID[p.ID] = r
 		return r
 	}
-	for _, p := range people {
-		seat(p, p.At(cfg.StartMinute%DayMinutes).Place)
+	if cfg.From == nil {
+		for _, p := range people {
+			seat(p, p.At(cfg.StartMinute%DayMinutes).Place)
+		}
+	} else {
+		for _, rs := range cfg.From.Residents {
+			r := seat(rs.Persona, rs.Place)
+			r.x, r.y, r.place, r.goal, r.route = rs.X, rs.Y, rs.Place, rs.Goal, rs.Route
+		}
 	}
 
 	type frame struct {
@@ -201,12 +252,14 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 			X: r.x, Y: r.y, Place: r.place,
 		})
 	}
-	if err := tw.Append(trace.EventTown, map[string]any{
-		"action": "founded", "town": m.Name,
-		"width": m.Width, "height": m.Height,
-		"places": m.Places, "residents": founded,
-	}); err != nil {
-		return Report{}, err
+	if cfg.From == nil {
+		if err := tw.Append(trace.EventTown, map[string]any{
+			"action": "founded", "town": m.Name,
+			"width": m.Width, "height": m.Height,
+			"places": m.Places, "residents": founded,
+		}); err != nil {
+			return Report{}, err
+		}
 	}
 
 	// together holds the pairs currently sharing a place, keyed a|b|place with
@@ -220,11 +273,19 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 	}
 
 	rep := Report{Days: cfg.Days, Reason: "day complete"}
+	first := 1
+	if st := cfg.From; st != nil {
+		first = st.Tick + 1
+		rep.Ticks, rep.Meetings, rep.Utterances, rep.Thoughts = st.Tick, st.Meetings, st.Utterances, st.Thoughts
+		if mn != nil {
+			mn.load(st.Mind)
+		}
+	}
 	total := cfg.Days * DayMinutes / cfg.TickMinutes
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
-	for t := 1; t <= total; t++ {
+	for t := first; t <= total; t++ {
 		select {
 		case <-ctx.Done():
 			rep.Reason = "interrupted"
@@ -446,6 +507,21 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 				standings = append(standings, Standing{ID: r.p.ID, Place: r.place})
 			}
 			if err := cfg.Visit(day, mod, clock, standings); err != nil {
+				return rep, err
+			}
+		}
+
+		if cfg.Checkpoint != nil {
+			st := State{Tick: t, Meetings: rep.Meetings, Utterances: rep.Utterances, Thoughts: rep.Thoughts}
+			for _, r := range rs {
+				st.Residents = append(st.Residents, ResidentState{
+					Persona: r.p, X: r.x, Y: r.y, Place: r.place, Goal: r.goal, Route: r.route,
+				})
+			}
+			if mn != nil {
+				st.Mind = mn.save()
+			}
+			if err := cfg.Checkpoint(st); err != nil {
 				return rep, err
 			}
 		}

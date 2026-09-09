@@ -67,3 +67,17 @@ __pycache__/
 # worktrees agent sessions leave behind — each of which is a whole second copy
 # of this repo, so an unguarded `git add -A` would otherwise sweep one in.
 .claude/
+fair-diarist-7day-trace.jsonl
+fair-diarist-unsold-7day-trace.jsonl
+fair-stallholder-7day-trace.jsonl
+fair-stallholder-unsold-7day-trace.jsonl
+fair-chandler-7day-trace.jsonl
+fair-chandler-unsold-7day-trace.jsonl
+fair-pilgrim-7day-trace.jsonl
+fair-newcomer-7day-trace.jsonl
+fair-pilgrim-checkpoint-7day-trace.jsonl
+fair-pilgrim-resumed-7day-trace.jsonl
+fair-pilgrim-checkpoint.json
+fair-pilgrim-checkpoint.json.db
+fair-pilgrim-resumed.json
+fair-pilgrim-resumed.json.db
