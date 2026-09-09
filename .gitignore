@@ -82,3 +82,6 @@ fair-pilgrim-checkpoint.json
 fair-pilgrim-checkpoint.json.db
 fair-pilgrim-resumed.json
 fair-pilgrim-resumed.json.db
+fair-pilgrim-endless-trace.jsonl
+fair-pilgrim-endless.json
+fair-pilgrim-endless.json.db

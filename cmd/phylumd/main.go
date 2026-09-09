@@ -46,6 +46,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/metahumansworld/soscitea/internal/bounty"
@@ -83,7 +84,7 @@ func main() {
 	checkpointPath := flag.String("checkpoint", "", "fair: write the world down to this `path` after every tick — the books beside it as <path>.db — so a killed daemon can pick the week up with -resume; empty writes nothing")
 	resume := flag.Bool("resume", false, "fair: pick the week up from -checkpoint instead of starting one: same flags, the same trace continued from the tick the record names")
 	book := flag.String("book", "sealed", "fair: what each bidder is told of the auction book with its result — sealed (your ask, the clearing price, the winner, the head-count) or open (every name and every ask)")
-	days := flag.Int("days", 1, "town: how many simulated days to run")
+	days := flag.Int("days", 1, "town, fair: how many simulated days to run; 0 is no closing day at all — the world runs until the daemon is interrupted")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
 	rounds := flag.Int("rounds", 8, "rounds in the episode")
 	seed := flag.Int64("seed", 1, "episode seed; same seed, same episode")
@@ -145,7 +146,10 @@ func main() {
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// An interrupt from a terminal, or the TERM a supervisor sends: either
+	// closes the run properly — the closed line, the table, the books —
+	// which is what an always-on world is stopped with.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	opts := options{
@@ -676,23 +680,31 @@ const judgeEndowment = ledger.Credits(250_000)
 // ordered deck the clock deals from. Imported suites join the rotation as
 // ordinary generators — with none loaded the deck is exactly what it was.
 func simDeck(seed int64, n int, notes []orchestrator.SuiteNote) []orchestrator.Posting {
+	deck := make([]orchestrator.Posting, 0, n)
+	for i := 0; i < n; i++ {
+		deck = append(deck, simCard(seed, i, notes))
+	}
+	return deck
+}
+
+// simCard is card i of that deck on its own, a function of the seed and the
+// index and nothing else — which is what lets a week with no closing day
+// deal the same cards the sized deck would have held, for as long as it
+// runs.
+func simCard(seed int64, i int, notes []orchestrator.SuiteNote) orchestrator.Posting {
 	gens := []string{"arith", "oracle", "brief"}
 	for _, s := range notes {
 		gens = append(gens, s.Name)
 	}
-	deck := make([]orchestrator.Posting, 0, n)
-	for i := 0; i < n; i++ {
-		deck = append(deck, orchestrator.Posting{
-			Generator: gens[i%len(gens)],
-			Seed:      seed*10_000 + int64(i),
-			// Tier advances a rank per full pass of the generators, not per
-			// card: cycling both on the same stride would pin each generator
-			// to one difficulty forever.
-			Tier:         (i/len(gens))%3 + 1,
-			WallClockSec: 20,
-		})
+	return orchestrator.Posting{
+		Generator: gens[i%len(gens)],
+		Seed:      seed*10_000 + int64(i),
+		// Tier advances a rank per full pass of the generators, not per
+		// card: cycling both on the same stride would pin each generator
+		// to one difficulty forever.
+		Tier:         (i/len(gens))%3 + 1,
+		WallClockSec: 20,
 	}
-	return deck
 }
 
 // printChronicle reports what happened, in roster order, with no rank column

@@ -270,7 +270,7 @@ func fairSeatedDays(t *testing.T, path string, days int, seated []string, cast f
 		people = append(people, town.Guest(id, id, "a guest, seated by the test"))
 	}
 
-	if fcfg.Deck == nil {
+	if fcfg.Deck == nil && fcfg.Deal == nil {
 		deck := make([]Posting, len(fcfg.PostMinutes)*days)
 		for i := range deck {
 			deck[i] = post(int64(i+1), 1)
@@ -2493,5 +2493,74 @@ func TestFairNewcomerIsCounted(t *testing.T) {
 	}
 	if !rep.Conservation.Holds() {
 		t.Errorf("conservation broken: %s", rep.Conservation)
+	}
+}
+
+// TestFairDealsWithoutADeck: a fair with no closing day has no deck to size,
+// so it deals — card i made when its hour comes, with no last one. Against
+// a two-day deck over three days, the dealt week is the same week card for
+// card until the deck runs out, and then it goes on posting where the deck
+// posts nothing: the third day's eight cards are dealt, not shelved and not
+// missing.
+func TestFairDealsWithoutADeck(t *testing.T) {
+	steps := map[string]stepFunc{
+		"scholar": script(bidAll(0.8), solve),
+		"frugal":  script(bidAll(0.5), solve),
+		"gambler": script(bidAll(0.3), solve),
+	}
+	card := func(i int) Posting { return post(int64(i+1), 1) }
+	dir := t.TempDir()
+	decked := fairDays(t, filepath.Join(dir, "deck.jsonl"), 3, steps, false, func(_ *Config, f *FairConfig) {
+		f.Deck = make([]Posting, 16)
+		for i := range f.Deck {
+			f.Deck[i] = card(i)
+		}
+	})
+	dealt := fairDays(t, filepath.Join(dir, "deal.jsonl"), 3, steps, false, func(_ *Config, f *FairConfig) {
+		f.Deal = card
+	})
+
+	if n := count(decked, trace.EventBounty, "posted"); n != 16 {
+		t.Fatalf("deck posted %d, want 16", n)
+	}
+	if n := count(dealt, trace.EventBounty, "posted"); n != 24 {
+		t.Fatalf("deal posted %d, want 24", n)
+	}
+
+	// Line for line the same until the deck's last card — the start line
+	// aside, which says "endless" where the deck said 16.
+	start, last := -1, -1
+	for i, l := range decked {
+		var p struct {
+			Action string `json:"action"`
+		}
+		json.Unmarshal(l.Payload, &p)
+		switch {
+		case l.Type == trace.EventEpisode && p.Action == "start":
+			start = i
+		case l.Type == trace.EventBounty && p.Action == "posted":
+			last = i
+		}
+	}
+	if start < 0 || last < 0 {
+		t.Fatalf("no start line (%d) or nothing posted (%d)", start, last)
+	}
+	for i := 0; i <= last; i++ {
+		if i == start {
+			continue
+		}
+		if decked[i].Type != dealt[i].Type || timeless(t, decked[i].Payload) != timeless(t, dealt[i].Payload) {
+			t.Fatalf("line %d differs:\n  %s %s\n  %s %s",
+				i, decked[i].Type, decked[i].Payload, dealt[i].Type, dealt[i].Payload)
+		}
+	}
+	var opening struct {
+		Deck any `json:"deck"`
+	}
+	if err := json.Unmarshal(dealt[start].Payload, &opening); err != nil {
+		t.Fatal(err)
+	}
+	if opening.Deck != "endless" {
+		t.Fatalf("dealt start line's deck = %v, want endless", opening.Deck)
 	}
 }

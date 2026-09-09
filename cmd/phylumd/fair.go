@@ -183,9 +183,16 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 
 	// One card per posting hour per day: the deck is sized by the calendar,
 	// not by a flag, because the office cannot post more often than it opens.
-	deck := simDeck(opt.seed, len(fairPostMinutes)*opt.days, notes)
+	// A week with no closing day has no calendar to size it by, so it deals
+	// the same cards one at a time, for as long as it runs.
+	endless := opt.days == 0
+	var deck []orchestrator.Posting
+	if !endless {
+		deck = simDeck(opt.seed, len(fairPostMinutes)*opt.days, notes)
+	}
 	fcfg := orchestrator.FairConfig{
 		Deck:        deck,
+		Deal:        func(i int) orchestrator.Posting { return simCard(opt.seed, i, notes) },
 		PostMinutes: fairPostMinutes,
 		WindowTicks: 3, // 30 simulated minutes to bid
 		MaxReopens:  3,
@@ -308,13 +315,19 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8143\n", tw.Path())
 	fmt.Printf("join it live:  phylumctl join <guest.py>   (the door is on %s)\n", opt.listen)
 	fmt.Printf("leave it live: phylumctl leave <name>       (a guest goes with what it has)\n")
-	fmt.Printf("seed %d, %d bounties posted on the hour 09:00–16:00, 30-minute bid windows — the office opens\n\n",
-		opt.seed, len(deck))
+	if endless {
+		fmt.Printf("seed %d, a bounty posted on the hour 09:00–16:00, 30-minute bid windows, no closing day — the office opens\n\n",
+			opt.seed)
+	} else {
+		fmt.Printf("seed %d, %d bounties posted on the hour 09:00–16:00, 30-minute bid windows — the office opens\n\n",
+			opt.seed, len(deck))
+	}
 
 	rep, err := town.Run(ctx, tw, m, people, town.Config{
 		TickMinutes: 10,
 		Interval:    opt.tick,
 		Days:        opt.days,
+		Endless:     endless,
 		StartMinute: 7 * 60,
 		// The stub, and only the stub — the town's rule, unchanged by the
 		// money next door.
@@ -359,8 +372,13 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 			st.Agent, st.Attempts, st.Solved, st.Earned, st.Burned, fate)
 	}
 	fmt.Printf("─────────────────────────────────────────────────────────────────────\n")
-	fmt.Printf("%d of %d posted, %d shelved for want of anyone at the board · unranked by design\n",
-		frep.Posted, len(deck), frep.Shelved)
+	if endless {
+		fmt.Printf("%d posted, no closing day, %d shelved for want of anyone at the board · unranked by design\n",
+			frep.Posted, frep.Shelved)
+	} else {
+		fmt.Printf("%d of %d posted, %d shelved for want of anyone at the board · unranked by design\n",
+			frep.Posted, len(deck), frep.Shelved)
+	}
 	fmt.Printf("%d meetings, %d lines said, %d evening reflections — the town went on being a town\n",
 		rep.Meetings, rep.Utterances, rep.Thoughts)
 	fmt.Printf("conservation: %s\n", frep.Conservation)
