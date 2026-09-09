@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -514,6 +515,113 @@ func TestViewerCountsAStayAsMoneyGone(t *testing.T) {
 
 	if v.Town == nil || v.Town.Stays != 2 {
 		t.Errorf("town stays = %+v, want 2", v.Town)
+	}
+}
+
+// The fair's office is unranked, and the viewer rebuilds the ladder from the
+// trace rather than copying one — so the rule that only the sitting's cards
+// are scored has to hold here on its own. One agent wins at the office and
+// sits five ranked cards across two tiers, the first of them lost: the
+// office win must not reach the ladder, the five sittings must, and enough
+// of them to cross the ladder's gates, so the row comes out ranked with an
+// efficiency — which is what tells this fair apart from the sim's tallies.
+func TestViewerRanksOnlyTheSitting(t *testing.T) {
+	var lines []trace.Line
+	sitting := map[int64]bool{}
+	at := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+	add := func(typ trace.EventType, payload map[string]any) {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at = at.Add(time.Second)
+		lines = append(lines, trace.Line{Seq: int64(len(lines) + 1), Type: typ, Time: at, Payload: raw})
+	}
+	sit := func(typ trace.EventType, payload map[string]any) {
+		add(typ, payload)
+		sitting[lines[len(lines)-1].Seq] = true
+	}
+
+	add(trace.EventAgent, map[string]any{"action": "spawned", "agent": "vigil", "grant": 500})
+	add(trace.EventEpisode, map[string]any{"action": "start", "track": "fair"})
+	add(trace.EventTown, map[string]any{"action": "founded", "town": "Ashmere",
+		"places":    []map[string]any{{"id": "office", "kind": "building"}, {"id": "lane", "kind": "street"}},
+		"residents": []map[string]any{{"id": "vigil"}}})
+	sit(trace.EventAgent, map[string]any{"action": "enrolled", "agent": "vigil"})
+	// The office card: won and solved, and worth nothing on the ladder.
+	add(trace.EventBounty, map[string]any{"action": "posted", "id": "x", "generator": "arith", "seed": 7, "tier": 1, "max_payout": 60, "reserve": 6})
+	add(trace.EventBid, map[string]any{"bounty": "x", "agent": "vigil", "price": 40})
+	add(trace.EventBounty, map[string]any{"action": "awarded", "id": "x", "winner": "vigil", "price": 40,
+		"book": []map[string]any{{"agent": "vigil", "price": 40}}})
+	add(trace.EventBounty, map[string]any{"action": "solved", "id": "x", "agent": "vigil", "payout": 40, "burned": 6})
+	// Five sittings of one ranked card each, tiers 2,1,2,1,2; the first lost.
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("s%d", i)
+		tier := 2 - i%2
+		sit(trace.EventBounty, map[string]any{"action": "posted", "id": id, "generator": "oracle", "seed": 9 + i, "tier": tier, "max_payout": 120, "reserve": 12, "ranked": true})
+		sit(trace.EventEpisode, map[string]any{"action": "sitting", "day": i, "clock": "17:00", "tick": 60 * i, "cards": []string{id}, "sitters": []string{"vigil"}})
+		sit(trace.EventBid, map[string]any{"bounty": id, "agent": "vigil", "price": 80})
+		sit(trace.EventBounty, map[string]any{"action": "awarded", "id": id, "winner": "vigil", "price": 80,
+			"book": []map[string]any{{"agent": "vigil", "price": 80}}})
+		if i == 1 {
+			sit(trace.EventBounty, map[string]any{"action": "failed", "id": id, "agent": "vigil", "burned": 12})
+		} else {
+			sit(trace.EventBounty, map[string]any{"action": "solved", "id": id, "agent": "vigil", "payout": 80, "burned": 12})
+		}
+	}
+	add(trace.EventEpisode, map[string]any{"action": "end"})
+
+	v, err := BuildView("sitting.jsonl", lines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Unranked() {
+		t.Error("a fair with a sitting in its record must not read as unranked")
+	}
+	if v.Town == nil || v.Town.Sittings != 5 || v.Town.Dealt != 5 {
+		t.Errorf("town sittings/dealt = %+v, want 5/5", v.Town)
+	}
+	// The office's counts are the office's: a card dealt at the sitting was
+	// not posted at the board, and winning it took no standing there.
+	if v.Town.Bounties != 1 || v.Town.Awards != 1 {
+		t.Errorf("town posted/won at the office = %d/%d, want 1/1", v.Town.Bounties, v.Town.Awards)
+	}
+	if len(v.Ladder) != 1 {
+		t.Fatalf("ladder = %+v, want vigil's one row", v.Ladder)
+	}
+	row := v.Ladder[0]
+	if row.Agent != "vigil" || row.Attempts != 5 || row.Successes != 4 || row.Earned != 320 || row.Burned != 60 {
+		t.Errorf("ladder row = %+v, want the five sittings and none of the office's win", row)
+	}
+	if !row.Ranked || row.Efficiency == 0 {
+		t.Errorf("ladder row = %+v, want ranked with an efficiency: the sitting is scored, unlike the office", row)
+	}
+	// Both kinds of card are on the page; only the sitting's say so.
+	if b := v.Bounty("x"); b == nil || b.Ranked {
+		t.Errorf("office card = %+v, want present and unranked", b)
+	}
+	if b := v.Bounty("s1"); b == nil || !b.Ranked {
+		t.Errorf("sitting card = %+v, want present and ranked", b)
+	}
+	// Money is untouched by ranking: the office win still paid.
+	if a := v.Agent("vigil"); a == nil || a.Earned != 360 || a.Burned != 66 {
+		t.Errorf("vigil = %+v, want 360 earned, 66 burned", a)
+	}
+
+	// The same week with the sitting lines taken out is the fair as it was:
+	// unranked, with no ladder at all.
+	var quiet []trace.Line
+	for _, l := range lines {
+		if !sitting[l.Seq] {
+			quiet = append(quiet, l)
+		}
+	}
+	q, err := BuildView("quiet.jsonl", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !q.Unranked() || len(q.Ladder) != 0 || q.Town.Sittings != 0 {
+		t.Errorf("fair without a sitting: unranked=%v ladder=%+v town=%+v", q.Unranked(), q.Ladder, q.Town)
 	}
 }
 

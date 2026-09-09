@@ -23,7 +23,8 @@
 // Against a running phylumd -fair (same -addr; the fair's door):
 //
 //	phylumctl join <guest.py>       seat a guest in the week that is already
-//	                                 running — it lands on the next tick
+//	                                 running — it lands on the next tick;
+//	                                 -ranked enrols it for the daily sitting
 //	phylumctl leave <name>          take a guest out of the running week with
 //	                                 what it has — it goes on the next tick
 package main
@@ -85,7 +86,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  phylumctl run [-seed n] [-rounds n] [-detach]")
 	fmt.Fprintln(os.Stderr, "  phylumctl tail")
 	fmt.Fprintln(os.Stderr, "  phylumctl status")
-	fmt.Fprintln(os.Stderr, "  phylumctl join <guest.py>")
+	fmt.Fprintln(os.Stderr, "  phylumctl join [-ranked] <guest.py>")
 	fmt.Fprintln(os.Stderr, "  phylumctl leave <name>")
 	fmt.Fprintln(os.Stderr, "\nthe last six take -addr (default "+defaultAddr+") and talk to a running phylumd; join and leave talk to one running -fair")
 }

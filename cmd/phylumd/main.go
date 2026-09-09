@@ -46,6 +46,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -83,6 +84,7 @@ func main() {
 	stall := flag.Int64("stall", 0, "fair: put a stall up for sale at the office at this many credits — a pitch on the town square, assigned by the office and drawn on the map for the rest of the record; 0 sells none")
 	checkpointPath := flag.String("checkpoint", "", "fair: write the world down to this `path` after every tick — the books beside it as <path>.db — so a killed daemon can pick the week up with -resume; empty writes nothing")
 	resume := flag.Bool("resume", false, "fair: pick the week up from -checkpoint instead of starting one: same flags, the same trace continued from the tick the record names")
+	ranked := flag.String("ranked", "", "fair: `names` enrolled for ranked work, comma-separated — the cast's (scholar, frugal, gambler) or a -guest's; each is dealt the sitting at 17:00 wherever it stands, and what it wins there goes on the ladder")
 	book := flag.String("book", "sealed", "fair: what each bidder is told of the auction book with its result — sealed (your ask, the clearing price, the winner, the head-count) or open (every name and every ask)")
 	days := flag.Int("days", 1, "town, fair: how many simulated days to run; 0 is no closing day at all — the world runs until the daemon is interrupted")
 	tick := flag.Duration("tick", 700*time.Millisecond, "town: wall clock per ten simulated minutes")
@@ -158,7 +160,7 @@ func main() {
 		imported: *imported, listen: *listen,
 		post: *post, window: *window, runFor: *runFor, deck: *deck,
 		days: *days, tick: *tick, guests: guests, lodgers: lodgers, tiebreak: *tiebreak, book: *book, notebook: ledger.Credits(*notebook), stall: ledger.Credits(*stall),
-		checkpoint: *checkpointPath, resume: *resume,
+		checkpoint: *checkpointPath, resume: *resume, ranked: names(*ranked),
 		serve: *serve, agents: agents, serveListen: *serveListen, serveModel: *serveModel,
 		serveLocked: *serveLocked, serveSite: *serveSite, serveInsecureTools: *serveInsecureTools,
 	}
@@ -215,6 +217,10 @@ type options struct {
 	// from the founding. Both are fair things, refused elsewhere.
 	checkpoint string
 	resume     bool
+	// ranked names who sits for ranked work, in the order typed. A fair
+	// thing, refused elsewhere; refused with -resume too, because the
+	// checkpoint carries the enrolment already.
+	ranked []string
 
 	// serve runs built agents instead of a world: no board, no ladder, no
 	// containers. agents are spec files to run from boot; serveListen is where
@@ -266,6 +272,18 @@ const (
 	serviceAccounts = "phylum-accounts.db"
 	serviceAgents   = "phylum-agents.db"
 )
+
+// names splits a comma-separated flag into the names it holds, blanks
+// dropped, so "a, b" and "a,b" and "" read the way they were meant.
+func names(list string) []string {
+	var out []string
+	for _, n := range strings.Split(list, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
 
 func run(ctx context.Context, log *slog.Logger, opt options) error {
 	// A guest is a fair thing: the demo and the sim have no map for a body to
@@ -319,6 +337,12 @@ func run(ctx context.Context, log *slog.Logger, opt options) error {
 	}
 	if opt.checkpoint != "" && len(opt.lodgers) > 0 {
 		return fmt.Errorf("-checkpoint does not carry a lodger: the service that answers for one is not written down; drop -lodger")
+	}
+	if len(opt.ranked) > 0 && !opt.fair {
+		return fmt.Errorf("-ranked belongs to the fair; run it with -fair")
+	}
+	if opt.resume && len(opt.ranked) > 0 {
+		return fmt.Errorf("-resume carries the enrolment the checkpoint names; drop -ranked, or knock with phylumctl join -ranked")
 	}
 	// The service is not a track: it runs built agents and no world at all,
 	// so every flag that shapes a world is refused alongside it.

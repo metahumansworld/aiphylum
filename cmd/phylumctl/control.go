@@ -243,6 +243,7 @@ func fail(err error) {
 func join(args []string) {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
 	addr := fs.String("addr", defaultAddr, "phylumd control address")
+	ranked := fs.Bool("ranked", false, "enrol the guest for ranked work: it sits the fair's daily sitting wherever it stands, and what it wins there goes on the ladder")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
 		usage()
@@ -254,15 +255,24 @@ func join(args []string) {
 		os.Exit(1)
 	}
 	var out struct {
-		ID    string `json:"id"`
-		Day   int    `json:"day"`
-		Clock string `json:"clock"`
+		ID     string `json:"id"`
+		Day    int    `json:"day"`
+		Clock  string `json:"clock"`
+		Ranked bool   `json:"ranked"`
 	}
-	if err := call("POST", *addr, "/v1/guests", map[string]string{"path": path}, &out); err != nil {
+	body := map[string]any{"path": path}
+	if *ranked {
+		body["ranked"] = true
+	}
+	if err := call("POST", *addr, "/v1/guests", body, &out); err != nil {
 		fmt.Fprintf(os.Stderr, "phylumctl: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("%s joined the fair on day %d at %s\n", out.ID, out.Day, out.Clock)
+	fmt.Printf("%s joined the fair on day %d at %s", out.ID, out.Day, out.Clock)
+	if out.Ranked {
+		fmt.Printf(", enrolled for the sitting")
+	}
+	fmt.Println()
 }
 
 // leave takes a guest out of a running fair by name. The daemon decides

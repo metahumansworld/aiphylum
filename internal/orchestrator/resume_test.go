@@ -31,9 +31,6 @@ func TestFairResumesFromACheckpoint(t *testing.T) {
 		"gambler": script(bidAll(0.3), solve),
 	}
 	const days, at = 3, 163 // day 2, 10:10: a window open on the ten o'clock card, bids in it
-	dir := t.TempDir()
-	m, people := town.AshmereFair()
-	ocfg := Config{StepTimeout: 10 * time.Second, Dust: 10}
 	fcfg := func() FairConfig {
 		deck := make([]Posting, 8*days)
 		for i := range deck {
@@ -44,8 +41,38 @@ func TestFairResumesFromACheckpoint(t *testing.T) {
 			WindowTicks: 3, MaxReopens: 3, Office: "office", Notebook: 300,
 		}
 	}
+	r := resumedWeek(t, fcfg, steps, days, at, nil)
+	st := r.state
+	if len(st.Windows) == 0 || len(st.Board) == 0 || len(st.Memos)+len(st.Pending) == 0 || len(st.Owned["frugal"]) == 0 {
+		t.Fatalf("a dull checkpoint proves little: windows %d, board %d, memos %d, pending %d, owned %v",
+			len(st.Windows), len(st.Board), len(st.Memos), len(st.Pending), st.Owned)
+	}
+	r.sameTail(t)
+	r.sameChronicle(t)
+}
 
-	// The unbroken week, checkpointed at tick `at`.
+// resumed is one week run twice: whole, and again from a checkpoint taken
+// at tick `at` — the trace of each, the state that crossed, and the two
+// chronicles, for the tests to compare however they need.
+type resumed struct {
+	all, got   []trace.Line // the unbroken week; the resumed run's own file
+	seq        int64        // the unbroken trace's line count at the checkpoint
+	at         int
+	state      FairState
+	rep1, rep2 FairReport
+}
+
+// resumedWeek runs the week both ways. The state goes through JSON, as the
+// daemon carries it; the books are copied at the same boundary; the resumed
+// run's roster comes from the state and not from AddAgent. enrol names who
+// sits for ranked work on the unbroken run — the resumed run learns it from
+// the state, or the state did not carry it.
+func resumedWeek(t *testing.T, fcfg func() FairConfig, steps map[string]stepFunc, days, at int, enrol []string) resumed {
+	t.Helper()
+	dir := t.TempDir()
+	m, people := town.AshmereFair()
+	ocfg := Config{StepTimeout: 10 * time.Second, Dust: 10}
+
 	whole, err := trace.NewWriter(filepath.Join(dir, "whole.jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +85,11 @@ func TestFairResumesFromACheckpoint(t *testing.T) {
 	f, err := NewFair(w.ctx, w.orch, fcfg())
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range enrol {
+		if err := f.Enrol(id); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var saved []byte
 	var savedTown *town.State
@@ -102,14 +134,7 @@ func TestFairResumesFromACheckpoint(t *testing.T) {
 	if err := json.Unmarshal(saved, &st); err != nil {
 		t.Fatal(err)
 	}
-	if len(st.Windows) == 0 || len(st.Board) == 0 || len(st.Memos)+len(st.Pending) == 0 || len(st.Owned["frugal"]) == 0 {
-		t.Fatalf("a dull checkpoint proves little: windows %d, board %d, memos %d, pending %d, owned %v",
-			len(st.Windows), len(st.Board), len(st.Memos), len(st.Pending), st.Owned)
-	}
 
-	// The same week again from the boundary: the books are the copy, the
-	// trace is a fresh file, the roster comes from the state and not from
-	// AddAgent.
 	again, err := trace.NewWriter(filepath.Join(dir, "again.jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -139,23 +164,33 @@ func TestFairResumesFromACheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return resumed{all: all, got: got, seq: seq, at: at, state: st, rep1: rep1, rep2: rep2}
+}
 
+// sameTail: the resumed run wrote exactly what the unbroken fair wrote from
+// the checkpoint on, after one "resumed" line.
+func (r resumed) sameTail(t *testing.T) {
+	t.Helper()
 	key := func(l trace.Line) string { return string(l.Type) + " " + timeless(t, l.Payload) }
-	tail := all[seq:]
-	if len(got) != len(tail)+1 {
-		t.Fatalf("resumed run wrote %d lines, the unbroken tail is %d (+1 for the resumed line)", len(got), len(tail))
+	tail := r.all[r.seq:]
+	if len(r.got) != len(tail)+1 {
+		t.Fatalf("resumed run wrote %d lines, the unbroken tail is %d (+1 for the resumed line)", len(r.got), len(tail))
 	}
-	if key(got[0]) != `episode {"action":"resumed","tick":163,"track":"fair"}` {
-		t.Fatalf("first resumed line = %s", key(got[0]))
+	if want := fmt.Sprintf(`episode {"action":"resumed","tick":%d,"track":"fair"}`, r.at); key(r.got[0]) != want {
+		t.Fatalf("first resumed line = %s", key(r.got[0]))
 	}
-	for i, l := range got[1:] {
+	for i, l := range r.got[1:] {
 		if key(l) != key(tail[i]) {
 			t.Fatalf("line %d after the resume differs\n  resumed:  %s\n  unbroken: %s", i+1, key(l), key(tail[i]))
 		}
 	}
+}
 
-	// And the chronicle agrees at the end: every standing the same, the
-	// tallies carried across the boundary included.
+// sameChronicle: every standing the same at the end, the tallies carried
+// across the boundary included.
+func (r resumed) sameChronicle(t *testing.T) {
+	t.Helper()
+	rep1, rep2 := r.rep1, r.rep2
 	if len(rep2.Standings) != len(rep1.Standings) {
 		t.Fatalf("resumed chronicle has %d standings, unbroken %d", len(rep2.Standings), len(rep1.Standings))
 	}

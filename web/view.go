@@ -77,6 +77,11 @@ type TownInfo struct {
 	Awards   int
 	// Stays counts the times somebody paid to keep standing at the board.
 	Stays int
+	// Sittings counts the ranked rounds held, and Dealt the cards they put
+	// up: the fair's one ranked thing, so a page can say the fair was
+	// ranked at the sitting and nowhere else.
+	Sittings int
+	Dealt    int
 }
 
 // The tracks a trace can come from. Benchmark and sim share one currency and
@@ -175,6 +180,11 @@ type BountyView struct {
 	// for generated supply. An imported bounty's result counts on the ladder,
 	// so the page says where it came from and lets the reader discount it.
 	Suite string
+
+	// Ranked marks a card the fair dealt at its sitting: the one kind of
+	// fair bounty whose result reaches the ladder. Office cards leave it
+	// false, and on the fair track only a ranked card is scored.
+	Ranked bool
 
 	Status   string // open, solved, failed, voided, no bids
 	SolvedBy string
@@ -330,6 +340,10 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				if round > v.Episode.Rounds {
 					v.Episode.Rounds = round
 				}
+			case "sitting":
+				if v.Town != nil {
+					v.Town.Sittings++
+				}
 			case "end":
 				v.Episode.Conservation = str("conservation")
 			}
@@ -343,7 +357,7 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					ID: id, Generator: str("generator"), Seed: num("seed"),
 					Tier: int(num("tier")), MaxPayout: credits("max_payout"),
 					Reserve: credits("reserve"), Status: "open",
-					Judged: boolean("judged"), Suite: str("suite"),
+					Judged: boolean("judged"), Suite: str("suite"), Ranked: boolean("ranked"),
 				}
 				v.Bounties = append(v.Bounties, b)
 				v.bountyByID[id] = b
@@ -351,8 +365,15 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 					Seq: l.Seq, Round: round, Action: "posted",
 					Detail: fmt.Sprintf("tier %d, max payout %d, reserve %d", b.Tier, b.MaxPayout, b.Reserve),
 				})
+				// The office's count and the sitting's are kept apart, because
+				// the page says "posted at the office — you had to be standing
+				// there", and a sitting card was dealt to people who were not.
 				if v.Town != nil {
-					v.Town.Bounties++
+					if b.Ranked {
+						v.Town.Dealt++
+					} else {
+						v.Town.Bounties++
+					}
 				}
 				if b.Judged {
 					b.History[len(b.History)-1].Detail += " — judged against a hidden rubric, unranked"
@@ -360,13 +381,16 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				if b.Suite != "" {
 					b.History[len(b.History)-1].Detail += " — imported from " + b.Suite + ", ranked with an asterisk"
 				}
+				if b.Ranked {
+					b.History[len(b.History)-1].Detail += " — dealt at the sitting, ranked"
+				}
 			case "awarded":
 				if b == nil {
 					continue
 				}
 				winner := str("winner")
 				awardee[id] = winner
-				if v.Town != nil {
+				if v.Town != nil && !b.Ranked {
 					v.Town.Awards++
 				}
 				if a := v.agentByID[winner]; a != nil {
@@ -445,8 +469,10 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 				// on any track. The viewer rebuilds the ladder from scratch
 				// rather than copying one, so the rule has to be restated
 				// here or the rebuild would quietly invent a ranking the
-				// orchestrator refused to produce.
-				if !b.Judged {
+				// orchestrator refused to produce. The fair's rule too: an
+				// office card is a schedule, and only the sitting's cards
+				// are scored.
+				if scored(v, b) {
 					ladder.Record(rating.Attempt{
 						Agent: agent, Bounty: id, Tier: b.Tier,
 						Earned: payout, Burned: burned, Success: true, Time: l.Time,
@@ -476,7 +502,7 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 						Outcome: "failed", Reason: reason, Burned: burned,
 					})
 				}
-				if !b.Judged {
+				if scored(v, b) {
 					ladder.Record(rating.Attempt{
 						Agent: agent, Bounty: id, Tier: b.Tier,
 						Burned: burned, Success: false, Time: l.Time,
@@ -617,11 +643,15 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 
 	v.Ladder = ladder.Board(v.Episode.End.Add(time.Second))
 	v.Asterisked = asterisked
-	if v.Episode.Track == TrackSim || v.Episode.Track == TrackFair {
+	if v.Episode.Track == TrackSim {
 		// The sim's numbers are a chronicle, not a score. The rows survive —
 		// they are what happened — but nothing here is ranked, because who was
 		// idle when a bounty appeared is luck, and luck does not sort. The
-		// fair sharpens that: who was *standing at the office* is a schedule.
+		// fair sharpens that — who was *standing at the office* is a
+		// schedule — and answers it differently: its office rows never
+		// reach this ladder at all, and what does reach it was dealt to
+		// everyone enrolled at once, so those rows are ranked as the
+		// arena's are.
 		for i := range v.Ladder {
 			v.Ladder[i].Ranked = false
 			v.Ladder[i].Efficiency = 0
@@ -630,7 +660,17 @@ func BuildView(path string, lines []trace.Line) (*View, error) {
 	return v, nil
 }
 
-// Unranked reports whether this view's track forbids a ranking.
+// scored reports whether a bounty's result belongs on the ladder: never a
+// judged one, and on the fair track only a card the sitting dealt.
+func scored(v *View, b *BountyView) bool {
+	if b.Judged {
+		return false
+	}
+	return v.Episode.Track != TrackFair || b.Ranked
+}
+
+// Unranked reports whether this view has no ranking to show: the sim never
+// does, and a fair with no sitting in its record has none either.
 func (v *View) Unranked() bool {
-	return v.Episode.Track == TrackSim || v.Episode.Track == TrackFair
+	return v.Episode.Track == TrackSim || (v.Episode.Track == TrackFair && len(v.Ladder) == 0)
 }

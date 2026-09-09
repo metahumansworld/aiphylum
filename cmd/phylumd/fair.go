@@ -28,6 +28,7 @@ import (
 	"github.com/metahumansworld/soscitea/internal/ledger"
 	"github.com/metahumansworld/soscitea/internal/orchestrator"
 	"github.com/metahumansworld/soscitea/internal/proxy"
+	"github.com/metahumansworld/soscitea/internal/rating"
 	"github.com/metahumansworld/soscitea/internal/service"
 	"github.com/metahumansworld/soscitea/internal/town"
 	"github.com/metahumansworld/soscitea/internal/trace"
@@ -209,6 +210,13 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		fcfg.Tie = auction.ByLot
 		fcfg.LotSalt = uint64(opt.seed)
 	}
+	// The sitting is always on the calendar — five o'clock, after the last
+	// window has closed and before the tavern — and held only when someone
+	// is enrolled: a week nobody sits writes the week it always wrote.
+	fcfg.Sitting = &orchestrator.SittingConfig{
+		Minute: sittingMinute, Cards: 2,
+		Deal: func(i int) orchestrator.Posting { return sitCard(opt.seed, i) },
+	}
 	var fair *orchestrator.Fair
 	if cp != nil {
 		fair, err = orchestrator.ResumeFair(ctx, w.orch, fcfg, cp.Fair)
@@ -217,6 +225,15 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}
 	if err != nil {
 		return err
+	}
+	// Enrolment, once everyone the flags named is seated: a name here is
+	// the cast's or a guest's, and a name nobody holds is refused rather
+	// than kept for later.
+	for _, id := range opt.ranked {
+		if err := fair.Enrol(id); err != nil {
+			return fmt.Errorf("-ranked: %w", err)
+		}
+		fmt.Printf("  ~ %-8s enrolled for ranked work — sits at %s wherever it stands\n", id, town.HHMM(sittingMinute))
 	}
 
 	// The checkpoint, if one was asked for: after every tick, the books
@@ -277,6 +294,16 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 				} else {
 					rep.ID = p.ID
 					came = append(came, p)
+					if req.ranked {
+						// Seated either way; the enrolment is the part
+						// that could still be refused, and the reply says
+						// which happened.
+						if err := fair.Enrol(p.ID); err != nil {
+							rep.Err = fmt.Sprintf("%s joined, but: %v", p.ID, err)
+						} else {
+							rep.Ranked = true
+						}
+					}
 				}
 				req.reply <- rep
 			default:
@@ -313,7 +340,7 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}
 
 	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8143\n", tw.Path())
-	fmt.Printf("join it live:  phylumctl join <guest.py>   (the door is on %s)\n", opt.listen)
+	fmt.Printf("join it live:  phylumctl join [-ranked] <guest.py>   (the door is on %s)\n", opt.listen)
 	fmt.Printf("leave it live: phylumctl leave <name>       (a guest goes with what it has)\n")
 	if endless {
 		fmt.Printf("seed %d, a bounty posted on the hour 09:00–16:00, 30-minute bid windows, no closing day — the office opens\n\n",
@@ -381,9 +408,58 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	}
 	fmt.Printf("%d meetings, %d lines said, %d evening reflections — the town went on being a town\n",
 		rep.Meetings, rep.Utterances, rep.Thoughts)
+	if frep.Sittings > 0 {
+		printSitting(frep)
+	}
 	fmt.Printf("conservation: %s\n", frep.Conservation)
 	fmt.Printf("\ntrace: %s (replayable; inspect with phylumctl)\n", tw.Path())
 	return nil
+}
+
+// sittingMinute is five o'clock: the last office window of the day has
+// closed by half past four, and the tavern is not until seven.
+const sittingMinute = 17 * 60
+
+// sitCard is card i of the sitting's own supply: the two keyed generators
+// turn about, the tier advancing a rank per pair, so the ladder's second
+// gate — two tiers attempted — is reachable inside a week. Never the brief:
+// a judged card is refused at the table. The seeds sit past 9,000 in the
+// episode's own block, so a sitting card and an office card of the same
+// seed cannot be dealt in the same week.
+// ponytail: the block is 10,000 wide, so after 9,000 office cards (some
+// 375 days at eight a day) the two supplies would meet; widen the stride
+// in simCard and here together if a fair ever runs that long.
+func sitCard(seed int64, i int) orchestrator.Posting {
+	return orchestrator.Posting{
+		Generator:    []string{"arith", "oracle"}[i%2],
+		Seed:         seed*10_000 + 9_000 + int64(i),
+		Tier:         (i/2)%3 + 1,
+		WallClockSec: 20,
+	}
+}
+
+// printSitting is the sitting's book, apart from the standings: the ladder
+// the ranked cards built, in the arena's columns, and the count of what
+// was dealt. The office's line above stays "unranked by design" — the
+// office still is.
+func printSitting(frep orchestrator.FairReport) {
+	fmt.Printf("── the sitting: %d held, %d cards dealt, %d withdrawn ─────────────────────\n",
+		frep.Sittings, frep.Dealt, frep.Withdrawn)
+	fmt.Printf("%-4s %-9s %8s %9s %6s %8s %8s %11s\n",
+		"#", "agent", "attempts", "successes", "tiers", "earned", "burned", "efficiency")
+	rank := 0
+	for _, row := range frep.Ladder {
+		pos, eff := "—", "unranked"
+		if row.Ranked {
+			rank++
+			pos, eff = fmt.Sprint(rank), fmt.Sprintf("%.2f", row.Efficiency)
+		}
+		fmt.Printf("%-4s %-9s %8d %9d %6d %8d %8d %11s\n",
+			pos, row.Agent, row.Attempts, row.Successes, row.Tiers, row.Earned, row.Burned, eff)
+	}
+	fmt.Printf("─────────────────────────────────────────────────────────────────────\n")
+	fmt.Printf("ranked at the sitting only; the ladder's gates are the arena's — %d attempts across %d tiers\n",
+		rating.DefaultConfig().MinAttempts, rating.DefaultConfig().MinTiers)
 }
 
 // pitchesOn is where bought stalls go: the south row of the place, west to

@@ -41,6 +41,32 @@ func TestDoorHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("a ranked knock carries the enrolment both ways", func(t *testing.T) {
+		go func() {
+			req := <-joins
+			if !req.ranked {
+				t.Errorf("town was handed an unranked knock")
+			}
+			req.reply <- doorReply{ID: "pilgrim", Day: 1, Clock: "09:00", Ranked: true}
+		}()
+		rec := join(`{"path":"/x/pilgrim.py","ranked":true}`)
+		var rep doorReply
+		json.Unmarshal(rec.Body.Bytes(), &rep)
+		if rec.Code != http.StatusOK || !rep.Ranked {
+			t.Fatalf("got %d %s", rec.Code, rec.Body)
+		}
+		go func() {
+			req := <-joins
+			if req.ranked {
+				t.Errorf("a plain knock arrived ranked")
+			}
+			req.reply <- doorReply{ID: "quiet", Day: 1, Clock: "09:10"}
+		}()
+		if rec := join(`{"path":"/x/quiet.py"}`); !strings.Contains(rec.Body.String(), `"id":"quiet"`) || strings.Contains(rec.Body.String(), "ranked") {
+			t.Fatalf("got %d %s", rec.Code, rec.Body)
+		}
+	})
+
 	t.Run("the town refuses a seat", func(t *testing.T) {
 		go func() {
 			req := <-joins

@@ -39,7 +39,7 @@ function reduce(upto) {
     };
     if (e.type === "bounty") {
       switch (e.action) {
-        case "posted": money("posted", [], { bounty: e.id, tier: e.tier, generator: e.generator, max: e.max_payout }); break;
+        case "posted": money("posted", [], { bounty: e.id, tier: e.tier, generator: e.generator, max: e.max_payout, ranked: !!e.ranked }); break;
         case "awarded": money("awarded", [e.winner], { bounty: e.id, price: e.price }); break;
         case "no_bids": money("nobids", [], { bounty: e.id }); break;
         case "solved": money("solved", [e.agent], { bounty: e.id, payout: e.payout }); break;
@@ -50,6 +50,11 @@ function reduce(upto) {
     }
     if (e.type === "bid") { money("bid", [e.agent], { bounty: e.bounty, price: e.price }); continue; }
     if (e.type === "note" && e.note === "bounty shelved") { money("shelved", [], { bounty: e.bounty, windows: e.windows }); continue; }
+    // The sitting: the fair's one ranked round, called by an episode line
+    // that names the sitters, and cleared by a note per card left open.
+    if (e.type === "episode" && e.action === "sitting") { money("sitting", e.sitters || [], { cards: e.cards || [] }); continue; }
+    if (e.type === "agent" && e.action === "enrolled") { money("enrolled", [e.agent]); continue; }
+    if (e.type === "note" && e.note === "sitting card withdrawn") { money("withdrawn", [], { bounty: e.bounty }); continue; }
     if (e.type === "agent" && e.action === "bankrupt") { money("bankrupt", [e.agent]); continue; }
     if (e.type === "credit" && e.action === "stayed") { money("stayed", [e.agent], { place: e.place, ticks: e.ticks, amount: e.amount }); continue; }
     if (e.type === "credit" && e.action === "bought") {
@@ -1040,7 +1045,12 @@ function render(s) {
     reflected: (f) => `<b>${esc(names.get(f.who[0]))}</b> slept on it — <q>${esc(f.text)}</q>`,
     // The fair's lines. An agent is a resident here, so the same name map
     // serves; the id is the fallback for a stream this page has never met.
-    posted: (f) => `the office pinned <b>${esc(f.bounty)}</b> to the board — ${esc(f.generator)}, tier ${esc(f.tier)}, up to ${esc(f.max)} credits`,
+    posted: (f) => (f.ranked ? `the sitting dealt <b>${esc(f.bounty)}</b>` : `the office pinned <b>${esc(f.bounty)}</b> to the board`) +
+      ` — ${esc(f.generator)}, tier ${esc(f.tier)}, up to ${esc(f.max)} credits`,
+    enrolled: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> enrolled for ranked work — the sitting, wherever it stands`,
+    sitting: (f) => `the sitting was called: ${esc(f.cards.length)} ${f.cards.length === 1 ? "card" : "cards"} for ` +
+      f.who.map((id) => `<b>${esc(names.get(id) || id)}</b>`).join(", "),
+    withdrawn: (f) => `<b>${esc(f.bounty)}</b> was withdrawn — a sitting card is never left for the office`,
     bid: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> bid ${esc(f.price)} on <b>${esc(f.bounty)}</b>`,
     awarded: (f) => `<b>${esc(names.get(f.who[0]) || f.who[0])}</b> won <b>${esc(f.bounty)}</b> at ${esc(f.price)} credits`,
     nobids: (f) => `the window on <b>${esc(f.bounty)}</b> closed with nobody at the board`,
