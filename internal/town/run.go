@@ -17,6 +17,13 @@ type Config struct {
 	Days        int           // stop after this many simulated days
 	StartMinute int           // minute of the day the world wakes at
 
+	// Endless is a run with no closing day: Days is not consulted, and the
+	// world goes on until the context is cancelled, which is the only way
+	// out. It is its own field rather than a meaning of Days == 0 because
+	// every other zero here means the default, and a zero-value Config that
+	// never returned would hang whatever called it.
+	Endless bool
+
 	// Mind is the thinking half, and it is optional. Nil is the town exactly
 	// as it was before mind.go existed — schedules, walls and a clock, no
 	// model and no calls. Set it and the same residents keep a memory stream,
@@ -135,7 +142,9 @@ func (c Config) withDefaults() Config {
 	if c.Interval <= 0 {
 		c.Interval = 700 * time.Millisecond
 	}
-	if c.Days <= 0 {
+	if c.Endless {
+		c.Days = 0 // no closing day, and the record says so
+	} else if c.Days <= 0 {
 		c.Days = 1
 	}
 	return c
@@ -146,7 +155,7 @@ type Report struct {
 	Ticks    int
 	Days     int
 	Meetings int
-	Reason   string // "day complete" or "interrupted"
+	Reason   string // "day complete" or "interrupted" — only ever the latter with no closing day
 
 	// The thinking half's tally — all zero on a run with no Mind. The token
 	// figures are what the provider reported, not what the town guessed.
@@ -202,7 +211,9 @@ type resident struct {
 //	said     one turn of a conversation; only with a mind
 //	reflected what a resident decides the day was; only with a mind
 //	tick     the clock and every resident's position, once per tick
-//	closed   the run is over
+//	closed   the run is over — after its last day, or when it was told to
+//	         stop; a run with no closing day writes days 0 and stops only
+//	         when told
 func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Config) (Report, error) {
 	cfg = cfg.withDefaults()
 	mn := cfg.Mind
@@ -303,7 +314,7 @@ func Run(ctx context.Context, tw *trace.Writer, m Map, people []Persona, cfg Con
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
-	for t := first; t <= total; t++ {
+	for t := first; cfg.Endless || t <= total; t++ {
 		select {
 		case <-ctx.Done():
 			rep.Reason = "interrupted"

@@ -30,13 +30,19 @@ func runTown(ctx context.Context, tw *trace.Writer, opt options) error {
 		fmt.Printf("  + %-8s %s\n", p.Name, p.Blurb)
 	}
 	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8142\n", tw.Path())
-	fmt.Printf("the day starts at 07:00 — %d day(s), ten minutes per tick, %s of wall clock each\n\n",
-		opt.days, opt.tick)
+	if opt.days == 0 {
+		fmt.Printf("the day starts at 07:00 — no closing day, ten minutes per tick, %s of wall clock each\n\n",
+			opt.tick)
+	} else {
+		fmt.Printf("the day starts at 07:00 — %d day(s), ten minutes per tick, %s of wall clock each\n\n",
+			opt.days, opt.tick)
+	}
 
 	cfg := town.Config{
 		TickMinutes: 10,
 		Interval:    opt.tick,
 		Days:        opt.days,
+		Endless:     opt.days == 0,
 		StartMinute: 7 * 60,
 	}
 	if opt.mind {

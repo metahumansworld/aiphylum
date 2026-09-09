@@ -81,15 +81,17 @@ The phases, from here:
   needs work that can be handed over before it can be paid for.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
-  Three pieces of it are built and read at the foot of this page: a guest
+  Four pieces of it are built and read at the foot of this page: a guest
   joins a fair that is already running, through the same control plane the
   live daemon serves, and is seated on the next tick; the fair writes
   itself down at every tick boundary, so a daemon killed mid-week resumes
   from the record and finishes the week in the same trace, one line apart
-  from a week never killed; and a guest leaves mid-week through the same
+  from a week never killed; a guest leaves mid-week through the same
   door, with its balance frozen where it stood and its name off the roster
-  from the next tick. What arriving late costs, and what leaving early
-  costs, are read there too.
+  from the next tick; and `-days 0` is a world with no closing day, which
+  runs until the daemon is told to stop, closes properly when it is, and
+  is picked up from its record with nothing to run out against. What
+  arriving late costs, and what leaving early costs, are read there too.
 
 Two things do not change on the way there. Credits stay a unit of metered
 spend, never money anyone withdraws — building an empire in the world cashes
@@ -2249,6 +2251,151 @@ than buried.
   retirement, and retirement is the books' word for bankrupt. And not the
   live daemon: it has no town and no tick to take anyone off, and its own
   roster is the persistence question this piece did not need to answer.
+
+- **A world with no closing day.** Every week so far has had a last day,
+  because every run has: `-days` sized the deck, the deck sized the loop,
+  and the loop's last tick wrote the closed line and the table. Always on
+  is the first word of Phase 4, and the three pieces before this one are
+  what it needs — a door in, a door out, and a record the world survives
+  by — so this is the fourth: `-days 0` is a world with no closing day.
+  It runs until the daemon is interrupted, and then it closes the way an
+  interrupted week always has, with the closed line, the table and the
+  books; and because it writes itself down, `-resume` picks it up and
+  runs on, with nothing to run out against.
+
+  Two things had a closing day built into them, and each gets one field. The
+  town's loop ran to a last tick computed from `Days`, so `town.Config`
+  gains `Endless`, and the loop's condition becomes `Endless || t <= total`:
+  the context is checked at the top of every tick as it always was, so a
+  stop still lands on a tick boundary and the closed line still says
+  `interrupted`, with `days` 0, which no finished week ever wrote. It is its
+  own field rather than a meaning of `Days == 0` because every other zero in
+  that struct means the default, and a zero-value `Config` that never
+  returned would hang whatever called it; `withDefaults` maps the pair the
+  one way, `Endless` to `Days` 0. The fair's supply was a `Deck` sized by
+  the calendar, one card per posting hour per day, and a week with no
+  calendar has nothing to size it by. So `FairConfig` gains `Deal`, a
+  function from a card's index to the card, read only when there is no
+  `Deck`; the office's posting loop asks a `card(i)` helper, which deals
+  when there is no deck and reports the end of one when there is, and
+  nothing else in the fair knows the difference — `f.next` counts on, the
+  checkpoint carries it, and a resumed world deals card `Next` next. The
+  daemon's `simDeck` was already card `i` as a function of the seed and the
+  index and nothing else; it is split into `simCard` and a loop over it, so
+  a dealt week is the sized week's deck by construction, and the test says
+  so rather than assumes it. The start line's `deck` key says `endless`
+  where a sized week says its count — a word, so no reader takes it for no
+  cards; the viewer reads neither key. The banner says `a bounty posted on
+  the hour ... no closing day`, and the closing line `N posted, no closing
+  day` where a week says `N of M posted`. The town mode takes the same
+  `-days 0` and says so in its own banner, so the flag means one thing in
+  both. And the daemon now closes on `SIGTERM` as well as an interrupt, one
+  identifier in the `signal.NotifyContext` call: a world meant to run under
+  a supervisor is stopped by the supervisor's signal, and a stop that
+  skipped the closed line and the table would be a kill, not a close. The
+  checkpoint changes nothing: the record carries `Days` 0 and `matches`
+  compares it, and a resumed endless week is refused a `-days 7`, as a
+  resumed week always refused a different one.
+
+  Two tests are the seam. `TestEndlessRunsUntilTold` runs the town with
+  `Endless` set and `Days` set to one, which must not be believed, and
+  pulls the plug from the `Visit` hook at tick 216, a day and a half in:
+  the report says 216 ticks, `interrupted`, 0 days, and the closed line
+  says the same. `TestFairDealsWithoutADeck` runs three days twice, once
+  with a two-day deck of sixteen cards and once dealing the same cards
+  with no deck: the deck posts sixteen, the dealer twenty-four, and the
+  two traces are line for line the same through the deck's last card,
+  the start line aside, which says `endless` where the deck said 16 —
+  the third day is where a deck posts nothing and a dealer goes on. Each
+  was mutated once to see it fail: the loop without `Endless` stops at
+  tick zero, and a dealer that stops at twenty posts twenty. Checked by
+  hand on the spectator's page served with `-follow`, on the run below:
+  it rebuilds all 5,794 lines from event zero to `day 12 · 07:00`, 88
+  posted and 128 won, and neither the `days` 0 in the closed line nor
+  the `endless` in the start line troubles it, since it reads neither.
+
+  The week is `make fair-pilgrim-endless`: the pilgrim's week with
+  `-days 0`, written down as it goes, interrupted about seventeen minutes
+  in, and picked up from its record for a hundred seconds more before it
+  is interrupted again. Wall clock decides where the stops fall, so like
+  the newcomer's week and the resumed one this is a week the seed does
+  not pin, and the reading is of the run read. What the seed does pin is
+  everything before the first stop, and the first check is that: the
+  first 3,806 lines are the pinned week under the mask, line for line —
+  the whole seven days, up to the tick a week closes on, with the closed
+  line and the end line simply not written — save the start line, which
+  reads `endless` where the pinned week's reads 56. Then day eight begins
+  at line 3,807, tick 1,009, 07:10, with nothing to mark it, and at nine
+  the office posts `b0057`, a brief, and goes on posting eight a day.
+
+  The interrupt fell on tick 1,442, day eleven at 07:20, and the run
+  closed the way a week does: the closed line, 1,442 ticks,
+  `interrupted`, `days` 0; the table; the books at drift zero. Ten days
+  had posted eighty cards, eight of them shelved. The scholar had taken
+  45 and solved 45, 71,957 earned and 3,932 burned, 71,025 in the purse;
+  the pilgrim 26 of 26, 6,567 earned and 572 burned, 7,995; the gambler
+  its one of fifty, bankrupt at half past twelve on day three; and the
+  frugal nothing at all, alive at its 2,500 with forty bids in eleven
+  days and not one of them the lowest — twenty-nine went to the pilgrim,
+  eleven to the gambler. 337,660 minted, which is the pinned week's
+  310,440 and 27,220 more, and the 27,220 is days eight, nine and ten's
+  payouts to the credit, 25,063 of it the scholar's and 2,157 the
+  pilgrim's.
+
+  What a world with no closing day settles into is a rhythm, and the
+  eight days after the gambler's fall show it. The office posts eight
+  cards a day from three generators in turn, so its hourly schedule
+  comes round every third day: days four, seven and ten open on an
+  arith, five, eight and eleven on a brief, six and nine on an oracle.
+  From day four the pilgrim bids on every arith and wins every one, 22
+  of 22, under the frugal each time; the scholar bids on every card it is at
+  the board for and wins every oracle and every brief among them, 19 and
+  18, and loses every arith to the pilgrim. The card it is not at the
+  board for is the noon one: it leaves the office on the stroke of
+  twelve and is in the library from ten past, while the pilgrim is still
+  at the board when the card lands, so on the days the noon card is an
+  arith — four, seven and ten — the pilgrim
+  takes it and nothing is shelved, and on the days it is a brief or an
+  oracle it is the day's shelved card, `b0036`, `b0044`, `b0060`,
+  `b0068`, `b0084`. So the winners come round with the schedule, scholar
+  five and pilgrim three on the arith days, four and three on the brief
+  days, five and two on the oracle days, and only the prices move,
+  because the tier climbs a rank every nine cards and nine does not
+  divide twenty-four: the three arith days paid out 10,335, 10,147 and
+  9,371. The town underneath does not even have the three-day period.
+  Fifty-one meetings, 153 lines said and eight reflections, every day of
+  the eleven alike, because the residents' day is the same day and the
+  stub says the same things at the same meetings: the town went on being
+  a town, and it will go on being exactly this one.
+
+  The second leg is the piece's own proof. The record stood at tick
+  1,442, seq 5,298 — the tick frame the interrupt landed after — so
+  `-resume` cut the closed and end lines, wrote `resumed` at 5,299 in
+  their place, and tick 1,443 followed at 07:30, at line 5,300, as if
+  nothing had happened; the banner said `picked up at tick 1442 (day
+  11, 07:20)` and the pilgrim was re-spawned from its recorded path. A
+  hundred seconds is 142 ticks, and the second interrupt fell on tick
+  1,584, which is day twelve at 07:00 exactly: the run closed again on
+  88 posted and nine shelved, the scholar at 49 of 49 and 74,091, the
+  pilgrim at 29 of 29 and 8,664, 341,732 minted and drift zero, and the
+  checkpoint stands at tick 1,584, seq 5,792, ready to be picked up
+  again. The trace is 5,794 lines and 2.5 MB against the week's 1.6,
+  the record 415 KB with a 324 KB copy of the ledger beside it, and all
+  three grow with every tick that is ever run, which is the ceiling the
+  last paragraph names.
+
+  What is deliberately not here. Not a trace that rotates: a world with
+  no closing day writes one file that grows without bound, and the
+  spectator's page reads all of it from event zero, which is a ceiling
+  the reading above puts a number on and this piece does not raise. Not
+  a lighter checkpoint: the record copies the whole ledger every tick,
+  and the copy grows with the world, for the same reason. Not a stop verb
+  on the door: the daemon is stopped the way daemons are, by a signal,
+  and the door stays what it is, a way in and a way out for guests. Not
+  the live daemon: it has no town and no tick, and its own always-on is
+  a service that answers, which it already does. And not returning: a
+  world that never closes is the world a guest would come back to, and
+  the name and the wallet are still where the leave entry left them.
 
 ## Layout
 

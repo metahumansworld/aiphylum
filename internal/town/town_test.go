@@ -189,3 +189,55 @@ func TestRunDeterministicWithMind(t *testing.T) {
 		}
 	}
 }
+
+// TestEndlessRunsUntilTold: a run with no closing day does not stop at the
+// end of a day, or of a week — it stops when its context is cancelled, and
+// then the way an interrupted run does, with a closed line that says so and
+// gives no day count. The Visit hook is the clock the test reads: it pulls
+// the plug after a day and a half, well past the tick a one-day run ends at.
+func TestEndlessRunsUntilTold(t *testing.T) {
+	m, people := Ashmere()
+	tw, err := trace.NewWriter(filepath.Join(t.TempDir(), "endless.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	const stopAt = 216 // one day is 144 ticks
+	ticks := 0
+	cfg := fast
+	cfg.Days, cfg.Endless = 1, true // Days is set and must not be believed
+	cfg.Visit = func(day, mod int, clock string, _ []Standing) error {
+		ticks++
+		if ticks == stopAt {
+			cancel()
+		}
+		return nil
+	}
+	rep, err := Run(ctx, tw, m, people, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if rep.Ticks != stopAt || rep.Reason != "interrupted" || rep.Days != 0 {
+		t.Fatalf("report = %d ticks, %q, %d days; want %d, interrupted, 0", rep.Ticks, rep.Reason, rep.Days, stopAt)
+	}
+	lines, err := trace.Read(tw.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last struct {
+		Action string  `json:"action"`
+		Ticks  int     `json:"ticks"`
+		Days   float64 `json:"days"`
+		Reason string  `json:"reason"`
+	}
+	if err := json.Unmarshal(lines[len(lines)-1].Payload, &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.Action != "closed" || last.Ticks != stopAt || last.Days != 0 || last.Reason != "interrupted" {
+		t.Fatalf("closed line = %+v; want closed at %d, days 0, interrupted", last, stopAt)
+	}
+}

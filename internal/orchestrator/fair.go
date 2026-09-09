@@ -42,9 +42,15 @@ import (
 type FairConfig struct {
 	// Deck is the supply, posted one card per posting minute in order.
 	Deck []Posting
+	// Deal, read only with no Deck, is a supply with no end: card i is made
+	// when its posting minute comes, and there is no last one. A week with
+	// a closing day sizes its Deck by the calendar; a week with none has no
+	// calendar to size it by, so it deals as it goes.
+	Deal func(i int) Posting
 	// PostMinutes are the minutes of the simulated day a deck card is posted
 	// at — the office keeps posting hours the way the bakery keeps baking
-	// hours. A minute that ticks past with the deck exhausted posts nothing.
+	// hours. A minute that ticks past with the deck exhausted posts nothing;
+	// a supply that deals is never exhausted.
 	PostMinutes []int
 	// WindowTicks is how many town ticks an auction accepts bids before it
 	// awards to the lowest ask it has. Zero means the default 3.
@@ -198,6 +204,9 @@ func NewFair(ctx context.Context, o *Orchestrator, cfg FairConfig) (*Fair, error
 		"deck": len(cfg.Deck), "post_minutes": cfg.PostMinutes,
 		"window_ticks": cfg.WindowTicks, "office": cfg.Office,
 	}
+	if cfg.Deck == nil && cfg.Deal != nil {
+		start["deck"] = "endless" // a word, so no reader takes it for no cards
+	}
 	if cfg.Tie == auction.ByLot {
 		start["tiebreak"] = "lot"
 		start["lot_salt"] = strconv.FormatUint(cfg.LotSalt, 10)
@@ -327,10 +336,13 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 	// Posting hours. The office posts whether or not anyone is standing in
 	// it — a bounty nobody was there to see is the point, not a bug.
 	for _, pm := range f.cfg.PostMinutes {
-		if pm != mod || f.next >= len(f.cfg.Deck) {
+		if pm != mod {
 			continue
 		}
-		p := f.cfg.Deck[f.next]
+		p, ok := f.card(f.next)
+		if !ok {
+			continue
+		}
 		f.next++
 		if _, err := f.o.postBounty(p); err != nil {
 			return err
@@ -470,6 +482,18 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 	}
 	f.windows = kept
 	return nil
+}
+
+// card is the supply's i'th card, dealt if there is no deck, and false only
+// past the end of a deck — a supply that deals has no end.
+func (f *Fair) card(i int) (Posting, bool) {
+	if f.cfg.Deck == nil && f.cfg.Deal != nil {
+		return f.cfg.Deal(i), true
+	}
+	if i >= len(f.cfg.Deck) {
+		return Posting{}, false
+	}
+	return f.cfg.Deck[i], true
 }
 
 // attempt runs one won bounty end to end, synchronously: the fair's clock is

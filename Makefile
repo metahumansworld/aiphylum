@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day fair-chandler-7day fair-chandler-unsold-7day fair-pilgrim-7day fair-newcomer-7day fair-pilgrim-checkpoint-7day fair-pilgrim-resumed-7day fair-pilgrim-leaves-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day fair-chandler-7day fair-chandler-unsold-7day fair-pilgrim-7day fair-newcomer-7day fair-pilgrim-checkpoint-7day fair-pilgrim-resumed-7day fair-pilgrim-leaves-7day fair-pilgrim-endless test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -394,6 +394,26 @@ fair-pilgrim-leaves-7day:
 	  n=$$((n+1)); if [ $$n -ge 30 ]; then echo "fair-pilgrim-leaves-7day: the door never answered"; kill $$!; wait; exit 1; fi; sleep 1; \
 	done; wait
 
+## fair-pilgrim-endless: the pilgrim week with no closing day. -days 0 sizes
+## no deck: the office deals the same cards the sized deck would have held,
+## one an hour, for as long as the daemon runs, and the run ends only when
+## it is told to. Here it is told after about seventeen minutes of wall clock
+## — a little into the eleventh day; the trace says which tick — with an
+## interrupt, which closes the run the way the last day of a week does: the
+## closed line, the table, the books. It is written down the whole way, so
+## the second leg picks it up with -resume and runs on for another hundred
+## seconds before it is interrupted again — the world outlived the process
+## that was running it, and there was no closing day for it to run out
+## against. A built binary, because go run keeps a signal to itself.
+fair-pilgrim-endless:
+	$(GO) build -o bin/phylumd ./cmd/phylumd
+	rm -f fair-pilgrim-endless.json fair-pilgrim-endless.json.db fair-pilgrim-endless-trace.jsonl
+	bin/phylumd -fair -seed 1 -days 0 -tick 700ms -guest examples/guests/pilgrim.py -checkpoint fair-pilgrim-endless.json -trace fair-pilgrim-endless-trace.jsonl & \
+	sleep 1010; kill -INT $$!; wait $$!
+	@echo "stopped: the trace has $$(wc -l < fair-pilgrim-endless-trace.jsonl | tr -d ' ') lines, the checkpoint stands at tick $$(sed -E 's/.*"Tick":([0-9]+).*/\1/' fair-pilgrim-endless.json) — and the world is picked up from it"
+	bin/phylumd -fair -seed 1 -days 0 -tick 700ms -checkpoint fair-pilgrim-endless.json -resume -trace fair-pilgrim-endless-trace.jsonl & \
+	sleep 100; kill -INT $$!; wait $$!
+
 ## fair-stallholder-7day: the first thing bought that the town can see.
 ## examples/guests/stallholder.py is examples/guests/scribe.py plus exactly
 ## one behaviour — it buys a stall when the office has one and the purse holds
@@ -440,7 +460,7 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode appends to it and never truncates it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl fair-badger-7day-trace.jsonl fair-badger-swapped-7day-trace.jsonl fair-badgers-7day-trace.jsonl fair-lodger-7day-trace.jsonl fair-diarist-7day-trace.jsonl fair-diarist-unsold-7day-trace.jsonl fair-stallholder-7day-trace.jsonl fair-stallholder-unsold-7day-trace.jsonl fair-chandler-7day-trace.jsonl fair-chandler-unsold-7day-trace.jsonl fair-pilgrim-7day-trace.jsonl fair-newcomer-7day-trace.jsonl fair-pilgrim-checkpoint-7day-trace.jsonl fair-pilgrim-resumed-7day-trace.jsonl fair-pilgrim-leaves-7day-trace.jsonl fair-pilgrim-checkpoint.json fair-pilgrim-checkpoint.json.db fair-pilgrim-resumed.json fair-pilgrim-resumed.json.db
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl fair-badger-7day-trace.jsonl fair-badger-swapped-7day-trace.jsonl fair-badgers-7day-trace.jsonl fair-lodger-7day-trace.jsonl fair-diarist-7day-trace.jsonl fair-diarist-unsold-7day-trace.jsonl fair-stallholder-7day-trace.jsonl fair-stallholder-unsold-7day-trace.jsonl fair-chandler-7day-trace.jsonl fair-chandler-unsold-7day-trace.jsonl fair-pilgrim-7day-trace.jsonl fair-newcomer-7day-trace.jsonl fair-pilgrim-checkpoint-7day-trace.jsonl fair-pilgrim-resumed-7day-trace.jsonl fair-pilgrim-leaves-7day-trace.jsonl fair-pilgrim-endless-trace.jsonl fair-pilgrim-checkpoint.json fair-pilgrim-checkpoint.json.db fair-pilgrim-resumed.json fair-pilgrim-resumed.json.db fair-pilgrim-endless.json fair-pilgrim-endless.json.db
 
 ## serve: the service — the builder page and one built agent, from
 ## examples/agents, on 127.0.0.1:8151. Open http://127.0.0.1:8151/ and sign
