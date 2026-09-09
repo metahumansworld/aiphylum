@@ -8,57 +8,90 @@ import (
 	"testing"
 )
 
-// The door's contract: a knock waits for the town, the town's answer is the
-// reply, and a knock after closing time is refused rather than left hanging.
-func TestJoinHandler(t *testing.T) {
+// The door's contract, both ways: a knock waits for the town, the town's
+// answer is the reply, and a knock after closing time is refused rather
+// than left hanging.
+func TestDoorHandler(t *testing.T) {
 	joins := make(chan joinReq)
+	leaves := make(chan leaveReq)
 	done := make(chan struct{})
-	h := joinHandler(joins, done)
+	h := doorHandler(joins, leaves, done)
 
-	knock := func(body string) *httptest.ResponseRecorder {
+	knock := func(method, path, body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/guests", strings.NewReader(body)))
+		h.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
 		return rec
 	}
+	join := func(body string) *httptest.ResponseRecorder { return knock("POST", "/v1/guests", body) }
+	leave := func(id string) *httptest.ResponseRecorder { return knock("DELETE", "/v1/guests/"+id, "") }
 
-	t.Run("the town answers", func(t *testing.T) {
+	t.Run("the town seats", func(t *testing.T) {
 		go func() {
 			req := <-joins
 			if req.path != "/x/pilgrim.py" {
 				t.Errorf("town was handed %q", req.path)
 			}
-			req.reply <- joinReply{ID: "pilgrim", Day: 2, Clock: "14:10"}
+			req.reply <- doorReply{ID: "pilgrim", Day: 2, Clock: "14:10"}
 		}()
-		rec := knock(`{"path":"/x/pilgrim.py"}`)
-		var rep joinReply
+		rec := join(`{"path":"/x/pilgrim.py"}`)
+		var rep doorReply
 		json.Unmarshal(rec.Body.Bytes(), &rep)
 		if rec.Code != http.StatusOK || rep.ID != "pilgrim" || rep.Day != 2 || rep.Clock != "14:10" {
 			t.Fatalf("got %d %s", rec.Code, rec.Body)
 		}
 	})
 
-	t.Run("the town refuses", func(t *testing.T) {
+	t.Run("the town refuses a seat", func(t *testing.T) {
 		go func() {
 			req := <-joins
-			req.reply <- joinReply{Err: "the name is taken"}
+			req.reply <- doorReply{Err: "the name is taken"}
 		}()
-		rec := knock(`{"path":"/x/mira.py"}`)
+		rec := join(`{"path":"/x/mira.py"}`)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "taken") {
 			t.Fatalf("got %d %s", rec.Code, rec.Body)
 		}
 	})
 
 	t.Run("an empty knock", func(t *testing.T) {
-		if rec := knock(`{}`); rec.Code != http.StatusBadRequest {
+		if rec := join(`{}`); rec.Code != http.StatusBadRequest {
+			t.Fatalf("got %d %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("the town lets one out", func(t *testing.T) {
+		go func() {
+			req := <-leaves
+			if req.id != "pilgrim" {
+				t.Errorf("town was handed %q", req.id)
+			}
+			req.reply <- doorReply{ID: "pilgrim", Day: 4, Clock: "09:40", Balance: 1730}
+		}()
+		rec := leave("pilgrim")
+		var rep doorReply
+		json.Unmarshal(rec.Body.Bytes(), &rep)
+		if rec.Code != http.StatusOK || rep.ID != "pilgrim" || rep.Day != 4 || rep.Clock != "09:40" || rep.Balance != 1730 {
+			t.Fatalf("got %d %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("the town refuses to let one out", func(t *testing.T) {
+		go func() {
+			req := <-leaves
+			req.reply <- doorReply{Err: "mira is not a guest"}
+		}()
+		rec := leave("mira")
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "not a guest") {
 			t.Fatalf("got %d %s", rec.Code, rec.Body)
 		}
 	})
 
 	t.Run("after closing time", func(t *testing.T) {
 		close(done)
-		rec := knock(`{"path":"/x/late.py"}`)
-		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "closed") {
-			t.Fatalf("got %d %s", rec.Code, rec.Body)
+		if rec := join(`{"path":"/x/late.py"}`); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "closed") {
+			t.Fatalf("join got %d %s", rec.Code, rec.Body)
+		}
+		if rec := leave("pilgrim"); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "closed") {
+			t.Fatalf("leave got %d %s", rec.Code, rec.Body)
 		}
 	})
 }

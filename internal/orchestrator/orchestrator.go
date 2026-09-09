@@ -103,7 +103,17 @@ type Config struct {
 type Agent struct {
 	ID      string
 	Retired bool
+	// Left is a fair agent that walked out mid-week: the wallet is open
+	// and untouched, the body is off the roster. Set by Fair.Leave, never
+	// by the sim, and carried across a checkpoint with the rest of the
+	// record.
+	Left bool
 }
+
+// gone is an agent no longer at the fair, for whatever reason: bankrupt
+// and retired, or left with its money. Neither is stepped, sold to, or
+// settled again.
+func (a *Agent) gone() bool { return a.Retired || a.Left }
 
 // Posting names one bounty to put on the board.
 type Posting struct {
@@ -505,7 +515,7 @@ func (o *Orchestrator) agent(id string) *Agent {
 func (o *Orchestrator) live() []*Agent {
 	var out []*Agent
 	for _, a := range o.agents {
-		if !a.Retired {
+		if !a.gone() {
 			out = append(out, a)
 		}
 	}

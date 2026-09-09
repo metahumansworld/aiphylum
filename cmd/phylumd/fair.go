@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/metahumansworld/soscitea/internal/auction"
@@ -233,20 +234,24 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		}
 	}
 
-	// The door, open for the whole week. Bound before the run so a busy
-	// port is an error now and not a join that silently never lands; a
-	// second fair on the same machine wants its own -listen. Each knock is
-	// answered on the town's goroutine at the next tick: the filename rules
-	// and the taken map are the same ones boot used, so nothing about a
-	// guest depends on which door they came through. Lodgers do not join
-	// this way — their service exists only when -lodger was passed at boot.
+	// The door, open for the whole week, both ways. Bound before the run so
+	// a busy port is an error now and not a join that silently never
+	// lands; a second fair on the same machine wants its own -listen. Each
+	// knock is answered on the town's goroutine at the next tick: the
+	// filename rules and the taken map are the same ones boot used, so
+	// nothing about a guest depends on which door they came through.
+	// Lodgers do not join this way — their service exists only when
+	// -lodger was passed at boot — and only a guest leaves this way: the
+	// cast, the residents and the lodgers are the week's, not their
+	// author's.
 	joins := make(chan joinReq)
+	leaves := make(chan leaveReq)
 	done := make(chan struct{})
 	ln, err := net.Listen("tcp", opt.listen)
 	if err != nil {
 		return fmt.Errorf("the fair's door (-listen %s): %w", opt.listen, err)
 	}
-	api := &http.Server{Handler: joinHandler(joins, done)}
+	api := &http.Server{Handler: doorHandler(joins, leaves, done)}
 	go api.Serve(ln)
 	defer api.Close()
 	arrive := func(day, mod int, clock string) []town.Persona {
@@ -254,7 +259,7 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		for {
 			select {
 			case req := <-joins:
-				rep := joinReply{Day: day, Clock: clock}
+				rep := doorReply{Day: day, Clock: clock}
 				var p town.Persona
 				gs, err := guestRoster([]string{req.path}, taken)
 				if err == nil {
@@ -272,9 +277,37 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 			}
 		}
 	}
+	// depart is the way out: a name the door admitted, still at the fair.
+	// The fair freezes the wallet and says what is in it; the record stops
+	// naming the file, so a later -resume never looks for a body that is
+	// gone; the name stays taken, because the wallet under it stays.
+	depart := func(day, mod int, clock string) []string {
+		var went []string
+		for {
+			select {
+			case req := <-leaves:
+				rep := doorReply{ID: req.id, Day: day, Clock: clock}
+				i := slices.IndexFunc(admitted, func(g guestRecord) bool { return g.ID == req.id })
+				if i < 0 {
+					rep.Err = fmt.Sprintf("%s is not a guest; only a guest may leave", req.id)
+				} else if bal, err := fair.Leave(ctx, req.id); err != nil {
+					rep.Err = err.Error()
+				} else {
+					rep.Balance = bal
+					admitted = slices.Delete(admitted, i, i+1)
+					went = append(went, req.id)
+					fmt.Printf("left day %d at %s, %s with %d credits\n", day, clock, req.id, bal)
+				}
+				req.reply <- rep
+			default:
+				return went
+			}
+		}
+	}
 
 	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8143\n", tw.Path())
 	fmt.Printf("join it live:  phylumctl join <guest.py>   (the door is on %s)\n", opt.listen)
+	fmt.Printf("leave it live: phylumctl leave <name>       (a guest goes with what it has)\n")
 	fmt.Printf("seed %d, %d bounties posted on the hour 09:00–16:00, 30-minute bid windows — the office opens\n\n",
 		opt.seed, len(deck))
 
@@ -291,8 +324,9 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		// Neither carries money in either direction.
 		Visit: fair.Visit,
 		Hold:  fair.Hold,
-		// And the door: whoever knocked since the last tick.
+		// And the door, both ways: whoever knocked since the last tick.
 		Arrive: arrive,
+		Leave:  depart,
 		// The world written down after each tick, and where to pick it
 		// up from, when either was asked for.
 		Checkpoint: save,
@@ -315,6 +349,8 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		fate := fmt.Sprintf("alive, %d credits", st.Balance)
 		if st.Retired {
 			fate = "☠ bankrupt"
+		} else if st.Left {
+			fate = fmt.Sprintf("left, %d credits", st.Balance)
 		}
 		if len(st.Owned) > 0 {
 			fate += ", owns " + strings.Join(st.Owned, ", ")

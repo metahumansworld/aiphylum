@@ -35,14 +35,14 @@
         <td class="num">{{cr $row.Burned}}</td>
         <td class="num">{{if $row.Ranked}}{{eff $row.Efficiency}}{{else}}unranked{{end}}</td>
         <td class="num">{{if $a}}{{cr $a.Balance}}{{end}}</td>
-        <td>{{if $a}}{{if $a.Bankrupt}}<span class="badge dead">bankrupt</span>{{else}}<span class="badge alive">alive</span>{{end}}{{end}}</td>
+        <td>{{if $a}}{{if $a.Bankrupt}}<span class="badge dead">bankrupt</span>{{else if $a.Left}}<span class="badge gone">left</span>{{else}}<span class="badge alive">alive</span>{{end}}{{end}}</td>
       </tr>
     {{end}}
     </tbody>
   </table>
   {{range .Agents}}{{if not (laddered $ .ID)}}
     <p class="sub">+ <a href="/agent/{{.ID}}">{{.ID}}</a> {{if $.Unranked}}never took an attempt{{else}}never reached the ladder{{end}}
-      {{if .Bankrupt}}<span class="badge dead">bankrupt</span>{{end}}</p>
+      {{if .Bankrupt}}<span class="badge dead">bankrupt</span>{{else if .Left}}<span class="badge gone">left</span>{{end}}</p>
   {{end}}{{end}}
 </section>
 

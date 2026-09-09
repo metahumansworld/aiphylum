@@ -81,12 +81,15 @@ The phases, from here:
   needs work that can be handed over before it can be paid for.
 - **Phase 4 — the open world.** Always on, anyone joins, real models behind
   the metering proxy, and the ladder ranking whoever opts into ranked work.
-  Two pieces of it are built and read at the foot of this page: a guest
+  Three pieces of it are built and read at the foot of this page: a guest
   joins a fair that is already running, through the same control plane the
-  live daemon serves, and is seated on the next tick; and the fair writes
+  live daemon serves, and is seated on the next tick; the fair writes
   itself down at every tick boundary, so a daemon killed mid-week resumes
   from the record and finishes the week in the same trace, one line apart
-  from a week never killed. What arriving late costs is read there too.
+  from a week never killed; and a guest leaves mid-week through the same
+  door, with its balance frozen where it stood and its name off the roster
+  from the next tick. What arriving late costs, and what leaving early
+  costs, are read there too.
 
 Two things do not change on the way there. Credits stay a unit of metered
 spend, never money anyone withdraws — building an empire in the world cashes
@@ -386,10 +389,10 @@ Nine event types:
 | `bounty` | posted, awarded, solved, failed, judged, voided, no_bids |
 | `bid` | a sealed bid, revealed after the award |
 | `credit` | mint, transfer, burn, payout |
-| `agent` | spawned, retired, bankrupt |
+| `agent` | spawned, retired, bankrupt, left |
 | `suite` | an imported benchmark suite and its provenance |
 | `note` | free-form orchestrator annotation |
-| `town` | founded, tick, arrive, depart, met, said, reflected |
+| `town` | founded, joined, left, tick, arrive, depart, met, said, reflected |
 
 One trap worth knowing before you write a reader. A `bounty/awarded` event
 carries the revealed auction book, and that book is produced by marshalling a Go
@@ -2096,6 +2099,156 @@ than buried.
   checkpoint mid-tick: the boundary is the one place the town, the fair and
   the books agree, and a record taken anywhere else would have to say which
   of the three was ahead.
+
+- **A guest leaves with what it has.** The door has opened one way since
+  the newcomer's entry, and the record has carried a gap since the
+  checkpoint's: a body that goes mid-week is a wallet with a balance and a
+  roster without it, and both entries said so and left it. This is the
+  third piece of Phase 4, and it is the door the other way: `phylumctl
+  leave <name>` takes a guest out of a running fair on the next tick, with
+  its balance frozen where it stood, and the cast plays the rest of the
+  week without it.
+
+  The one decision in it is what leaving does to the wallet, and the
+  answer is nothing. Retirement closes an account, and retirement is for
+  the bankrupt: a closed wallet is what `ResumeFair` checks the books
+  against, and a guest that leaves with 5,000 credits is not a guest that
+  went broke. So the wallet stays open and the fair simply never touches
+  it again — `orchestrator.Agent` gains `Left`, the twin of `Retired`, and
+  everything that skipped a retired agent skips a departed one too: the
+  office does not step it, the square does not step it or show its shelf,
+  the bankruptcy sweep passes it by, and `Close` reads its balance the
+  way it reads anyone's. Whatever it had at the tick it left it has at
+  the close, which is the one promise the door makes, and the test pins
+  it. `Fair.Leave` does the rest at the door: refuses a name nobody
+  holds, a bankrupt (there is nothing to leave with) and a name already
+  gone; drops the paid stay, since a body that is not here is not
+  standing anywhere; clears the shelf and bumps the revision, since a
+  stall with no one behind it sells nothing and clearing it is a change
+  the square shows once like any other; writes one `agent` line,
+  `left`, with the balance; and hands the balance back for the door to
+  say. A bid left in an open window is the honest cost of leaving
+  mid-window: it stays in the book as sealed, and if it wins, the award
+  finds nobody to attempt and voids the card with its own reason,
+  `winner left before attempt` — the same path a bankrupt winner takes,
+  and the same loss to everyone at the board.
+
+  The town gets its third inward seam, `town.Config.Leave`, asked once
+  per tick right after `Arrive` and still before anyone moves: it hands
+  back ids, and each one the town is seated under comes off the roster
+  that minute, with one `left` line saying where they stood, and from
+  then on is not walked, held, visited, counted or `met`. No `depart`
+  fires, because the body is not on the street, it is gone. An id nobody
+  is seated under is ignored — the town does not argue with the door. The
+  pairs the departed was in stay in the set until the fold at the end of
+  the tick rebuilds it from who is actually present, which it does every
+  tick anyway; and the memories they made stay in the mind's stream, as a
+  town remembers a face it will not see again. Money-free like the other
+  two: the town learns that somebody went, never what they took.
+
+  The door serves one more route, `DELETE /v1/guests/{id}`, on the same
+  listener, and the two verbs share one wait: hand the knock to the town's
+  goroutine, answer with what the town says on its next tick, refuse
+  after closing time. Only a guest leaves this way. The daemon checks the
+  name against the record of who it admitted — the same list the
+  checkpoint carries — so the cast, the residents and a lodger are
+  refused, because they are the week's and not their author's; a guest
+  that leaves comes off that list, so a later `-resume` never looks for a
+  file for a body that is gone, while the name stays taken, because the
+  wallet under it stays. `phylumctl leave <name>` is the verb; it carries
+  the name and repeats the answer, the day, the minute and the balance.
+  The closing table says `left, N credits` in the fate column, between
+  alive and bankrupt. The spectator's page takes a `left` resident out of
+  the state it rebuilds from event zero, so the walker goes on the next
+  sync and a scrub back puts it back, and the feed line says who left and
+  from where; the agent's badge reads `left` on its own page, and on the
+  overview's table where one is drawn, in the muted ink, because left is
+  neither alive nor dead.
+
+  The week is `make fair-pilgrim-leaves-7day`: the pilgrim's week with
+  the door open, and `phylumctl leave pilgrim` knocked about two minutes
+  in. The tick the knock lands on is wall clock, so like the newcomer's
+  week and the resumed one this is a week the seed does not pin, and the
+  reading is of the run read. A control — the same week with the door
+  left alone — was run beside it, and under the mask it is the pinned week
+  line for line, which is the door doing nothing. In the run read the
+  knock fell on day two at 11:30, tick 171. By then the pilgrim had bid
+  on eight cards and won four, `b0001`, `b0004`, `b0007` and `b0010`,
+  solved all four for 783 and burned 88, and it went from the office at
+  (11, 2) with 2,695 — 2,000 in, 783 earned, 88 burned, the sum the
+  closing table repeats as `left, 2695 credits`. The eleven o'clock card,
+  `b0011`, was open with the scholar's 306 and the gambler's 153 sealed in
+  it and nothing of the pilgrim's, so this run has no voided card: the
+  award went to the gambler at 153 as it does in the control, and the case
+  the test covers — a bid left behind, won, and voided — did not arise in
+  the run read. The first 731 lines are the pinned week's; then the two
+  `left` lines; and from there the trace runs 3,353 lines against 3,808.
+  What the 455 lines short are is exact. Every one of the 837 frames after
+  the leave is the pinned week's frame with the pilgrim taken out and
+  nothing else moved — the other seven walk the same paths to the minute —
+  so what the absence costs the town is talk: 93 meetings fewer, every one
+  of them the pilgrim's and none new in their place; 279 lines of speech
+  gone with them, and 51 more said differently at meetings that still
+  happened, the stub's stream having shifted; six evening reflections
+  fewer and 42 reworded the same way. 264 meetings, 792 lines, 50
+  reflections. What it costs the fair is the pilgrim's other fourteen
+  cards. In the control the pilgrim bids under the frugal on every card
+  the frugal can solve — 48 to its 60, 200 to its 250, 487 to its 608 —
+  and wins eighteen of the week's fifty-six, and the frugal never takes an
+  attempt and closes untouched at 2,500. With the pilgrim gone at 11:30
+  on day two, the fourteen cards it would have won after that go to the
+  frugal, every one, at the frugal's own price: 14 attempted, 14 solved,
+  4,530 earned, 308 burned, 6,722 at the close. The fair mints 903 more
+  for it, 311,343 against 310,440, which is exactly the fourteen prices'
+  difference, 4,530 against the 3,627 the pilgrim would have taken. The
+  one other card the pilgrim had bid on, `b0019`, was the gambler's at 36
+  either way. The scholar and the gambler close as in the control to the
+  credit, 31 of 31 at 47,252 and one of fifty and bankrupt; 56 of 56
+  posted, six shelved; drift zero.
+
+  Five tests are the seam. `TestLeaveRemovesAResident` names a body at
+  tick five and finds its frames stop at four, one `left` line before
+  that tick's frame naming the cell and place of its last frame, and no
+  line of any kind with its name on it after. 
+  `TestLeaveBeforeTickOneIsNeverHavingCome` runs the fair's map with a
+  mind on, once without the guest and once with it founded and gone
+  before tick one, and requires the same stream after the founding, save
+  the one `left` line. `TestLeaveNobodyLeavesTheStreamAlone` is the
+  no-seam control, and names an id the town has never heard of on day
+  one to show the door is not argued with. `TestDoorHandler` knocks both
+  ways and finds the town's answer, its refusal, an empty knock refused,
+  a departure answered with the balance, a departure refused, and closing
+  time refusing both. `TestFairDeparterKeepsItsBalance` is the fair's
+  whole account: a guest bids into an open window, buys a stall and
+  stocks it, and leaves after the third tick with 10 of its 410, which is
+  the dust threshold exactly, the balance the sweep retires anyone still
+  here at, so the sweep passing the departed by is proved and not said;
+  the door refuses a stranger, a second leaving and a bankrupt; the award
+  finds nobody and voids the card for a winner who left; the other agent
+  on the square is never stepped for a shelf with no one behind it; the
+  closing row is marked left with the balance it left with and no
+  attempts after; conservation holds; and the state taken at the door,
+  through JSON and a copy of the books, resumes onto a fresh world and
+  writes the unbroken trace's tail line for line, closing on the same
+  table. Checked by hand against the run
+  below, on the spectator's page served with `-follow`: at the tick the
+  pilgrim goes the roster and the map drop from eight to seven, the feed
+  line reads `Pilgrim left town, from the Bounty Office`, and the
+  pilgrim's own page carries the `left` badge. The overview's table is
+  never drawn on a trace with a town in it, so the web test's small trace
+  gained a third agent that watches both rounds and leaves with its grant,
+  and that is where the table's badge is proved.
+
+  What is deliberately not here. Not returning: the name stays taken and
+  the wallet stays open, which is everything a return would need, and
+  nothing yet writes one. Not a bid withdrawn: the book has no
+  withdrawal, and a bid left behind voids on award like a bankrupt's,
+  which is the cost of leaving mid-window and is read above. Not the
+  cast or a lodger at the door: they are the week's, and the door refuses
+  them by the record of who it admitted. Not a wallet closed: closing is
+  retirement, and retirement is the books' word for bankrupt. And not the
+  live daemon: it has no town and no tick to take anyone off, and its own
+  roster is the persistence question this piece did not need to answer.
 
 ## Layout
 

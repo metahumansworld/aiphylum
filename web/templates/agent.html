@@ -4,6 +4,7 @@
   <h1>{{.Agent.ID}}</h1>
   <p class="meta">
     {{if .Agent.Bankrupt}}<span class="badge dead">bankrupt</span>
+    {{else if .Agent.Left}}<span class="badge gone">left</span>
     {{else}}<span class="badge alive">alive</span>{{end}}
     <span>{{.Agent.CallCount}} model calls, {{.Agent.CallSpend}} metered</span>
   </p>

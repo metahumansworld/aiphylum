@@ -368,7 +368,7 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 			continue
 		}
 		ag := f.o.agent(st.ID)
-		if ag == nil || ag.Retired {
+		if ag == nil || ag.gone() {
 			continue // a resident, or a ghost: the seam names everyone in town
 		}
 		var views []BountyView
@@ -415,7 +415,7 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 			continue
 		}
 		ag := f.o.agent(st.ID)
-		if ag == nil || ag.Retired {
+		if ag == nil || ag.gone() {
 			continue
 		}
 		wares := f.wares(st.ID)
@@ -478,12 +478,19 @@ func (f *Fair) Visit(day, mod int, clock string, standings []town.Standing) erro
 // tracks.
 func (f *Fair) attempt(b *bounty.Bounty, agentID string) error {
 	ag := f.o.agent(agentID)
-	if ag == nil || ag.Retired {
+	if ag == nil || ag.gone() {
+		// Bankrupt since the bid, or walked out with it in the book: no
+		// attempt happened, so no failure is counted. Void, back to the
+		// board. The card is the honest cost of leaving mid-window.
+		reason := "winner retired before attempt"
+		if ag != nil && ag.Left {
+			reason = "winner left before attempt"
+		}
 		if err := f.o.Board.Void(b.ID); err != nil {
 			return err
 		}
 		f.o.traceEvent(trace.EventBounty, map[string]any{
-			"action": "voided", "id": b.ID, "reason": "winner retired before attempt",
+			"action": "voided", "id": b.ID, "reason": reason,
 		})
 		return nil
 	}
@@ -524,7 +531,7 @@ func (f *Fair) Close() (FairReport, error) {
 	rep = FairReport{Ticks: f.tick, Posted: f.posted, Shelved: len(f.shelved), Conservation: con}
 	for _, ag := range f.o.agents {
 		out := *f.stand(ag.ID)
-		out.Retired = ag.Retired
+		out.Retired, out.Left = ag.Retired, ag.Left
 		out.Owned = f.owned[ag.ID]
 		if !out.Retired {
 			if out.Balance, err = f.o.Ledger.Balance(f.settleCtx, ag.ID); err != nil {
@@ -647,7 +654,7 @@ func (f *Fair) wares(to string) []Offer {
 	var out []Offer
 	for _, ag := range f.o.agents {
 		o, ok := f.stock[ag.ID]
-		if !ok || ag.ID == to || ag.Retired {
+		if !ok || ag.ID == to || ag.gone() {
 			continue
 		}
 		out = append(out, o)

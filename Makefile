@@ -5,7 +5,7 @@ ifeq ($(wildcard $(GO)),)
 GO := go
 endif
 
-.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day fair-chandler-7day fair-chandler-unsold-7day fair-pilgrim-7day fair-newcomer-7day fair-pilgrim-checkpoint-7day fair-pilgrim-resumed-7day test vet build clean
+.PHONY: demo demo-imported sim-demo town-demo town-mind fair fair-guest fair-vigil fair-scribe fair-haggle fair-rivals fair-lots fair-hucksters fair-hucksters-lot fair-lone-reader fair-rivals-3day fair-hucksters-3day fair-lone-reader-3day fair-lone-reader-swapped fair-lone-reader-swapped-3day fair-lone-reader-sealed-3day fair-lone-reader-sealed-swapped-3day fair-rivals-7day fair-hucksters-7day fair-peddlers-7day fair-peddlers-sealed-7day fair-costermongers-7day fair-costermongers-sealed-7day fair-higgler-7day fair-higgler-sealed-7day fair-higgler-swapped-7day fair-badger-7day fair-badger-swapped-7day fair-badgers-7day fair-lodger-7day fair-diarist-7day fair-diarist-unsold-7day fair-stallholder-7day fair-stallholder-unsold-7day fair-chandler-7day fair-chandler-unsold-7day fair-pilgrim-7day fair-newcomer-7day fair-pilgrim-checkpoint-7day fair-pilgrim-resumed-7day fair-pilgrim-leaves-7day test vet build clean
 
 ## demo: the whole loop in one command — a seeded multi-round episode with
 ## reference agents on the stub model, ending in the efficiency ladder.
@@ -379,6 +379,21 @@ fair-pilgrim-resumed-7day:
 	@echo "killed: the trace has $$(wc -l < fair-pilgrim-resumed-7day-trace.jsonl | tr -d ' ') lines; the checkpoint's is $$(sed -E 's/.*"Seq":([0-9]+).*/\1/' fair-pilgrim-resumed.json) — the rest is the tick it died in"
 	bin/phylumd -fair -seed 1 -days 7 -tick 700ms -checkpoint fair-pilgrim-resumed.json -resume -trace fair-pilgrim-resumed-7day-trace.jsonl
 
+## fair-pilgrim-leaves-7day: the pilgrim week cut short for the pilgrim.
+## Seated at boot as in fair-pilgrim-7day, it is sent out through phylumctl
+## leave about two minutes in — the second morning, most likely with a bid
+## in an open window; the trace says which tick — and is off the roster
+## from the next tick on, with whatever it had. The cast plays the rest of
+## the week without it; its wallet is not touched again. Wall clock, like
+## the newcomer week: not pinned to its seed alone. The leave retries until
+## the door answers, and a door that never answers fails the week rather
+## than running it whole. Binds -listen (127.0.0.1:8141).
+fair-pilgrim-leaves-7day:
+	$(GO) run ./cmd/phylumd -fair -seed 1 -days 7 -tick 700ms -guest examples/guests/pilgrim.py -trace fair-pilgrim-leaves-7day-trace.jsonl & \
+	sleep 120; n=0; until $(GO) run ./cmd/phylumctl leave pilgrim; do \
+	  n=$$((n+1)); if [ $$n -ge 30 ]; then echo "fair-pilgrim-leaves-7day: the door never answered"; kill $$!; wait; exit 1; fi; sleep 1; \
+	done; wait
+
 ## fair-stallholder-7day: the first thing bought that the town can see.
 ## examples/guests/stallholder.py is examples/guests/scribe.py plus exactly
 ## one behaviour — it buys a stall when the office has one and the purse holds
@@ -425,7 +440,7 @@ build:
 # the only record of a run that cannot be run again, which is the same reason
 # live mode appends to it and never truncates it.
 clean:
-	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl fair-badger-7day-trace.jsonl fair-badger-swapped-7day-trace.jsonl fair-badgers-7day-trace.jsonl fair-lodger-7day-trace.jsonl fair-diarist-7day-trace.jsonl fair-diarist-unsold-7day-trace.jsonl fair-stallholder-7day-trace.jsonl fair-stallholder-unsold-7day-trace.jsonl fair-chandler-7day-trace.jsonl fair-chandler-unsold-7day-trace.jsonl fair-pilgrim-7day-trace.jsonl fair-newcomer-7day-trace.jsonl fair-pilgrim-checkpoint-7day-trace.jsonl fair-pilgrim-resumed-7day-trace.jsonl fair-pilgrim-checkpoint.json fair-pilgrim-checkpoint.json.db fair-pilgrim-resumed.json fair-pilgrim-resumed.json.db
+	rm -f demo-trace.jsonl sim-trace.jsonl imported-trace.jsonl town-trace.jsonl town-mind-trace.jsonl fair-trace.jsonl fair-guest-trace.jsonl fair-vigil-trace.jsonl fair-scribe-trace.jsonl fair-haggle-trace.jsonl fair-rivals-trace.jsonl fair-lots-trace.jsonl fair-hucksters-trace.jsonl fair-hucksters-lot-trace.jsonl fair-lone-reader-trace.jsonl fair-rivals-3day-trace.jsonl fair-hucksters-3day-trace.jsonl fair-lone-reader-3day-trace.jsonl fair-rivals-7day-trace.jsonl fair-hucksters-7day-trace.jsonl fair-peddlers-7day-trace.jsonl fair-peddlers-sealed-7day-trace.jsonl fair-lone-reader-swapped-trace.jsonl fair-lone-reader-swapped-3day-trace.jsonl fair-lone-reader-sealed-3day-trace.jsonl fair-lone-reader-sealed-swapped-3day-trace.jsonl fair-costermongers-7day-trace.jsonl fair-costermongers-sealed-7day-trace.jsonl fair-higgler-7day-trace.jsonl fair-higgler-sealed-7day-trace.jsonl fair-higgler-swapped-7day-trace.jsonl fair-badger-7day-trace.jsonl fair-badger-swapped-7day-trace.jsonl fair-badgers-7day-trace.jsonl fair-lodger-7day-trace.jsonl fair-diarist-7day-trace.jsonl fair-diarist-unsold-7day-trace.jsonl fair-stallholder-7day-trace.jsonl fair-stallholder-unsold-7day-trace.jsonl fair-chandler-7day-trace.jsonl fair-chandler-unsold-7day-trace.jsonl fair-pilgrim-7day-trace.jsonl fair-newcomer-7day-trace.jsonl fair-pilgrim-checkpoint-7day-trace.jsonl fair-pilgrim-resumed-7day-trace.jsonl fair-pilgrim-leaves-7day-trace.jsonl fair-pilgrim-checkpoint.json fair-pilgrim-checkpoint.json.db fair-pilgrim-resumed.json fair-pilgrim-resumed.json.db
 
 ## serve: the service — the builder page and one built agent, from
 ## examples/agents, on 127.0.0.1:8151. Open http://127.0.0.1:8151/ and sign
