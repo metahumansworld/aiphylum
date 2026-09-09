@@ -53,7 +53,6 @@ func guestRoster(paths []string, taken map[string]bool) ([]guest, error) {
 		if taken[id] {
 			return nil, fmt.Errorf("guest %s: the name %q is already taken in this world", p, id)
 		}
-		taken[id] = true
 		abs, err := filepath.Abs(p)
 		if err != nil {
 			return nil, err
@@ -61,6 +60,11 @@ func guestRoster(paths []string, taken map[string]bool) ([]guest, error) {
 		if _, err := os.Stat(abs); err != nil {
 			return nil, fmt.Errorf("guest %s: %w", p, err)
 		}
+		// Taken only once the file is real: at boot a refusal is fatal
+		// either way, but through the door a mistyped path is answered and
+		// the fair goes on, and the corrected knock a moment later must not
+		// find the name burned by the mistake.
+		taken[id] = true
 		out = append(out, guest{id: id, path: abs})
 	}
 	return out, nil

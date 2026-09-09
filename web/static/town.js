@@ -81,6 +81,13 @@ function reduce(upto) {
           r.path = f.path || null; // absent in traces written before routes existed
         }
         break;
+      case "joined":
+        // A body that came after the founding. Kept in the state like the
+        // founders so a scrub back before the join takes it off the map
+        // again: the walkers are synced from the state, never appended to.
+        s.residents.set(e.resident, { name: e.name, x: e.x, y: e.y, place: e.place, activity: "", path: null });
+        s.feed.push({ clock: e.clock, day: e.day, kind: "joined", who: [e.resident], place: e.place, name: e.name });
+        break;
       case "arrive":
         s.feed.push({ clock: e.clock, day: e.day, kind: "arrive", who: [e.resident], place: e.place, activity: e.activity });
         break;
@@ -948,9 +955,33 @@ function syncBuilt(s) {
   }
 }
 
+// The roster is the state's, not the founding's: a resident the state knows
+// and the map does not gets a body, in the look after everyone before them
+// (the founders' looks are exactly the ones buildMap gave them); a body the
+// state no longer knows — a scrub back before they joined — comes off.
+function syncWalkers(s) {
+  for (const id of [...walkers.keys()]) {
+    if (s.residents.has(id)) continue;
+    document.getElementById("w-" + id)?.remove();
+    walkers.delete(id); names.delete(id); colorOf.delete(id);
+  }
+  let i = 0;
+  for (const [id, r] of s.residents) {
+    if (!walkers.has(id)) {
+      const look = lookFor(i);
+      names.set(id, r.name);
+      colorOf.set(id, look.tunic);
+      mapEl.firstChild.insertAdjacentHTML("beforeend", `<g class="walker" id="w-${esc(id)}">${person(r, look)}</g>`);
+      walkers.set(id, { gx: r.x + 0.5, gy: r.y + 0.5, q: [], face: 1, phase: 0, row: -1 });
+    }
+    i++;
+  }
+}
+
 function render(s) {
   if (!s.founded) return;
   if (!mapEl.firstChild) buildMap(s.founded);
+  syncWalkers(s);
   syncBuilt(s);
 
   clockEl.textContent = s.clock ? `day ${s.day} · ${s.clock}` : "day 1 · 07:00";
@@ -991,6 +1022,9 @@ function render(s) {
   // sentences and only glances left for the time.
   const feedLine = {
     met: (f, place) => `<b>${esc(names.get(f.who[0]))}</b> ran into <b>${esc(names.get(f.who[1]))}</b> at ${esc(place)}`,
+    // The name rides on the line itself: a scrub back can drop the newcomer
+    // from the name map while the feed still remembers the day they came.
+    joined: (f, place) => `<b>${esc(f.name)}</b> came to town and took a room at ${esc(place)}`,
     arrive: (f, place) => `<b>${esc(names.get(f.who[0]))}</b> arrived at ${esc(place)}` +
       (f.activity ? ` — ${esc(f.activity)}` : ""),
     said: (f) => `<b>${esc(names.get(f.who[0]))}</b>, to ${esc(names.get(f.who[1]))}: ` +

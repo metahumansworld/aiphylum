@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -75,7 +77,9 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 	if err != nil {
 		return err
 	}
-	for _, g := range guests {
+	// admit is the one way in, at boot or mid-week: the process, the
+	// wallet, the body. The same three whichever door a guest came through.
+	admit := func(g guest, when string) (town.Persona, error) {
 		w.steps.Register(g.id, orchestrator.ProcessAgent{
 			Cmd: []string{"python3", g.path},
 			// The guest's own directory joins the path so it can split
@@ -84,13 +88,20 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 			Env: map[string]string{"PYTHONPATH": sdkDir + ":" + filepath.Dir(g.path)},
 		})
 		if err := w.orch.AddAgent(ctx, g.id, guestGrant); err != nil {
-			return err
+			return town.Persona{}, err
 		}
 		name := strings.ToUpper(g.id[:1]) + g.id[1:]
-		people = append(people, town.Guest(g.id, name,
-			"a guest at the Bell & Bushel; not of the cast — brought to the fair by its author"))
-		fmt.Printf("  + %-8s %5d credits — a guest, come for the board (yours: %s)\n",
-			g.id, guestGrant, filepath.Base(g.path))
+		fmt.Printf("  + %-8s %5d credits — a guest, %s for the board (yours: %s)\n",
+			g.id, guestGrant, when, filepath.Base(g.path))
+		return town.Guest(g.id, name,
+			"a guest at the Bell & Bushel; not of the cast — brought to the fair by its author"), nil
+	}
+	for _, g := range guests {
+		p, err := admit(g, "come")
+		if err != nil {
+			return err
+		}
+		people = append(people, p)
 	}
 
 	// Lodger intake. The flag brought the spec; the service brings the
@@ -160,7 +171,48 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		return err
 	}
 
+	// The door, open for the whole week. Bound before the run so a busy
+	// port is an error now and not a join that silently never lands; a
+	// second fair on the same machine wants its own -listen. Each knock is
+	// answered on the town's goroutine at the next tick: the filename rules
+	// and the taken map are the same ones boot used, so nothing about a
+	// guest depends on which door they came through. Lodgers do not join
+	// this way — their service exists only when -lodger was passed at boot.
+	joins := make(chan joinReq)
+	done := make(chan struct{})
+	ln, err := net.Listen("tcp", opt.listen)
+	if err != nil {
+		return fmt.Errorf("the fair's door (-listen %s): %w", opt.listen, err)
+	}
+	api := &http.Server{Handler: joinHandler(joins, done)}
+	go api.Serve(ln)
+	defer api.Close()
+	arrive := func(day, mod int, clock string) []town.Persona {
+		var came []town.Persona
+		for {
+			select {
+			case req := <-joins:
+				rep := joinReply{Day: day, Clock: clock}
+				var p town.Persona
+				gs, err := guestRoster([]string{req.path}, taken)
+				if err == nil {
+					p, err = admit(gs[0], fmt.Sprintf("joined day %d at %s,", day, clock))
+				}
+				if err != nil {
+					rep.Err = err.Error()
+				} else {
+					rep.ID = p.ID
+					came = append(came, p)
+				}
+				req.reply <- rep
+			default:
+				return came
+			}
+		}
+	}
+
 	fmt.Printf("\nwatch it live: phylumctl serve -follow %s 127.0.0.1:8143\n", tw.Path())
+	fmt.Printf("join it live:  phylumctl join <guest.py>   (the door is on %s)\n", opt.listen)
 	fmt.Printf("seed %d, %d bounties posted on the hour 09:00–16:00, 30-minute bid windows — the office opens\n\n",
 		opt.seed, len(deck))
 
@@ -177,7 +229,10 @@ func runFair(ctx context.Context, log *slog.Logger, l *ledger.Ledger, board *bou
 		// Neither carries money in either direction.
 		Visit: fair.Visit,
 		Hold:  fair.Hold,
+		// And the door: whoever knocked since the last tick.
+		Arrive: arrive,
 	})
+	close(done) // the week is over; a knock from here on is refused
 	if err != nil {
 		return fmt.Errorf("fair: %w", err)
 	}

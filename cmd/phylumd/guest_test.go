@@ -20,6 +20,19 @@ func TestGuestRoster(t *testing.T) {
 		return p
 	}
 
+	t.Run("a missing file does not take the name", func(t *testing.T) {
+		taken := map[string]bool{}
+		if _, err := guestRoster([]string{filepath.Join(dir, "nowhere", "pilgrim.py")}, taken); err == nil {
+			t.Fatal("a file that is not there was admitted")
+		}
+		if taken["pilgrim"] {
+			t.Fatal("the mistyped path burned the name; the corrected knock would be refused")
+		}
+		if _, err := guestRoster([]string{mk("pilgrim.py")}, taken); err != nil {
+			t.Fatalf("the corrected path was refused: %v", err)
+		}
+	})
+
 	t.Run("filename becomes the name", func(t *testing.T) {
 		gs, err := guestRoster([]string{mk("pilgrim.py")}, map[string]bool{})
 		if err != nil {
